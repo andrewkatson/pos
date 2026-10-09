@@ -1306,7 +1306,7 @@ function CommentRow({
             role — and each stops click propagation so activating one doesn't also
             trigger the band's collapse. */}
         <div
-          className="comment-row__header"
+          className={`comment-row__header${hasReplies ? '' : ' comment-row__header--static'}`}
           onClick={hasReplies ? onToggleCollapse : undefined}
         >
           <button

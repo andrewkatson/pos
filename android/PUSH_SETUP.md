@@ -41,7 +41,7 @@ FCM_SENDER_ID=1234567890                            # the "Project number"
 ```
 
 The backend must use the **same** Firebase project's service-account JSON in
-`FCM_CREDENTIALS` (root README "Push notifications") so its sends reach these
+`FCM_CREDENTIALS` ([docs/push-notifications.md](../docs/push-notifications.md)) so its sends reach these
 tokens.
 
 > If you later prefer the standard `google-services.json` flow, add the

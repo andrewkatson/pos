@@ -61,7 +61,7 @@ from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocia
     PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode, \
     InterestCategory, UserFreeformInterest, DeviceToken, NotificationPreference
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
-    get_batch, get_queryset_batch
+    get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_source_bucket_url, \
     strip_query_and_fragment
@@ -3624,10 +3624,11 @@ def get_comments_for_post(request, post_identifier, batch):
 
     relevant_comment_threads = feed_algorithm_class.get_comment_threads_weighted_for_post(comment_threads)
 
-    if not relevant_comment_threads.count() > 0:
-        return log_and_return_json("get_comments_for_post", [], safe=False)
-
-    batched_comment_threads = get_batch(batch, COMMENT_THREAD_BATCH_SIZE, relevant_comment_threads)
+    # DB-level LIMIT/OFFSET (not get_batch, whose len() evaluates every ranked
+    # thread): the post page pages through all thread batches, so each request
+    # must cost one batch, not the whole post. An empty batch serializes to [].
+    batched_comment_threads = get_queryset_batch(
+        relevant_comment_threads, batch, COMMENT_THREAD_BATCH_SIZE)
     data = [{Fields.comment_thread_identifier: ct.comment_thread_identifier} for ct in batched_comment_threads]
     return log_and_return_json("get_comments_for_post", data, safe=False)
 
@@ -3671,10 +3672,10 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
     ).select_related('author')
     relevant_comments = feed_algorithm_class.get_comments_weighted_for_thread(comments)
 
-    if not relevant_comments.count() > 0:
-        return log_and_return_json("get_comments_for_thread", [], safe=False)
-
-    batched_comments = get_batch(batch, COMMENT_BATCH_SIZE, relevant_comments)
+    # DB-level LIMIT/OFFSET (not get_batch, whose len() evaluates the whole
+    # thread): the post page pages through every comment batch, so a thread of
+    # N comments must not repeat a full-thread query N/30 times.
+    batched_comments = get_queryset_batch(relevant_comments, batch, COMMENT_BATCH_SIZE)
     # Single query to find which of these comments the requesting user has liked,
     # avoiding an N+1 .exists() call per comment.
     liked_comment_ids = set(
@@ -4904,8 +4905,8 @@ def get_followers(request):
     - Cross-age-band accounts: get_profile_details returns "User not found" for
       a cross-band profile, so listing it here is the "couldn't load them" dead
       end from the bug report, and surfacing it would leak a cross-band
-      account's existence — the age-segregation invariant forbids it (README
-      "Age segregation").
+      account's existence — the age-segregation invariant forbids it (see
+      docs/age-and-identity.md).
     - Shadow-banned accounts: their profile still opens, but shadow-ban
       semantics keep the account hidden from everyone else, so it is excluded
       here just as user search excludes it.
@@ -4941,7 +4942,7 @@ def get_following(request):
     Filtered through searchable_users (issue #398), for two distinct reasons: a
     cross-age-band profile is unopenable — get_profile_details returns "User not
     found" for it — so listing it is a dead end and would leak a cross-band
-    account's existence (README "Age segregation"); a shadow-banned account's
+    account's existence (docs/age-and-identity.md); a shadow-banned account's
     profile still opens, but shadow-ban semantics keep it hidden from everyone
     else, so it is excluded here just as user search excludes it.
     """
