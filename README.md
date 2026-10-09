@@ -279,9 +279,12 @@ reporting and the relationship filter are replaced by a prompt to log in or
 join. Share itself still works, so a link can be passed along.
 
 Comments are paged, and the post page has no "load more": it renders the first
-batch of threads (10) and the first batch of comments within each (30). That is
-the same for signed-in viewers — this page has never paged — so a very busy
-post shows its opening conversation rather than all of it.
+batch of threads (10), but within each of those threads it loads **every**
+comment, walking the 30-comment batches until one comes back short. That is the
+same for signed-in viewers, so a very busy post shows its opening threads in
+full rather than every thread. Each batch is a DB-level LIMIT/OFFSET, so
+walking a long thread costs one batch-sized query per page, not a full-thread
+query per page.
 
 What is public is deliberately narrower than what a signed-in viewer sees. A
 signed-out visitor is resolved against a fixed anonymous viewer, so a post is
@@ -342,11 +345,11 @@ comment and marks it out.
 
 Because the page renders one batch of threads, a link into the 11th thread would
 otherwise point at something never rendered. So a fragment is the one thing that
-makes the page keep paging: it fetches further thread batches until the target
-appears, stopping at 5 batches (~50 threads). Earlier batches stay on screen, so
-the comment is read in context. This widens only the thread dimension — a
-comment past the 30th in its own thread still isn't reached, which would need
-real pagination on this screen.
+makes the page keep paging threads: it fetches further thread batches until the
+target appears, stopping at 5 batches (~50 threads). Earlier batches stay on
+screen, so the comment is read in context. Within a thread there is no limit —
+every comment is loaded — so a comment past the 30th in its thread is reached
+too.
 
 ### Link previews
 
