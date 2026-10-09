@@ -5,7 +5,7 @@ ships inside a client — but each surface stays dark until it is set, so a
 deployment (or CI, or a local checkout) with none of this configured simply
 shows no Google button.
 
-See the "Signing in with Google" section of the root `README.md` for what the
+See [Signing in with Google](authentication.md#signing-in-with-google) for what the
 flow actually does; this file is only the wiring.
 
 ## 1. Create the OAuth clients

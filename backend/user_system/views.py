@@ -4905,8 +4905,8 @@ def get_followers(request):
     - Cross-age-band accounts: get_profile_details returns "User not found" for
       a cross-band profile, so listing it here is the "couldn't load them" dead
       end from the bug report, and surfacing it would leak a cross-band
-      account's existence — the age-segregation invariant forbids it (README
-      "Age segregation").
+      account's existence — the age-segregation invariant forbids it (see
+      docs/age-and-identity.md).
     - Shadow-banned accounts: their profile still opens, but shadow-ban
       semantics keep the account hidden from everyone else, so it is excluded
       here just as user search excludes it.
@@ -4942,7 +4942,7 @@ def get_following(request):
     Filtered through searchable_users (issue #398), for two distinct reasons: a
     cross-age-band profile is unopenable — get_profile_details returns "User not
     found" for it — so listing it is a dead end and would leak a cross-band
-    account's existence (README "Age segregation"); a shadow-banned account's
+    account's existence (docs/age-and-identity.md); a shadow-banned account's
     profile still opens, but shadow-ban semantics keep it hidden from everyone
     else, so it is excluded here just as user search excludes it.
     """
