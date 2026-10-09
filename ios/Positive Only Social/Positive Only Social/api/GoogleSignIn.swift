@@ -40,7 +40,7 @@ import UIKit
 /// the backend and the website follow.
 ///
 /// This value must also appear in the backend's GOOGLE_OAUTH_CLIENT_IDS, or
-/// every token it produces is rejected. See GOOGLE_SIGN_IN_SETUP.md.
+/// every token it produces is rejected. See docs/google-sign-in-setup.md.
 enum GoogleSignInConfig {
     static let clientID = "495231014911-o8v7g8iv26neg41k2jrtpust1au0jtm0.apps.googleusercontent.com"
 }

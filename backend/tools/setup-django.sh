@@ -840,7 +840,7 @@ print_summary() {
         echo -e "${RED}ACTION REQUIRED:${NC} log rotation is not working (see the errors above), so"
         echo "      $BACKEND_DIR/logs/user_system.log will NOT be rotated and will grow"
         echo "      until it fills the disk. Every backend process shares that one file and"
-        echo "      none of them rotates it (see the Backend logs section of README.md)."
+        echo "      none of them rotates it (see the Backend logs section of docs/deployment.md)."
         echo "      Diagnose with:"
         echo "        sudo logrotate --debug /etc/logrotate.d/smiling-social-django"
         echo "        systemctl status logrotate.timer   # or: ls -l /etc/cron.daily/logrotate"
