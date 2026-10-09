@@ -318,16 +318,27 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
             refs.map(async ref => {
               const comments: Comment[] = []
               for (let commentBatch = 0; ; commentBatch += 1) {
-                const page = isSignedIn
-                  ? await apiClient.getCommentsForThread(
-                      ref.comment_thread_identifier,
-                      commentBatch,
-                      groupFilter,
-                    )
-                  : await apiClient.getPublicCommentsForThread(
-                      ref.comment_thread_identifier,
-                      commentBatch,
-                    )
+                let page: Comment[]
+                try {
+                  page = isSignedIn
+                    ? await apiClient.getCommentsForThread(
+                        ref.comment_thread_identifier,
+                        commentBatch,
+                        groupFilter,
+                      )
+                    : await apiClient.getPublicCommentsForThread(
+                        ref.comment_thread_identifier,
+                        commentBatch,
+                      )
+                } catch (error) {
+                  // A follow-on page can fail where the first did not — most
+                  // likely the endpoint's 60/m rate limit on a very busy post,
+                  // since every 30 comments costs a request. Keep what this
+                  // thread already loaded rather than letting one late page
+                  // discard every thread's comments.
+                  if (commentBatch === 0) throw error
+                  break
+                }
                 comments.push(...page)
                 if (page.length < COMMENT_BATCH_SIZE) break
               }

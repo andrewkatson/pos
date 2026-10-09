@@ -321,6 +321,26 @@ test('loads the next comment page before deciding which comments have replies', 
   expect(screen.getAllByRole('button', { name: 'Collapse thread' })).toHaveLength(30)
 })
 
+test('keeps the comments already loaded when a later comment page fails', async () => {
+  const firstPage: Comment[] = Array.from({ length: 30 }, (_, index) => ({
+    ...comment,
+    comment_identifier: `c${index + 1}`,
+    body: `comment ${index + 1}`,
+    creation_time: new Date(Date.UTC(2024, 0, index + 1)).toISOString(),
+  }))
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  // A rate-limited (429) follow-on page must not wipe out the first page.
+  mockGetThreadComments.mockImplementation((_threadId, batch) =>
+    batch === 0 ? Promise.resolve(firstPage) : Promise.reject(new Error('429')),
+  )
+  renderDetail()
+
+  expect(await screen.findByText('comment 30')).toBeInTheDocument()
+  expect(screen.getByText('comment 1')).toBeInTheDocument()
+  expect(mockGetThreadComments).toHaveBeenCalledWith('t1', 1, undefined)
+  expect(screen.queryByText('Failed to load comments.')).not.toBeInTheDocument()
+})
+
 test('collapsing a comment hides the replies below it, expanding restores them', async () => {
   const reply: Comment = {
     comment_identifier: 'c2',

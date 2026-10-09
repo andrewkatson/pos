@@ -3625,8 +3625,9 @@ def get_comments_for_post(request, post_identifier, batch):
     relevant_comment_threads = feed_algorithm_class.get_comment_threads_weighted_for_post(comment_threads)
 
     # DB-level LIMIT/OFFSET (not get_batch, whose len() evaluates every ranked
-    # thread): the post page pages through all thread batches, so each request
-    # must cost one batch, not the whole post. An empty batch serializes to [].
+    # thread): a shared #comment link makes the post page fetch up to 5 thread
+    # batches, so each request should cost one batch, not the whole post. An
+    # empty batch serializes to [].
     batched_comment_threads = get_queryset_batch(
         relevant_comment_threads, batch, COMMENT_THREAD_BATCH_SIZE)
     data = [{Fields.comment_thread_identifier: ct.comment_thread_identifier} for ct in batched_comment_threads]
@@ -3673,8 +3674,9 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
     relevant_comments = feed_algorithm_class.get_comments_weighted_for_thread(comments)
 
     # DB-level LIMIT/OFFSET (not get_batch, whose len() evaluates the whole
-    # thread): the post page pages through every comment batch, so a thread of
-    # N comments must not repeat a full-thread query N/30 times.
+    # thread): the post page fetches every comment batch of each thread it
+    # renders, so a thread of N comments must not repeat a full-thread query
+    # N/30 times.
     batched_comments = get_queryset_batch(relevant_comments, batch, COMMENT_BATCH_SIZE)
     # Single query to find which of these comments the requesting user has liked,
     # avoiding an N+1 .exists() call per comment.

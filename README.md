@@ -284,7 +284,10 @@ comment, walking the 30-comment batches until one comes back short. That is the
 same for signed-in viewers, so a very busy post shows its opening threads in
 full rather than every thread. Each batch is a DB-level LIMIT/OFFSET, so
 walking a long thread costs one batch-sized query per page, not a full-thread
-query per page.
+query per page. Every page is still one request against the comment endpoints'
+60/minute rate limit, so on a very busy post a later page can be refused; the
+thread then shows the comments it already loaded rather than the page losing
+all of them. (A thread whose *first* page fails still fails the load.)
 
 What is public is deliberately narrower than what a signed-in viewer sees. A
 signed-out visitor is resolved against a fixed anonymous viewer, so a post is
