@@ -132,6 +132,15 @@ struct Positive_Only_SocialTests_PrivateAccounts {
         _ = try await stubAPI.likePost(sessionManagementToken: viewerToken, postIdentifier: postId)
     }
 
+    @Test func requestRefusedWhenRequesterBlockedThePrivateAccount() async throws {
+        let (_, _, viewerToken, _) = try await privateAuthorAndViewer()
+        _ = try await stubAPI.toggleBlock(sessionManagementToken: viewerToken, username: "privateAuthor")
+
+        await #expect(throws: (any Error).self) {
+            _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "privateAuthor")
+        }
+    }
+
     @Test func goingPublicApprovesPendingRequests() async throws {
         let (authorToken, _, viewerToken, _) = try await privateAuthorAndViewer()
         _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "privateAuthor")

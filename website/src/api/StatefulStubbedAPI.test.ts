@@ -1255,3 +1255,13 @@ test('a non-follower cannot find or interact with a private post', async () => {
   expect(await api.getPostsByTag('beach', 0)).toHaveLength(1)
   await api.likePost(post.post_identifier)
 })
+
+test('a private follow request is refused when either side blocked the other', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  await api.setAccountPrivacy(true)
+  await register(api, 'viewer')
+  await api.toggleBlock('author')
+
+  await expect(api.followUser('author')).rejects.toThrow('User does not exist')
+})

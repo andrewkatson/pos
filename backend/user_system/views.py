@@ -4226,6 +4226,12 @@ def follow_user(request, username_to_follow):
         # them (stranding a request no one will ever need to approve).
         user_to_follow_obj = get_user_model().objects.select_for_update().get(pk=user_to_follow_obj.pk)
 
+        # Re-check the edge under the lock: an approval (which holds the same
+        # lock) may have turned a pending request into a follow since the check
+        # above, and filing a fresh request on top of it would leave both.
+        if request.user.following.filter(pk=user_to_follow_obj.pk).exists():
+            return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
+
         # A private account (issue #96) is not followed outright: the call files
         # a follow request the owner approves or denies, carrying the chosen
         # category so approval creates exactly the edge the requester asked for.
@@ -4537,10 +4543,14 @@ def deny_follow_request(request, username):
     told; their profile view simply stops showing the request as pending, and
     they are free to ask again."""
     logger.info("Endpoint deny_follow_request invoked by IP or User")
-    follow_request, error = _incoming_follow_request(request, "deny_follow_request", username)
-    if error is not None:
-        return error
-    follow_request.delete()
+    with transaction.atomic():
+        # The owner lock approve_follow_request takes, so an approval and a
+        # denial of the same request cannot both succeed.
+        _lock_users(request.user)
+        follow_request, error = _incoming_follow_request(request, "deny_follow_request", username)
+        if error is not None:
+            return error
+        follow_request.delete()
     logger.info(f"Follow request denied: requester_id: {follow_request.user_from_id} by user_id: {request.user.id}")
     return log_and_return_json("deny_follow_request", {'message': 'Follow request denied'})
 
@@ -4557,7 +4567,12 @@ def cancel_follow_request(request, username):
     target_user = get_user_with_username(username)
     if target_user is None or not in_same_age_band(request.user, target_user):
         return log_and_return_json("cancel_follow_request", {'error': "User does not exist"}, status=400)
-    deleted_count, _ = FollowRequest.objects.filter(user_from=request.user, user_to=target_user).delete()
+    with transaction.atomic():
+        # Lock the owner, as approving (one at a time or all at once when going
+        # public) does, so a cancellation that reports success can never be
+        # followed by that same request turning into a follow edge.
+        _lock_users(target_user)
+        deleted_count, _ = FollowRequest.objects.filter(user_from=request.user, user_to=target_user).delete()
     if deleted_count == 0:
         return log_and_return_json("cancel_follow_request", {'error': "No follow request to cancel"}, status=400)
     logger.info(f"Follow request cancelled: target_user_id: {target_user.id} by user_id: {request.user.id}")

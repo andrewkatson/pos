@@ -1902,7 +1902,8 @@ final class StatefulStubbedAPI: Networking {
 
         // A private account (issue #96) gets a request, not a follow.
         if userToFollow.isPrivate {
-            if userToFollow.blocked.contains(currentUser.id) {
+            // A block in either direction refuses the request, like the backend.
+            if userToFollow.blocked.contains(currentUser.id) || currentUser.blocked.contains(userToFollow.id) {
                 throw APIError.serverError(statusCode: 400, serverMessage: "User does not exist")
             }
             if followRequests.contains(where: { $0.userFromId == currentUser.id && $0.userToId == userToFollow.id }) {

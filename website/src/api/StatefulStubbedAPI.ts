@@ -1877,7 +1877,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const followCategory = category ?? 'following'
     // A private account (issue #96) gets a request, not a follow.
     if (target.isPrivate) {
-      if (target.blocked.has(user.id)) {
+      // A block in either direction refuses the request, like the backend.
+      if (target.blocked.has(user.id) || user.blocked.has(target.id)) {
         throw new ApiError(400, 'User does not exist')
       }
       if (target.followRequests.has(user.id)) {

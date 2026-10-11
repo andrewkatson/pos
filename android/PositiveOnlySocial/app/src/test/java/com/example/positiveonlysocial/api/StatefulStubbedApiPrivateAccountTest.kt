@@ -131,4 +131,13 @@ class StatefulStubbedApiPrivateAccountTest {
         assertEquals(1, api.getPostsByTag(viewerToken, "beach", 0).body()!!.size)
         assertTrue(api.likePost(viewerToken, postId).isSuccessful)
     }
+
+    @Test
+    fun `a request is refused when the requester blocked the private account`() = runTest {
+        val api = StatefulStubbedAPI()
+        val (_, viewerToken) = privateAuthorAndViewer(api)
+        api.toggleBlock(viewerToken, "author")
+
+        assertFalse(api.followUser(viewerToken, "author").isSuccessful)
+    }
 }
