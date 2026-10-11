@@ -104,6 +104,35 @@ class TopPostsViewModelTest {
     }
 
     @Test
+    fun `switching period clears the old board and pages the new one`() = runTest {
+        val weekPosts = listOf(Post("1", "url1", "caption1", "user1", 5))
+        val yearPage0 = listOf(Post("9", "url9", "caption9", "user9", 50))
+        val yearPage1 = listOf(Post("8", "url8", "caption8", "user8", 40))
+        whenever(api.getTopPosts("token123", 0, "week")).thenReturn(Response.success(weekPosts))
+        val gate = CompletableDeferred<Unit>()
+        api.stub {
+            onBlocking { getTopPosts("token123", 0, "year") } doSuspendableAnswer {
+                gate.await()
+                Response.success(yearPage0)
+            }
+        }
+        whenever(api.getTopPosts("token123", 1, "year")).thenReturn(Response.success(yearPage1))
+
+        viewModel.fetchTopPosts()
+        viewModel.selectPeriod(TopPostPeriod.YEAR)
+
+        // While the yearly board loads, the weekly rows are gone rather than
+        // sitting under the new chip.
+        assertTrue(viewModel.topPosts.value.isEmpty())
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+        viewModel.fetchTopPosts()
+
+        assertEquals(yearPage0 + yearPage1, viewModel.topPosts.value)
+    }
+
+    @Test
     fun `reselecting the current period does not refetch`() = runTest {
         whenever(api.getTopPosts("token123", 0, "week")).thenReturn(Response.success(emptyList()))
 

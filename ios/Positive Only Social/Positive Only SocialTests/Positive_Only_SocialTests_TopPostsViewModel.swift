@@ -89,6 +89,28 @@ struct Positive_Only_SocialTests_TopPostsViewModel {
         #expect(stubAPI.getTopPostsCallCount == 2)
     }
 
+    @Test func testSelectPeriod_ClearsOldBoardWhileReloading() async throws {
+        stubAPI.pageSize = 10
+        let sut = TopPostsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "topSelectClears")
+        let authorToken = try await registerUserAndGetToken(username: "author")
+        _ = try await makePost(token: authorToken, caption: "post")
+        let viewerToken = try await registerUserAndGetToken(username: "viewer")
+        try signIn(viewerToken, username: "viewer", account: "topSelectClears")
+
+        sut.fetchTopPosts()
+        await yield()
+        #expect(sut.topPosts.count == 1)
+
+        // When: The user switches period
+        sut.selectPeriod(.year)
+
+        // Then: The old rows are dropped right away, so the new page's rows are
+        // fresh and the last one's onAppear can drive pagination again
+        #expect(sut.topPosts.isEmpty)
+        await yield()
+        #expect(sut.topPosts.count == 1)
+    }
+
     @Test func testSelectPeriod_WhileLoading_StillReloadsNewPeriod() async throws {
         let sut = TopPostsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "topSelectWhileLoading")
         let token = try await registerUserAndGetToken(username: "viewer")

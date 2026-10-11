@@ -342,7 +342,10 @@ fun TopFeed(
                     )
 
                     if (post == posts.lastOrNull()) {
-                        LaunchedEffect(Unit) {
+                        // Keyed to the row and the list size rather than Unit,
+                        // so a reused last row still asks for the next page once
+                        // the list it ends has changed.
+                        LaunchedEffect(post.postIdentifier, posts.size) {
                             viewModel.fetchTopPosts()
                         }
                     }

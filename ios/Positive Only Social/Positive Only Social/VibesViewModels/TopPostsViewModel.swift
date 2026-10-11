@@ -66,6 +66,12 @@ final class TopPostsViewModel: ObservableObject {
         // Supersede any in-flight load rather than going through refreshFeed(),
         // whose loading guard would otherwise skip the reload entirely.
         loadGeneration += 1
+        // Clear the old board rather than leaving it under the new selection:
+        // SwiftUI would reuse a row whose id survives into the new page, so the
+        // last row's onAppear wouldn't fire again and page 1 would never load.
+        topPosts = []
+        canLoadMore = true
+        currentPage = 0
         isLoadingNextPage = true
         let generation = loadGeneration
         Task { await loadPage(0, replacingExisting: true, generation: generation) }

@@ -79,6 +79,12 @@ class TopPostsViewModel(
         loadJob?.cancel()
         _isLoadingNextPage.value = false
         _isRefreshing.value = false
+        // Clear the old board rather than leaving it under the new chip: its
+        // rows would otherwise be reused for the new page, so the last row's
+        // pagination effect wouldn't fire again and page 1 would never load.
+        _topPosts.value = emptyList()
+        canLoadMore = true
+        currentPage = 0
         refreshTopPosts()
     }
 
