@@ -388,6 +388,8 @@ class Fields:
     # following), and the group/audience selectors introduced in issue #392.
     follow_category = "follow_category"
     category = "category"
+    # Time window for the Top posts scoreboard (issue #558): one of TOP_POST_PERIODS.
+    period = "period"
     audience = "audience"
     # Whether the post's author has turned off commenting (issue #492) — set at
     # creation or toggled afterward via lock_comments/unlock_comments. Existing
@@ -480,6 +482,23 @@ COMMENT_THREAD_BATCH_SIZE = 10
 # because a liker row is a single line of text and an avatar, so a scroll
 # through them costs far less than a screen of images.
 LIKE_BATCH_SIZE = 30
+
+# Top posts scoreboard (issue #558): the selectable windows, as rolling
+# lookbacks in days from now, and how deep the ranking goes. Batches past
+# TOP_POSTS_LIMIT come back empty — it is a "top N" board, not a second
+# endless feed — which also bounds the on-the-fly ranking cost per request.
+TOP_POST_PERIOD_DAY = "day"
+TOP_POST_PERIOD_WEEK = "week"
+TOP_POST_PERIOD_MONTH = "month"
+TOP_POST_PERIOD_YEAR = "year"
+TOP_POST_PERIOD_DAYS = {
+    TOP_POST_PERIOD_DAY: 1,
+    TOP_POST_PERIOD_WEEK: 7,
+    TOP_POST_PERIOD_MONTH: 30,
+    TOP_POST_PERIOD_YEAR: 365,
+}
+TOP_POST_DEFAULT_PERIOD = TOP_POST_PERIOD_WEEK
+TOP_POSTS_LIMIT = 100
 
 # Maximum lengths for user-authored text, counted as unicode code points
 # (Python's len() on a str is code-point based, so these limits are unicode

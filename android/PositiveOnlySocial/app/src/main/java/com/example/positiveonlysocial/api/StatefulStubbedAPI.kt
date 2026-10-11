@@ -57,6 +57,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // small, test-friendly numbers and is not the source of truth for the real
     // backend.
     private val POST_BATCH_SIZE = 10
+    // The Top posts windows and depth, matching backend/user_system/constants.py.
+    private val TOP_POST_PERIOD_DAYS = mapOf("day" to 1, "week" to 7, "month" to 30, "year" to 365)
+    private val TOP_POSTS_LIMIT = 100
     private val COMMENT_BATCH_SIZE = 10
     private val LIKE_BATCH_SIZE = 10
 
@@ -1049,6 +1052,30 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         val batched = getBatch(followedPosts, batch, POST_BATCH_SIZE)
         val dtos = batched.map { post ->
+            val author = users.find { it.id == post.authorId }!!
+            listingDto(post, author.username, user.id)
+        }
+        return Response.success(dtos)
+    }
+
+    /** Mirrors get_top_posts (issue #558): public, live posts created within the
+     * period, most likes first (newest first on ties), capped at the top 100. */
+    override suspend fun getTopPosts(token: String, batch: Int, period: String): Response<List<Post>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val days = TOP_POST_PERIOD_DAYS[period] ?: return errorGeneric(400, "Invalid period")
+        val since = System.currentTimeMillis() - days * 24L * 60 * 60 * 1000
+
+        val ranked = posts.filter {
+            !it.hidden &&
+            it.audience == PostAudience.PUBLIC.value &&
+            it.creationTime >= since &&
+            !user.blocked.contains(it.authorId) &&
+            !user.blockedBy.contains(it.authorId)
+        }.sortedWith(
+            compareByDescending<PostMock> { it.likes.size }.thenByDescending { it.creationTime }
+        ).take(TOP_POSTS_LIMIT)
+
+        val dtos = getBatch(ranked, batch, POST_BATCH_SIZE).map { post ->
             val author = users.find { it.id == post.authorId }!!
             listingDto(post, author.username, user.id)
         }

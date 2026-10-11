@@ -770,6 +770,27 @@ enum FollowCategory: String, CaseIterable, Identifiable {
     }
 }
 
+/// Rolling window for the Top posts scoreboard (issue #558): posts created in
+/// the last day / 7 days / 30 days / 365 days, ranked by likes. Raw values
+/// match the backend's `period` query parameter.
+enum TopPostPeriod: String, CaseIterable, Identifiable {
+    case day
+    case week
+    case month
+    case year
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .day: return "Today"
+        case .week: return "Week"
+        case .month: return "Month"
+        case .year: return "Year"
+        }
+    }
+}
+
 /// Who may see a post (issue #392). Nested circles from broadest to closest;
 /// raw values match the backend.
 enum PostAudience: String, CaseIterable, Identifiable {

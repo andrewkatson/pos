@@ -1,3 +1,4 @@
+import { vi } from 'vitest'
 import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
 import { STUB_TOTP_CODE, StatefulStubbedAPI } from './StatefulStubbedAPI'
 import { isTwoFactorRequired } from './types'
@@ -1144,4 +1145,35 @@ test('searchUsers hides anyone who blocked the searcher, but not those they bloc
 
   // Blocking someone doesn't hide them from you; being blocked does.
   expect(results.map((u) => u.username)).toEqual(['bobvictim'])
+})
+
+// --- Top posts scoreboard (#558) ---------------------------------------------
+
+test('top posts rank public posts by likes and skip restricted ones', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const quiet = await api.createPost({ caption: 'quiet' })
+  const loved = await api.createPost({ caption: 'loved' })
+  await api.createPost({ caption: 'family only', audience: 'family' })
+
+  await register(api, 'fan')
+  await api.likePost(loved.post_identifier)
+
+  const top = (await api.getTopPosts(0, 'week')).map((p) => p.post_identifier)
+  expect(top).toEqual([loved.post_identifier, quiet.post_identifier])
+})
+
+test('top posts only include posts created within the period', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({ caption: 'now' })
+
+  vi.useFakeTimers({ now: Date.now() + 2 * 24 * 60 * 60 * 1000, toFake: ['Date'] })
+  try {
+    expect(await api.getTopPosts(0, 'day')).toEqual([])
+    const week = (await api.getTopPosts(0, 'week')).map((p) => p.post_identifier)
+    expect(week).toEqual([post.post_identifier])
+  } finally {
+    vi.useRealTimers()
+  }
 })

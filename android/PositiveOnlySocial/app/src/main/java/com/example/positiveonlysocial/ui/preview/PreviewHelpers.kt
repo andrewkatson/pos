@@ -245,6 +245,20 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun getTopPosts(token: String, batch: Int, period: String): Response<List<Post>> {
+        return Response.success(
+            listOf(
+                Post(
+                    postIdentifier = "7",
+                    imageUrl = "https://example.com/image7.jpg",
+                    caption = "Crowd favorite",
+                    authorUsername = "popular_pal",
+                    likeCount = 120
+                )
+            )
+        )
+    }
+
     override suspend fun getPostsForUser(
         token: String,
         username: String,

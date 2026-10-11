@@ -1,0 +1,41 @@
+# Top posts scoreboard
+
+The Feed tab has a third segment, **Top**, beside For You and Following
+(issue #558). It is a scoreboard of the most-liked **public** posts across the
+whole app over a period the viewer picks: **Today**, **This week** (the
+default), **This month** or **This year**. Each row is numbered by its rank and
+carries the same author line, caption and action bar as the other feeds.
+
+## Endpoint
+
+`GET /feed/top/<batch>/?period=day|week|month|year` returns the ranking in the
+usual `POST_BATCH_SIZE` batches with the same per-post payload as the other
+listing endpoints (see [Navigation and post actions](navigation-and-post-actions.md)).
+An absent or empty `period` means `week`; anything else outside the four values
+is a 400.
+
+- **Window.** Periods are rolling lookbacks from now — 1, 7, 30 and 365 days
+  (`TOP_POST_PERIOD_DAYS`). `PostLike` has no timestamp, so "top this week"
+  means posts *created* in the last 7 days, ranked by their total likes.
+- **Ranking.** Like count descending, then newest first, then the post id, so
+  the order is total and batches never drop or repeat a post. Likes are counted
+  `distinct`, since `visible_posts` joins the author's follow edges and would
+  otherwise count each like once per edge.
+- **Depth.** The board stops at `TOP_POSTS_LIMIT` (100). Batches past it are
+  empty: it is a "top N", not a second endless feed.
+
+## Eligibility
+
+- Only `audience = public` posts compete — a scoreboard is a public ranking, so
+  a restricted post stays off it even for viewers its audience admits.
+- Only classifier-approved posts compete, the viewer's own included: an author
+  never sees their own pending or rejected post ranked.
+- Everything else is the standard listing rule — `visible_posts` plus the block
+  filters in both directions. Hidden content and shadow-banned authors stay off
+  the board for everyone else, and because of age segregation each age band
+  effectively gets its own board (see [Age and identity](age-and-identity.md)).
+
+## Computation
+
+The ranking is computed on the fly per request. Pre-computing each period's
+board on a schedule is tracked in issue #559.

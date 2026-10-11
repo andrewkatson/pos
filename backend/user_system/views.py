@@ -34,9 +34,10 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, \
     COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, LIKE_BATCH_SIZE, \
     VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
     ACCOUNT_BANNED, EMAIL_NOT_VERIFIED, EMAIL_VERIFICATION_TOKEN_HOURS, BAN_TYPE_OUTRIGHT, \
-    HIDDEN_REASON_NONE, HIDDEN_REASON_CLASSIFIER, \
+    HIDDEN_REASON_NONE, HIDDEN_REASON_CLASSIFIER, HIDDEN_REASON_CLASSIFIER_FINAL, \
     HIDDEN_REASON_PENDING_CLASSIFICATION, NON_APPEALABLE_HIDDEN_REASONS, \
     POST_STATUS_PENDING, POST_STATUS_REJECTED, POST_STATUS_REJECTED_FINAL, \
+    TOP_POST_PERIOD_DAYS, TOP_POST_DEFAULT_PERIOD, TOP_POSTS_LIMIT, \
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
     MAX_APPEAL_REASON_LENGTH, \
     TWO_FACTOR_CHALLENGE_MINUTES, TWO_FACTOR_MAX_ATTEMPTS, NUM_RECOVERY_CODES, \
@@ -2902,6 +2903,93 @@ def get_posts_for_followed_users(request, batch):
     ]
     logger.info(f"Get followed posts successful for user_id: {request.user.id}, batch: {batch}, count: {len(posts_data)}")
     return log_and_return_json("get_posts_for_followed_users", posts_data, safe=False)
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_top_posts(request, batch):
+    """The Top posts scoreboard (issue #558): the most-liked public posts across
+    the whole app created within a rolling window (?period=day|week|month|year,
+    default week), most likes first.
+
+    Only public-audience, approved posts are eligible — a scoreboard is a
+    public ranking, so restricted-audience posts never compete even for viewers
+    they would admit, and an author never sees their own pending or rejected
+    post ranked. Everything else is the standard listing rule: visible_posts
+    (hidden, shadow-banned and cross-age-band content stays out, so each age
+    band gets its own board) plus the block filters.
+
+    Ranked on the fly for now: PostLike has no timestamp, so "top in the last
+    week" means posts *created* in the last week ranked by their total likes.
+    The ranking stops at TOP_POSTS_LIMIT; later batches are empty."""
+    logger.info("Endpoint get_top_posts invoked by IP or User")
+    if batch < 0:
+        return log_and_return_json("get_top_posts", {'error': "Invalid batch parameter"}, status=400)
+
+    # Absent or empty (?period=) means the default window, matching how the
+    # followed feed treats an empty ?category=.
+    period = request.GET.get(Fields.period) or TOP_POST_DEFAULT_PERIOD
+    if period not in TOP_POST_PERIOD_DAYS:
+        return log_and_return_json("get_top_posts", {'error': "Invalid period"}, status=400)
+
+    starting_index = batch * POST_BATCH_SIZE
+    if starting_index >= TOP_POSTS_LIMIT:
+        return log_and_return_json("get_top_posts", [], safe=False)
+
+    since = timezone.now() - timedelta(days=TOP_POST_PERIOD_DAYS[period])
+    blocked_users = request.user.blocked.all()
+    blocking_users = request.user.blocked_by.all()
+    candidates = (
+        Post.objects.filter(audience=POST_AUDIENCE_PUBLIC, creation_time__gte=since)
+        # Not yet (or never) approved by the classifier — Post.classification_status
+        # is derived from these hidden reasons. Report-hiding is left to
+        # visible_posts, so it stays invisible to the author as everywhere else.
+        .exclude(hidden_reason__in=(
+            HIDDEN_REASON_PENDING_CLASSIFICATION,
+            HIDDEN_REASON_CLASSIFIER,
+            HIDDEN_REASON_CLASSIFIER_FINAL,
+        ))
+        .exclude(author__in=blocked_users)
+        .exclude(author__in=blocking_users)
+    )
+    ranked_posts = (
+        visible_posts(candidates, request.user)
+        # distinct=True for the same reason as calculate_weights: visible_posts'
+        # audience filter joins the author's follow edges, and a plain Count
+        # would count each like once per edge.
+        .annotate(like_count=Count('postlike', distinct=True))
+        # Newest first among equal like counts, then the primary key, so the
+        # order is total and LIMIT/OFFSET batches never drop or repeat a post.
+        .order_by('-like_count', '-creation_time', 'post_identifier')
+        .select_related('author')
+        .prefetch_related('tags')
+    )
+
+    batch_size = min(POST_BATCH_SIZE, TOP_POSTS_LIMIT - starting_index)
+    batched_posts = list(ranked_posts[starting_index:starting_index + batch_size])
+    interaction_state = build_post_interaction_state(request.user, batched_posts)
+    posts_data = [
+        {
+            Fields.post_identifier: post.post_identifier,
+            Fields.image_url: sign_compressed_url(post.image_url),
+            # Full-res original, used as a client fallback while the async
+            # Lambda-generated compressed copy is still missing (#252/#254).
+            Fields.original_image_url: sign_original_url(post.image_url),
+            Fields.image_blurhash: post.image_blurhash,
+            Fields.author_username: post.author.username,
+            **_author_avatar_fields(post.author),
+            Fields.caption: post.caption,
+            Fields.audience: post.audience,
+            Fields.comments_disabled: post.comments_disabled,
+            **_caption_style_fields(post),
+            **_post_tags(post),
+            **interaction_state(post),
+            **_author_status_fields(post, request.user),
+        }
+        for post in batched_posts
+    ]
+    return log_and_return_json("get_top_posts", posts_data, safe=False)
 
 
 @api_login_required

@@ -88,6 +88,9 @@ import Foundation
     // Relationship-category endpoint and query key (issue #392).
     static let pathSegmentCategory = "category"
     static let queryKeyCategory = "category"
+    // Top posts scoreboard: GET feed/top/<batch>/?period=... (issue #558).
+    static let pathSegmentTop = "top"
+    static let queryKeyPeriod = "period"
     // POST login/google/ — exchange a Google ID token for a session (issue #10).
     static let pathSegmentGoogle = "google"
     static let pathSegmentFollowers = "followers"

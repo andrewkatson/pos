@@ -121,6 +121,15 @@ interface PositiveOnlySocialAPI {
         @Query("category") category: String? = null
     ): Response<List<Post>>
 
+    /** The Top posts scoreboard (issue #558): the most-liked public posts across
+     * the app created within [period] (a [TopPostPeriod] value), capped at the top 100. */
+    @GET("feed/top/{batch}/")
+    suspend fun getTopPosts(
+        @Header("Authorization") token: String,
+        @Path("batch") batch: Int,
+        @Query("period") period: String
+    ): Response<List<Post>>
+
     @GET("users/{username}/posts/{batch}/")
     suspend fun getPostsForUser(
         @Header("Authorization") token: String,

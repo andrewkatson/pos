@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -24,12 +25,15 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.FollowCategory
+import com.example.positiveonlysocial.data.model.TopPostPeriod
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.FeedViewModel
 import com.example.positiveonlysocial.models.viewmodels.FeedViewModelFactory
 import com.example.positiveonlysocial.models.viewmodels.FollowingFeedViewModel
 import com.example.positiveonlysocial.models.viewmodels.FollowingFeedViewModelFactory
 import com.example.positiveonlysocial.models.viewmodels.PostListActions
+import com.example.positiveonlysocial.models.viewmodels.TopPostsViewModel
+import com.example.positiveonlysocial.models.viewmodels.TopPostsViewModelFactory
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
@@ -47,7 +51,7 @@ fun FeedScreen(
 ) {
     PositiveOnlySocialTheme {
         var selectedTab by remember { mutableIntStateOf(0) }
-        val tabs = listOf("For You", "Following")
+        val tabs = listOf("For You", "Following", "Top")
 
         Column(modifier = Modifier.fillMaxSize()) {
             TabRow(selectedTabIndex = selectedTab) {
@@ -63,6 +67,7 @@ fun FeedScreen(
             when (selectedTab) {
                 0 -> ForYouFeed(navController, api, keychainHelper)
                 1 -> FollowingFeed(navController, api, keychainHelper)
+                2 -> TopFeed(navController, api, keychainHelper)
             }
         }
     }
@@ -267,6 +272,100 @@ fun FollowingFeed(
     }
 }
 
+/**
+ * The "Top" feed (issue #558): the most-liked public posts across the app over a
+ * chosen period, numbered by rank.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TopFeed(
+    navController: NavController,
+    api: PositiveOnlySocialAPI,
+    keychainHelper: KeychainHelperProtocol
+) {
+    val viewModel: TopPostsViewModel = viewModel(
+        factory = TopPostsViewModelFactory(api, keychainHelper)
+    )
+    val posts by viewModel.topPosts.collectAsState()
+    val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val loadError by viewModel.loadError.collectAsState()
+    val selectedPeriod by viewModel.selectedPeriod.collectAsState()
+
+    val postActions = viewModel.postActions
+    val currentUsername by postActions.currentUsername.collectAsState()
+    val postForAction by postActions.postForAction.collectAsState()
+
+    LaunchedEffect(Unit) {
+        if (posts.isEmpty()) {
+            viewModel.fetchTopPosts()
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Time period for the scoreboard.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            TopPostPeriod.entries.forEach { period ->
+                FilterChip(
+                    selected = selectedPeriod == period,
+                    onClick = { viewModel.selectPeriod(period) },
+                    label = { Text(period.displayName) },
+                    modifier = Modifier.testTag("TopPeriod_${period.value}")
+                )
+            }
+        }
+
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { viewModel.refreshTopPosts() },
+            modifier = Modifier.fillMaxSize()
+        ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                itemsIndexed(posts) { index, post ->
+                    PostItem(
+                        post = post,
+                        navController = navController,
+                        actions = postActions,
+                        currentUsername = currentUsername,
+                        openMenuPostId = postForAction?.postIdentifier,
+                        rank = index + 1
+                    )
+
+                    if (post == posts.lastOrNull()) {
+                        LaunchedEffect(Unit) {
+                            viewModel.fetchTopPosts()
+                        }
+                    }
+                }
+
+                if (isLoadingNextPage) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                }
+
+                if (posts.isEmpty() && !isLoadingNextPage && !isRefreshing) {
+                    item { FeedPlaceholder(loadError) }
+                }
+            }
+
+            PostActionDialogs(postActions, navController)
+        }
+    }
+}
+
 @Composable
 fun PostItem(
     post: com.example.positiveonlysocial.data.model.Post,
@@ -274,7 +373,9 @@ fun PostItem(
     actions: PostListActions,
     currentUsername: String?,
     /** The post whose action menu is open, if any — see [PostActionMenu]. */
-    openMenuPostId: String? = null
+    openMenuPostId: String? = null,
+    /** Scoreboard position on the Top feed (issue #558); null elsewhere. */
+    rank: Int? = null
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -289,6 +390,14 @@ fun PostItem(
                 navController.openProfileFor(post.authorUsername, currentUsername)
             }
         ) {
+            rank?.let {
+                Text(
+                    text = "#$it",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.testTag("TopPostRank")
+                )
+            }
             ProfileAvatar(
                 imageUrl = post.authorProfileImageUrl,
                 originalImageUrl = post.authorProfileImageOriginalUrl,

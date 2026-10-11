@@ -501,6 +501,14 @@
   padding-bottom: 0;
 }
 
+/* Scoreboard position on the Top feed (issue #558). */
+.feed-post__rank {
+  min-width: 2.25rem;
+  font-weight: 700;
+  color: #5ba4dc;
+  font-variant-numeric: tabular-nums;
+}
+
 /* The large avatar + name block at the top of a profile. */
 .profile-identity {
   display: flex;

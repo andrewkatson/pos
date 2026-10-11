@@ -159,6 +159,10 @@ protocol Networking {
     /// `category` returns the whole following feed.
     func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int, category: String?) async throws -> Data
 
+    /// The Top posts scoreboard (issue #558): the most-liked public posts across
+    /// the app created within `period`, in batches, capped at the top 100.
+    func getTopPosts(sessionManagementToken: String, batch: Int, period: String) async throws -> Data
+
     /// Gets a batch of posts for another user.
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data
 

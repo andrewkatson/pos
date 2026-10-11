@@ -220,6 +220,12 @@ export type FollowCategory = 'following' | 'friend' | 'family'
  */
 export type PostAudience = 'public' | 'following' | 'friends' | 'family'
 
+/**
+ * Rolling window for the Top posts scoreboard (issue #558): posts created in
+ * the last day / 7 days / 30 days / 365 days, ranked by likes.
+ */
+export type TopPostPeriod = 'day' | 'week' | 'month' | 'year'
+
 // ---------------------------------------------------------------------------
 // Text formatting (issue #318)
 // ---------------------------------------------------------------------------

@@ -82,7 +82,7 @@ post already renders its caption as the tile in place of a photo, so the caption
 is not repeated beneath it.
 
 The post listing endpoints (`get_posts_in_feed`, `get_posts_for_followed_users`,
-`get_posts_for_user`) therefore return `post_likes`, `is_liked`, `is_saved`,
+`get_top_posts`, `get_posts_for_user`) therefore return `post_likes`, `is_liked`, `is_saved`,
 `is_reported`, `report_reason`, `comment_count`, `creation_time` and `audience`
 per post,
 matching what the post-details endpoint returns. The state is gathered in grouped queries per

@@ -70,6 +70,7 @@ import type {
   SetInterestsResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
+  TopPostPeriod,
   TwoFactorSetupResponse,
   AuthorAvatarFields,
   UserSearchResult,
@@ -86,6 +87,10 @@ import type {
 const POST_BATCH_SIZE = 10
 const COMMENT_BATCH_SIZE = 10
 const LIKE_BATCH_SIZE = 10
+
+// The Top posts windows and depth, matching backend/user_system/constants.py.
+const TOP_POST_PERIOD_DAYS: Record<TopPostPeriod, number> = { day: 1, week: 7, month: 30, year: 365 }
+const TOP_POSTS_LIMIT = 100
 
 // The stub has no clock-based TOTP; this fixed code is the one the stub
 // accepts, mirroring the fixed codes in the iOS/Android stubs.
@@ -1239,6 +1244,25 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       )
       .sort((a, b) => b.creationTime - a.creationTime)
     return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
+  }
+
+  /** Mirrors get_top_posts (issue #558): public, live posts created within the
+   * period, most likes first (newest first on ties), capped at TOP_POSTS_LIMIT. */
+  async getTopPosts(batch: number, period: TopPostPeriod): Promise<FeedPost[]> {
+    const user = this.requireUser()
+    const since = Date.now() - TOP_POST_PERIOD_DAYS[period] * 24 * 60 * 60 * 1000
+    const ranked = this.posts
+      .filter(
+        (p) =>
+          !p.hidden &&
+          p.audience === 'public' &&
+          p.creationTime >= since &&
+          !user.blocked.has(p.authorId) &&
+          !user.blockedBy.has(p.authorId),
+      )
+      .sort((a, b) => b.likes.size - a.likes.size || b.creationTime - a.creationTime)
+      .slice(0, TOP_POSTS_LIMIT)
+    return this.batch(ranked, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }
 
   async getPostsForUser(username: string, batch: number): Promise<FeedPost[]> {

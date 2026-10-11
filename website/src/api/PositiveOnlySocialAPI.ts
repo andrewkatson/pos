@@ -55,6 +55,7 @@ import type {
   SetInterestsResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
+  TopPostPeriod,
   TwoFactorSetupResponse,
   UserSearchResult,
   VerifyEmailRequest,
@@ -125,6 +126,9 @@ export interface PositiveOnlySocialAPI {
   /** The following feed, optionally narrowed to one relationship category
    * (issue #392). Omitting `category` returns the whole following feed. */
   getFollowedFeed(batch: number, category?: FollowCategory): Promise<FeedPost[]>
+  /** The Top posts scoreboard (issue #558): the most-liked public posts across
+   * the app created within `period`, batched and capped at the top 100. */
+  getTopPosts(batch: number, period: TopPostPeriod): Promise<FeedPost[]>
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]>
   /** Posts carrying a given #hashtag, newest first, batched (issue #379). */
   getPostsByTag(tag: string, batch: number): Promise<FeedPost[]>

@@ -8,6 +8,7 @@ vi.mock('../api/client', () => ({
   apiClient: {
     getFeed: vi.fn(),
     getFollowedFeed: vi.fn(),
+    getTopPosts: vi.fn(),
     getPostLikers: vi.fn(),
     likePost: vi.fn(),
     unlikePost: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('../api/client', () => ({
 import { apiClient } from '../api/client'
 const mockGetFeed = vi.mocked(apiClient.getFeed)
 const mockGetFollowed = vi.mocked(apiClient.getFollowedFeed)
+const mockGetTop = vi.mocked(apiClient.getTopPosts)
 const mockLikePost = vi.mocked(apiClient.likePost)
 const mockSavePost = vi.mocked(apiClient.savePost)
 const mockDeletePost = vi.mocked(apiClient.deletePost)
@@ -48,6 +50,7 @@ function renderTab() {
 beforeEach(() => {
   mockGetFeed.mockReset()
   mockGetFollowed.mockReset()
+  mockGetTop.mockReset()
   mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockSavePost.mockReset().mockResolvedValue({ message: 'Post saved' })
   mockDeletePost.mockReset().mockResolvedValue({ message: 'ok' })
@@ -188,6 +191,46 @@ test('the group filter is hidden on the For You feed (#392)', () => {
   expect(
     screen.queryByLabelText('Filter following feed by group'),
   ).not.toBeInTheDocument()
+})
+
+test('shows the Top scoreboard for this week by default, ranked (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'best' },
+    { post_identifier: 'p2', image_url: 'http://img/2.jpg', author_username: 'bob', caption: 'next' },
+  ])
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalledWith(0, 'week'))
+  expect(await screen.findByLabelText('Rank 1')).toHaveTextContent('#1')
+  expect(screen.getByLabelText('Rank 2')).toHaveTextContent('#2')
+  expect(screen.getByLabelText('Top posts time period')).toHaveValue('week')
+})
+
+test('changing the Top period reloads the scoreboard (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'best' },
+  ])
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalledWith(0, 'week'))
+
+  await userEvent.selectOptions(screen.getByLabelText('Top posts time period'), 'year')
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalledWith(0, 'year'))
+})
+
+test('the period picker and ranks are only on the Top feed (#558)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },
+  ])
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  expect(screen.queryByLabelText('Top posts time period')).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Rank 1')).not.toBeInTheDocument()
 })
 
 test('navigates to an author profile from the feed', async () => {

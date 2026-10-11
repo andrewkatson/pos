@@ -730,6 +730,17 @@ final class RealAPI: Networking {
     }
     
     
+    /// Gets a batch of the Top posts scoreboard (issue #558).
+    func getTopPosts(sessionManagementToken: String, batch: Int, period: String) async throws -> Data {
+        // GET feed/top/<batch>/?period=..., authenticated.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSregmenFeed, GVOAppConstants.pathSegmentTop, String(batch)],
+            method: .get,
+            authToken: sessionManagementToken,
+            queryItems: [URLQueryItem(name: GVOAppConstants.queryKeyPeriod, value: period)]
+        )
+    }
+
     /// Gets a batch of posts for another user.
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with auth. Username/Batch are in path.
