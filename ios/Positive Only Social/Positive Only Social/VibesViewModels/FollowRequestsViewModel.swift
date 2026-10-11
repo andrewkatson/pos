@@ -27,6 +27,11 @@ final class FollowRequestsViewModel: ObservableObject {
     /// Set once a load succeeds, so a failed load shows only its error — never
     /// the "no one is waiting" empty state for a list that was never fetched.
     @Published var hasLoaded = false
+    /// Whether another page may exist (issue #96: a popular account's backlog
+    /// is unbounded, so the list is paginated).
+    @Published private(set) var canLoadMore = false
+    @Published private(set) var isLoadingMore = false
+    private var nextBatch = 0
     @Published var errorMessage: String?
     /// Usernames with an approve/deny in flight, so each row's buttons disable
     /// independently (several decisions may overlap).
@@ -56,14 +61,38 @@ final class FollowRequestsViewModel: ObservableObject {
                 NSLog("%@", "No active session found — cannot load follow requests")
                 return
             }
-            let data = try await api.getFollowRequests(sessionManagementToken: session.sessionToken)
+            let data = try await api.getFollowRequests(sessionManagementToken: session.sessionToken, batch: 0)
             requests = try JSONDecoder().decode([User].self, from: data)
+            nextBatch = 1
+            canLoadMore = !requests.isEmpty
             hasLoaded = true
         } catch {
             if error.isCancellation {
                 NSLog("%@", "Follow requests load cancelled")
             } else {
                 NSLog("%@", "Error loading follow requests: \(error)")
+                errorMessage = error.userFacingMessage
+            }
+        }
+    }
+
+    /// Fetches the next page and appends it, skipping anyone already listed
+    /// (answering rows shifts later pages up). An empty page ends the list.
+    func loadMore() async {
+        guard canLoadMore, !isLoadingMore, !isLoading else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        do {
+            guard let session = try loadSession() else { return }
+            let data = try await api.getFollowRequests(sessionManagementToken: session.sessionToken, batch: nextBatch)
+            let page = try JSONDecoder().decode([User].self, from: data)
+            let shown = Set(requests.map(\.username))
+            requests.append(contentsOf: page.filter { !shown.contains($0.username) })
+            nextBatch += 1
+            canLoadMore = !page.isEmpty
+        } catch {
+            if !error.isCancellation {
+                NSLog("%@", "Error loading more follow requests: \(error)")
                 errorMessage = error.userFacingMessage
             }
         }

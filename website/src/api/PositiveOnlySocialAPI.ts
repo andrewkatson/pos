@@ -235,7 +235,8 @@ export interface PositiveOnlySocialAPI {
   /** Private accounts (issue #96). Following a private account files a
    * request (see followUser's follow_request_pending); its owner lists, approves
    * and denies them, and the requester can cancel. */
-  getFollowRequests(): Promise<UserSearchResult[]>
+  /** One page of incoming requests, newest first; an empty page is the end. */
+  getFollowRequests(batch: number): Promise<UserSearchResult[]>
   approveFollowRequest(username: string): Promise<MessageResponse>
   denyFollowRequest(username: string): Promise<MessageResponse>
   cancelFollowRequest(username: string): Promise<MessageResponse>

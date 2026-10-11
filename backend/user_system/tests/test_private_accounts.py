@@ -228,6 +228,26 @@ class FollowRequestListTests(PrivateAccountTestBase):
 
         self.assertEqual(self._list(self.author_header), [self.viewer_username])
 
+    def test_list_is_paginated(self):
+        for i in range(3):
+            fan = self.make_user_with_prefix(prefix=f'pager{i}')
+            self._follow(self.local_username,
+                         {'HTTP_AUTHORIZATION': f'Bearer {fan[Fields.session_management_token]}'})
+        url = reverse('get_follow_requests')
+
+        with patch('user_system.views.FOLLOW_REQUEST_BATCH_SIZE', 2):
+            first = [row[Fields.username] for row in self.client.get(url, **self.author_header).json()]
+            second = [row[Fields.username] for row in
+                      self.client.get(url, {'batch': 1}, **self.author_header).json()]
+            third = self.client.get(url, {'batch': 2}, **self.author_header).json()
+
+        self.assertEqual(len(first), 2)
+        self.assertEqual(len(second), 1)
+        self.assertEqual(third, [])
+        self.assertEqual(len(set(first + second)), 3)
+        self.assertEqual(self.client.get(url, {'batch': -1}, **self.author_header).status_code, 400)
+        self.assertEqual(self.client.get(url, {'batch': 'x'}, **self.author_header).status_code, 400)
+
     def test_shadow_banned_requester_hidden_from_list_and_count(self):
         self._follow(self.local_username, self.viewer_header)
         UserBan.objects.create(user=self.viewer, ban_type=BAN_TYPE_SHADOW)
@@ -327,6 +347,18 @@ class AccountPrivacySettingTests(PrivateAccountTestBase):
         self._set_private(False, self.author_header)
 
         self.assertFalse(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
+        self.assertFalse(FollowRequest.objects.exists())
+
+    def test_going_public_works_through_a_backlog_in_chunks(self):
+        for i in range(5):
+            fan = PositiveOnlySocialUser.objects.get(
+                username=self.make_user_with_prefix(prefix=f'chunk{i}')[Fields.username])
+            FollowRequest.objects.create(user_from=fan, user_to=self.author)
+
+        with patch('user_system.views.FOLLOW_REQUEST_BULK_BATCH_SIZE', 2):
+            self._set_private(False, self.author_header)
+
+        self.assertEqual(UserFollow.objects.filter(user_to=self.author).count(), 5)
         self.assertFalse(FollowRequest.objects.exists())
 
     def test_going_private_keeps_existing_followers(self):

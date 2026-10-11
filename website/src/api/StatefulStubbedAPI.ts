@@ -86,6 +86,7 @@ import type {
 const POST_BATCH_SIZE = 10
 const COMMENT_BATCH_SIZE = 10
 const LIKE_BATCH_SIZE = 10
+const FOLLOW_REQUEST_BATCH_SIZE = 30
 
 // The stub has no clock-based TOTP; this fixed code is the one the stub
 // accepts, mirroring the fixed codes in the iOS/Android stubs.
@@ -1922,6 +1923,13 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   /** Approve one pending request: the requester becomes a follower with the
    * category they asked for. */
+  /** Whether two accounts share an age band (issue #329), mirroring
+   * visibility.in_same_age_band: verified minors on one side, everyone else on
+   * the other. */
+  private inSameAgeBand(a: UserMock, b: UserMock): boolean {
+    return this.isVerifiedMinor(a.id) === this.isVerifiedMinor(b.id)
+  }
+
   private approveRequest(owner: UserMock, requester: UserMock): void {
     const category = owner.followRequests.get(requester.id) ?? 'following'
     owner.followRequests.delete(requester.id)
@@ -1933,7 +1941,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   /** The requester behind an incoming request, or the backend's 400s. */
   private requireIncomingRequest(owner: UserMock, username: string): UserMock {
     const requester = this.findUserByName(username)
-    if (!requester) {
+    // A requester who has since moved into the other age band reads as missing,
+    // like the backend, so their request can't become a cross-band follow.
+    if (!requester || !this.inSameAgeBand(owner, requester)) {
       throw new ApiError(400, 'User does not exist')
     }
     if (!owner.followRequests.has(requester.id)) {
@@ -1942,13 +1952,15 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return requester
   }
 
-  async getFollowRequests(): Promise<UserSearchResult[]> {
+  async getFollowRequests(batch: number): Promise<UserSearchResult[]> {
     const user = this.requireUser()
-    // Newest first, like the backend.
-    return [...user.followRequests.keys()]
+    // Newest first and paginated, like the backend; cross-band requesters are
+    // hidden there too.
+    const requesters = [...user.followRequests.keys()]
       .reverse()
       .map((id) => this.users.find((u) => u.id === id))
-      .filter((u): u is UserMock => u !== undefined)
+      .filter((u): u is UserMock => u !== undefined && this.inSameAgeBand(user, u))
+    return this.batch(requesters, batch, FOLLOW_REQUEST_BATCH_SIZE)
       .map((u) => ({
         username: u.username,
         identity_is_verified: u.isVerified,
@@ -1988,7 +2000,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (!isPrivate) {
       for (const requesterId of [...user.followRequests.keys()]) {
         const requester = this.users.find((u) => u.id === requesterId)
-        if (requester) this.approveRequest(user, requester)
+        // A requester now in the other age band is dropped, not approved.
+        if (requester && this.inSameAgeBand(user, requester)) this.approveRequest(user, requester)
         else user.followRequests.delete(requesterId)
       }
     }

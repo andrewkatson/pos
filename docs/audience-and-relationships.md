@@ -79,7 +79,8 @@ Following a private account takes a **follow request**:
   a missing account. Filing, approving and blocking take row locks on the two
   accounts, so a block can't race a request into existence or into a follow.
 - The owner lists incoming requests, newest first, with
-  `GET /users/follow-requests/` (their own only — there is no username
+  `GET /users/follow-requests/?batch=<n>` (30 per page; the clients load more as
+  the list scrolls; their own only — there is no username
   parameter; shadow-banned and cross-age-band requesters are left out, as in the
   follower list) and answers each with
   `POST /users/<username>/follow-request/approve/` or `.../deny/`. Approving
@@ -100,7 +101,9 @@ change (a block, a shadow ban, a hidden post) already has; nothing new is
 *served* after the switch. `follow_user` and `set_account_privacy` take a row lock
 on the account, so a follow racing a privacy change is decided against the
 setting it is actually written under. Switching **private off** approves every pending request, since
-a public account has nothing left to approve. Blocking drops any pending request
+a public account has nothing left to approve — in bounded chunks, and only from
+requesters still in the owner's age band (anyone who has since verified into the
+other band has their request dropped). Blocking drops any pending request
 in either direction, alongside the follow edges.
 
 The privacy rule lives in `visibility.py` (`privacy_admits`, and `_privacy_q` in

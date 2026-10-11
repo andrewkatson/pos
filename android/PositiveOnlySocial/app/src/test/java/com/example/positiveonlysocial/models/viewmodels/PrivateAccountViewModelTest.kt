@@ -105,7 +105,7 @@ class PrivateAccountViewModelTest {
         viewModel.toggleFollow("author")
 
         assertEquals(false, viewModel.profileDetails.value!!.followRequestPending)
-        assertTrue(api.getFollowRequests(authorToken).body()!!.isEmpty())
+        assertTrue(api.getFollowRequests(authorToken, 0).body()!!.isEmpty())
     }
 
     @Test
@@ -272,7 +272,7 @@ class PrivateAccountViewModelTest {
     @Test
     fun `follow requests load, approve and deny`() = runTest {
         val api: PositiveOnlySocialAPI = mock()
-        whenever(api.getFollowRequests("token123")).thenReturn(Response.success(requesters))
+        whenever(api.getFollowRequests("token123", 0)).thenReturn(Response.success(requesters))
         whenever(api.approveFollowRequest("token123", "alice"))
             .thenReturn(Response.success(GenericResponse("Follow request approved", null)))
         whenever(api.denyFollowRequest("token123", "bob"))
@@ -292,10 +292,28 @@ class PrivateAccountViewModelTest {
     }
 
     @Test
+    fun `load more appends the next page and stops at an empty one`() = runTest {
+        val api: PositiveOnlySocialAPI = mock()
+        whenever(api.getFollowRequests("token123", 0)).thenReturn(Response.success(requesters))
+        whenever(api.getFollowRequests("token123", 1))
+            .thenReturn(Response.success(listOf(User("bob", false), User("carol", false))))
+        whenever(api.getFollowRequests("token123", 2)).thenReturn(Response.success(emptyList()))
+        val viewModel = FollowRequestsViewModel(api, keychainFor("token123", "owner"))
+
+        viewModel.load()
+        viewModel.loadMore()
+        assertEquals(listOf("alice", "bob", "carol"), viewModel.requests.value.map { it.username })
+        assertTrue(viewModel.canLoadMore.value)
+
+        viewModel.loadMore()
+        assertFalse(viewModel.canLoadMore.value)
+    }
+
+    @Test
     fun `a failed load is not reported as loaded`() = runTest {
         val api: PositiveOnlySocialAPI = mock()
         val errorBody = "{\"error\":\"boom\"}".toResponseBody("application/json".toMediaTypeOrNull())
-        whenever(api.getFollowRequests("token123")).thenReturn(Response.error(500, errorBody))
+        whenever(api.getFollowRequests("token123", 0)).thenReturn(Response.error(500, errorBody))
         val viewModel = FollowRequestsViewModel(api, keychainFor("token123", "owner"))
 
         viewModel.load()
@@ -307,7 +325,7 @@ class PrivateAccountViewModelTest {
     @Test
     fun `a failed decision keeps the row and surfaces the error`() = runTest {
         val api: PositiveOnlySocialAPI = mock()
-        whenever(api.getFollowRequests("token123")).thenReturn(Response.success(requesters))
+        whenever(api.getFollowRequests("token123", 0)).thenReturn(Response.success(requesters))
         val errorBody = "{\"error\":\"No follow request from user\"}"
             .toResponseBody("application/json".toMediaTypeOrNull())
         whenever(api.approveFollowRequest("token123", "alice")).thenReturn(Response.error(400, errorBody))

@@ -106,3 +106,21 @@ test('a failed load shows the error, not the empty state', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('Server unavailable')
   expect(screen.queryByText('No one is waiting to follow you.')).not.toBeInTheDocument()
 })
+
+test('load more fetches the next page and skips rows already shown', async () => {
+  mockGetRequests
+    .mockResolvedValueOnce(requests)
+    .mockResolvedValueOnce([{ username: 'bob', identity_is_verified: false }, { username: 'carol', identity_is_verified: false }])
+    .mockResolvedValueOnce([])
+  renderPage()
+  await screen.findByRole('link', { name: 'alice' })
+
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  expect(await screen.findByRole('link', { name: 'carol' })).toBeInTheDocument()
+  expect(mockGetRequests).toHaveBeenLastCalledWith(1)
+  expect(screen.getAllByRole('link', { name: 'bob' })).toHaveLength(1)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument())
+})

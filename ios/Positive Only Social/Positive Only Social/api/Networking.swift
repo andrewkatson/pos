@@ -237,9 +237,10 @@ protocol Networking {
 
     // MARK: - Private accounts & follow requests (issue #96)
 
-    /// Gets the signed-in user's incoming follow requests, newest first. Like
-    /// the follower list there is no username parameter.
-    func getFollowRequests(sessionManagementToken: String) async throws -> Data
+    /// Gets one page of the signed-in user's incoming follow requests, newest
+    /// first; an empty page is the end. Like the follower list there is no
+    /// username parameter.
+    func getFollowRequests(sessionManagementToken: String, batch: Int) async throws -> Data
 
     /// Approves the follow request `username` sent the signed-in user.
     func approveFollowRequest(sessionManagementToken: String, username: String) async throws -> Data

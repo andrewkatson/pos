@@ -285,6 +285,8 @@ final class StatefulStubbedAPI: Networking {
     private let reviewRejectedMarker = "reviewable"
     private let awsStubBucket = "https://stub-bucket.s3.us-east-2.amazonaws.com/"
     public var pageSize = 2 // Make this small for easier testing
+    // Incoming follow requests per page (issue #96), matching the backend.
+    public var followRequestPageSize = 30
     public private(set) var getPostsInFeedCallCount = 0
     public private(set) var getPostsForFollowedUsersCallCount = 0
     public private(set) var getPostsForUserCallCount = 0
@@ -332,6 +334,14 @@ final class StatefulStubbedAPI: Networking {
         guard let thread = commentThreads.first(where: { $0.commentThreadIdentifier == threadId }),
               let post = findPost(byIdentifier: thread.postId) else { return true }
         return privacyAdmits(authorId: post.authorId, viewer: viewer)
+    }
+
+    /// Mirrors visibility.in_same_age_band (issue #329): verified minors form
+    /// one band, everyone else (adults and unverified accounts) the other.
+    private func inSameAgeBand(_ a: MockUser, _ b: MockUser) -> Bool {
+        let aMinor = a.identityIsVerified && !a.isAdult
+        let bMinor = b.identityIsVerified && !b.isAdult
+        return aMinor == bMinor
     }
 
     /// Mirrors visibility.privacy_admits (issue #96): a private account's posts
@@ -1990,7 +2000,10 @@ final class StatefulStubbedAPI: Networking {
 
     /// The pending request `username` sent `owner`, or the backend's 400s.
     private func incomingRequest(to owner: MockUser, from username: String) throws -> MockFollowRequest {
-        guard let requester = findUser(byUsername: username) else {
+        // A requester who has since moved into the other age band reads as
+        // missing, like the backend, so their request can't become a
+        // cross-band follow.
+        guard let requester = findUser(byUsername: username), inSameAgeBand(owner, requester) else {
             throw APIError.serverError(statusCode: 400, serverMessage: "User does not exist")
         }
         guard let request = followRequests.first(where: { $0.userFromId == requester.id && $0.userToId == owner.id }) else {
@@ -1999,16 +2012,21 @@ final class StatefulStubbedAPI: Networking {
         return request
     }
 
-    func getFollowRequests(sessionManagementToken: String) async throws -> Data {
+    func getFollowRequests(sessionManagementToken: String, batch: Int) async throws -> Data {
         await simulateNetwork()
         guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
             throw APIError.badServerResponse(statusCode: 400)
         }
-        // Newest first, like the backend.
-        let requesters = followRequests
+        // Newest first and paginated, like the backend; cross-band requesters
+        // are hidden there too.
+        let allRequesters = followRequests
             .filter { $0.userToId == currentUser.id }
             .reversed()
             .compactMap { request in users.first(where: { $0.id == request.userFromId }) }
+            .filter { inSameAgeBand(currentUser, $0) }
+        let start = min(batch * followRequestPageSize, allRequesters.count)
+        let end = min(start + followRequestPageSize, allRequesters.count)
+        let requesters = Array(allRequesters[start..<end])
 
         struct Fields: Codable {
             let username: String
@@ -2066,9 +2084,17 @@ final class StatefulStubbedAPI: Networking {
             throw APIError.badServerResponse(statusCode: 400)
         }
         users[index].isPrivate = isPrivate
-        // Going public approves everyone still waiting, like the backend.
+        // Going public approves everyone still waiting, like the backend — except
+        // a requester now in the other age band, whose request is just dropped.
         if !isPrivate {
-            followRequests.filter { $0.userToId == currentUser.id }.forEach(approve)
+            for request in followRequests.filter({ $0.userToId == currentUser.id }) {
+                if let requester = users.first(where: { $0.id == request.userFromId }),
+                   inSameAgeBand(users[index], requester) {
+                    approve(request)
+                } else {
+                    followRequests.removeAll { $0.userFromId == request.userFromId && $0.userToId == request.userToId }
+                }
+            }
         }
         struct Fields: Codable { let is_private: Bool }
         return try createSerializedResponse(fields: Fields(is_private: isPrivate))

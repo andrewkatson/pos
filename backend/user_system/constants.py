@@ -486,6 +486,9 @@ COMMENT_THREAD_BATCH_SIZE = 10
 # because a liker row is a single line of text and an avatar, so a scroll
 # through them costs far less than a screen of images.
 LIKE_BATCH_SIZE = 30
+# Incoming follow requests per page (issue #96): a popular private account can
+# accumulate an unbounded backlog, so the list is paginated like likers.
+FOLLOW_REQUEST_BATCH_SIZE = 30
 
 # Maximum lengths for user-authored text, counted as unicode code points
 # (Python's len() on a str is code-point based, so these limits are unicode

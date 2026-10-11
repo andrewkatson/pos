@@ -853,8 +853,10 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<UserSearchResult[]>('GET', '/users/following/', { auth: true })
   }
 
-  getFollowRequests(): Promise<UserSearchResult[]> {
-    return this.request<UserSearchResult[]>('GET', '/users/follow-requests/', { auth: true })
+  getFollowRequests(batch: number): Promise<UserSearchResult[]> {
+    return this.request<UserSearchResult[]>('GET', `/users/follow-requests/?batch=${batch}`, {
+      auth: true,
+    })
   }
 
   approveFollowRequest(username: string): Promise<MessageResponse> {

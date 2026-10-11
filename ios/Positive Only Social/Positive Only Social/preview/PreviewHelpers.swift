@@ -434,7 +434,8 @@ struct MockedAPI: Networking {
         return try encode(users)
     }
 
-    func getFollowRequests(sessionManagementToken: String) async throws -> Data {
+    func getFollowRequests(sessionManagementToken: String, batch: Int) async throws -> Data {
+        guard batch == 0 else { return try encode([User]()) }
         let users = [
             User(username: "requester_1", identityIsVerified: true),
             User(username: "requester_2", identityIsVerified: false)

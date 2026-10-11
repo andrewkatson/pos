@@ -381,9 +381,12 @@ interface PositiveOnlySocialAPI {
     // Private accounts & follow requests (issue #96). Following a private account
     // files a request (followUser's followRequestPending); its owner lists,
     // approves and denies them, and the requester can cancel.
+    // One page of incoming requests, newest first; an empty page is the end
+    // (a popular account's backlog is unbounded, so the list is paginated).
     @GET("users/follow-requests/")
     suspend fun getFollowRequests(
-        @Header("Authorization") token: String
+        @Header("Authorization") token: String,
+        @Query("batch") batch: Int = 0
     ): Response<List<User>>
 
     @POST("users/{username}/follow-request/approve/")

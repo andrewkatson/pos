@@ -932,11 +932,12 @@ final class RealAPI: Networking {
 
     // MARK: - Private accounts & follow requests (issue #96)
 
-    func getFollowRequests(sessionManagementToken: String) async throws -> Data {
+    func getFollowRequests(sessionManagementToken: String, batch: Int) async throws -> Data {
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmentFollowRequests],
             method: .get,
-            authToken: sessionManagementToken
+            authToken: sessionManagementToken,
+            queryItems: [URLQueryItem(name: GVOAppConstants.queryKeyBatch, value: String(batch))]
         )
     }
 

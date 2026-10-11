@@ -51,6 +51,12 @@ struct FollowRequestsView: View {
                     .accessibilityIdentifier("DenyFollowRequestButton")
                 }
                 .disabled(viewModel.decidingUsernames.contains(user.username))
+                .onAppear {
+                    // Infinite scroll: reaching the last row fetches the next page.
+                    if user.id == viewModel.requests.last?.id {
+                        Task { await viewModel.loadMore() }
+                    }
+                }
             }
         }
         .navigationTitle("Follow Requests")

@@ -59,6 +59,13 @@ class FollowRequestsViewModel(
     private val _hasLoaded = MutableStateFlow(false)
     val hasLoaded: StateFlow<Boolean> = _hasLoaded.asStateFlow()
 
+    // The list is paginated (a popular account's backlog is unbounded): whether
+    // another page may exist, and the next one to fetch.
+    private val _canLoadMore = MutableStateFlow(false)
+    val canLoadMore: StateFlow<Boolean> = _canLoadMore.asStateFlow()
+    private val _isLoadingMore = MutableStateFlow(false)
+    private var nextBatch = 0
+
     /**
      * Usernames with an approve/deny in flight, so each row's buttons disable
      * independently (several decisions may overlap).
@@ -86,9 +93,12 @@ class FollowRequestsViewModel(
                     Log.e(TAG, "No active session found — cannot load follow requests")
                     return@launch
                 }
-                val response = api.getFollowRequests(userSession.sessionToken)
+                val response = api.getFollowRequests(userSession.sessionToken, 0)
                 if (response.isSuccessful) {
-                    _requests.value = response.body() ?: emptyList()
+                    val page = response.body() ?: emptyList()
+                    _requests.value = page
+                    nextBatch = 1
+                    _canLoadMore.value = page.isNotEmpty()
                     _hasLoaded.value = true
                 } else {
                     _errorMessage.value = ApiErrors.messageFor(response, fallback = "Request failed. Please try again.")
@@ -98,6 +108,35 @@ class FollowRequestsViewModel(
                 Log.e(TAG, "Error loading follow requests", e)
             } finally {
                 _isLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Fetches the next page and appends it, skipping anyone already listed
+     * (answering rows shifts later pages up). An empty page ends the list.
+     */
+    fun loadMore() {
+        if (!_canLoadMore.value || _isLoadingMore.value || _isLoading.value) return
+        _isLoadingMore.value = true
+        viewModelScope.launch {
+            try {
+                val userSession = session() ?: return@launch
+                val response = api.getFollowRequests(userSession.sessionToken, nextBatch)
+                if (response.isSuccessful) {
+                    val page = response.body() ?: emptyList()
+                    val shown = _requests.value.map { it.username }.toSet()
+                    _requests.value = _requests.value + page.filterNot { it.username in shown }
+                    nextBatch += 1
+                    _canLoadMore.value = page.isNotEmpty()
+                } else {
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Request failed. Please try again.")
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Request failed. Please try again.")
+                Log.e(TAG, "Error loading more follow requests", e)
+            } finally {
+                _isLoadingMore.value = false
             }
         }
     }

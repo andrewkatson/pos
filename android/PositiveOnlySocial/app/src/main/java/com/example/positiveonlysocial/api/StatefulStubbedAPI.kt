@@ -57,6 +57,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // small, test-friendly numbers and is not the source of truth for the real
     // backend.
     private val POST_BATCH_SIZE = 10
+    // Incoming follow requests per page (issue #96), matching the backend.
+    var followRequestBatchSize = 30
     private val COMMENT_BATCH_SIZE = 10
     private val LIKE_BATCH_SIZE = 10
 
@@ -1480,18 +1482,30 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         }
     }
 
-    override suspend fun getFollowRequests(token: String): Response<List<User>> {
+    override suspend fun getFollowRequests(token: String, batch: Int): Response<List<User>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
-        // Newest first, like the backend.
+        // Newest first and paginated, like the backend; cross-band requesters are
+        // hidden there too.
         val requesters = user.followRequests.keys.reversed()
             .mapNotNull { id -> users.find { it.id == id } }
-            .map { User(it.username, it.isVerified, approvedAvatarFor(it.id), approvedAvatarFor(it.id)) }
-        return Response.success(requesters)
+            .filter { inSameAgeBand(user, it) }
+        return Response.success(
+            getBatch(requesters, batch, followRequestBatchSize)
+                .map { User(it.username, it.isVerified, approvedAvatarFor(it.id), approvedAvatarFor(it.id)) }
+        )
     }
+
+    /** Mirrors visibility.in_same_age_band (issue #329): verified minors form
+     * one band, everyone else (adults and unverified accounts) the other. */
+    private fun inSameAgeBand(a: UserMock, b: UserMock): Boolean =
+        (a.isVerified && !a.isAdult) == (b.isVerified && !b.isAdult)
 
     override suspend fun approveFollowRequest(token: String, username: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val requester = users.find { it.username == username } ?: return error(400, "User does not exist")
+        // A requester who has since moved into the other age band reads as
+        // missing, like the backend, so their request can't become a cross-band follow.
+        val requester = users.find { it.username == username }?.takeIf { inSameAgeBand(user, it) }
+            ?: return error(400, "User does not exist")
         if (!user.followRequests.containsKey(requester.id)) return error(400, "No follow request from user")
         approveRequest(user, requester)
         return Response.success(GenericResponse("Follow request approved", null))
@@ -1520,7 +1534,12 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         if (!request.isPrivate) {
             user.followRequests.keys.toList().forEach { id ->
                 val requester = users.find { it.id == id }
-                if (requester != null) approveRequest(user, requester) else user.followRequests.remove(id)
+                // A requester now in the other age band is dropped, not approved.
+                if (requester != null && inSameAgeBand(user, requester)) {
+                    approveRequest(user, requester)
+                } else {
+                    user.followRequests.remove(id)
+                }
             }
         }
         return Response.success(SetAccountPrivacyResponse(isPrivate = request.isPrivate))

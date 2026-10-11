@@ -45,6 +45,7 @@ fun FollowRequestsScreen(
         val errorMessage by viewModel.errorMessage.collectAsState()
         val decidingUsernames by viewModel.decidingUsernames.collectAsState()
         val hasLoaded by viewModel.hasLoaded.collectAsState()
+        val canLoadMore by viewModel.canLoadMore.collectAsState()
 
         LaunchedEffect(Unit) { viewModel.load() }
 
@@ -122,6 +123,10 @@ fun FollowRequestsScreen(
                         }
                     }
                     HorizontalDivider()
+                    // Infinite scroll: reaching the last row fetches the next page.
+                    if (user.username == requests.lastOrNull()?.username && canLoadMore) {
+                        LaunchedEffect(requests.size) { viewModel.loadMore() }
+                    }
                 }
             }
         }

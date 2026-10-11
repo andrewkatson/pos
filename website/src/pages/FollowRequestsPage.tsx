@@ -33,6 +33,11 @@ function FollowRequestsView() {
   // Set once a load succeeds, so a failed load shows only its error — never the
   // "no one is waiting" empty state for a list that was never fetched.
   const [hasLoaded, setHasLoaded] = useState(false)
+  // The list is paginated (a popular account's backlog is unbounded): the next
+  // page to fetch, and whether the last one came back non-empty.
+  const [nextPage, setNextPage] = useState(0)
+  const [canLoadMore, setCanLoadMore] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   // Usernames with an approve/deny in flight, so each row's buttons disable
   // independently (several decisions may overlap).
@@ -41,9 +46,11 @@ function FollowRequestsView() {
   const load = useCallback(async () => {
     try {
       if (isMounted.current) setErrorMessage(null)
-      const users = await apiClient.getFollowRequests()
+      const users = await apiClient.getFollowRequests(0)
       if (!isMounted.current) return
       setRequests(users)
+      setNextPage(1)
+      setCanLoadMore(users.length > 0)
       setHasLoaded(true)
     } catch (err) {
       if (isMounted.current) setErrorMessage((err as ApiError).message ?? 'Failed to load.')
@@ -55,6 +62,26 @@ function FollowRequestsView() {
   useEffect(() => {
     void Promise.resolve().then(load)
   }, [load])
+
+  async function loadMore() {
+    setIsLoadingMore(true)
+    setErrorMessage(null)
+    try {
+      const users = await apiClient.getFollowRequests(nextPage)
+      if (!isMounted.current) return
+      // Skip anyone already listed: answering rows shifts later pages up.
+      setRequests(current => [
+        ...current,
+        ...users.filter(user => !current.some(existing => existing.username === user.username)),
+      ])
+      setNextPage(page => page + 1)
+      setCanLoadMore(users.length > 0)
+    } catch (err) {
+      if (isMounted.current) setErrorMessage((err as ApiError).message ?? 'Failed to load.')
+    } finally {
+      if (isMounted.current) setIsLoadingMore(false)
+    }
+  }
 
   async function decide(username: string, approve: boolean) {
     setDeciding(current => new Set(current).add(username))
@@ -152,6 +179,16 @@ function FollowRequestsView() {
                 </div>
               ))}
             </div>
+            {canLoadMore && requests.length > 0 && (
+              <button
+                type="button"
+                className="load-more"
+                disabled={isLoadingMore}
+                onClick={() => void loadMore()}
+              >
+                Load more
+              </button>
+            )}
           </section>
         )}
       </main>

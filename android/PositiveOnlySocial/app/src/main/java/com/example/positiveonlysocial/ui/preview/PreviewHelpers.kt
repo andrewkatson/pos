@@ -656,7 +656,8 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
-    override suspend fun getFollowRequests(token: String): Response<List<User>> {
+    override suspend fun getFollowRequests(token: String, batch: Int): Response<List<User>> {
+        if (batch > 0) return Response.success(emptyList())
         return Response.success(
             listOf(
                 User(username = "requester_1", identityIsVerified = true),

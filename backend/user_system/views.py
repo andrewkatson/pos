@@ -31,7 +31,7 @@ from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_COD
 from .classifiers.prefilter import prefilter_text
 from .constants import Patterns, Params, POST_BATCH_SIZE, \
     MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, MAX_BIO_LENGTH, \
-    COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, LIKE_BATCH_SIZE, \
+    COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, LIKE_BATCH_SIZE, FOLLOW_REQUEST_BATCH_SIZE, \
     VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
     ACCOUNT_BANNED, EMAIL_NOT_VERIFIED, EMAIL_VERIFICATION_TOKEN_HOURS, BAN_TYPE_OUTRIGHT, \
     HIDDEN_REASON_NONE, HIDDEN_REASON_CLASSIFIER, \
@@ -4481,8 +4481,19 @@ def get_follow_requests(request):
     reasons the follower list is (issue #398): a shadow-banned account stays
     hidden from everyone but itself, and a cross-age-band account must never be
     surfaced (follow_user already refuses cross-band follows, but an account can
-    change band by verifying its age after asking)."""
+    change band by verifying its age after asking).
+
+    Paginated by an optional `?batch=` query parameter (default 0, the newest
+    page) because a popular account's backlog is unbounded; older clients that
+    send no parameter simply get the first page."""
     logger.info("Endpoint get_follow_requests invoked by IP or User")
+    try:
+        batch = int(request.GET.get('batch', 0))
+    except (TypeError, ValueError):
+        return log_and_return_json("get_follow_requests", {'error': "Invalid batch parameter"}, status=400)
+    if batch < 0:
+        return log_and_return_json("get_follow_requests", {'error': "Invalid batch parameter"}, status=400)
+
     incoming = FollowRequest.objects.filter(user_to=request.user)
     # Ordered via a subquery, as _liker_batch does, rather than by the reverse
     # relation: ordering across follow_requests_sent would join every request
@@ -4499,7 +4510,7 @@ def get_follow_requests(request):
             Fields.identity_is_verified: user.identity_is_verified,
             **_author_avatar_fields(user),
         }
-        for user in requesters
+        for user in get_queryset_batch(requesters, batch, FOLLOW_REQUEST_BATCH_SIZE)
     ]
     logger.info(f"Get follow requests successful: count: {len(users_data)} for user_id: {request.user.id}")
     return log_and_return_json("get_follow_requests", users_data, safe=False)
@@ -4531,36 +4542,43 @@ def _approve_follow_request(follow_request):
         follow_request.delete()
 
 
-# Rows per INSERT when going public converts every pending request at once.
+# Requests converted per round when going public turns them into follows.
 FOLLOW_REQUEST_BULK_BATCH_SIZE = 500
 
 
 def _approve_all_follow_requests(owner):
-    """Turn every pending request to `owner` into the follow edge it asked for,
-    in a fixed number of queries however many are waiting (issue #96): one
-    read, batched bulk inserts, one delete. Called with the owner's row locked,
-    so a popular account going public does not hold that lock across one round
-    trip per request. ignore_conflicts keeps an edge that already exists, just
-    as _approve_follow_request's get_or_create does.
+    """Turn every pending request to `owner` into the follow edge it asked for
+    (issue #96), a bounded chunk at a time: each round reads at most
+    FOLLOW_REQUEST_BULK_BATCH_SIZE requests, bulk-creates their follows and
+    deletes them, so memory stays flat however large the backlog and the work is
+    a handful of queries per chunk rather than a round trip per request. Called
+    with the owner's row locked. ignore_conflicts keeps an edge that already
+    exists, just as _approve_follow_request's get_or_create does.
 
     Only requesters still in the owner's age band are approved (issue #329): a
     requester can verify into the other band after asking, and approving them
     one at a time is already refused. Their requests are deleted with the rest
     — they are hidden from the owner's list and could never be approved."""
-    pending = list(
-        FollowRequest.objects.filter(
-            user_to=owner,
-            user_from__in=same_age_band_users(get_user_model().objects.all(), owner),
-        ).values_list('user_from_id', 'category')
-    )
-    UserFollow.objects.bulk_create(
-        [UserFollow(user_from_id=requester_id, user_to=owner, category=category)
-         for requester_id, category in pending],
-        batch_size=FOLLOW_REQUEST_BULK_BATCH_SIZE,
-        ignore_conflicts=True,
-    )
-    # Every pending request goes, the ineligible cross-band ones included.
-    FollowRequest.objects.filter(user_to=owner).delete()
+    while True:
+        chunk = list(
+            FollowRequest.objects.filter(user_to=owner).order_by('pk')
+            .values_list('pk', 'user_from_id', 'category')[:FOLLOW_REQUEST_BULK_BATCH_SIZE]
+        )
+        if not chunk:
+            return
+        eligible = set(
+            same_age_band_users(
+                get_user_model().objects.filter(pk__in=[requester_id for _, requester_id, _ in chunk]),
+                owner,
+            ).values_list('pk', flat=True)
+        )
+        UserFollow.objects.bulk_create(
+            [UserFollow(user_from_id=requester_id, user_to=owner, category=category)
+             for _, requester_id, category in chunk if requester_id in eligible],
+            ignore_conflicts=True,
+        )
+        # Every request in the chunk goes, the ineligible cross-band ones too.
+        FollowRequest.objects.filter(pk__in=[pk for pk, _, _ in chunk]).delete()
 
 
 @csrf_exempt
