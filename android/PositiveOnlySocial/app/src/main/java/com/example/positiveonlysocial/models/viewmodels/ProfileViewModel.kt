@@ -161,6 +161,13 @@ class ProfileViewModel(
     // (follow request decisions, issue #96) knows which profile to reload.
     private var loadedUsername: String? = null
 
+    // Bumped by every profile load and by the fail-closed privacy update (issue
+    // #96). Each load remembers the generation it started in and drops its
+    // results if a newer one has begun since, so a slow, older response can't
+    // land after the fail-closed private state and restore a stale public
+    // profile and grid.
+    private var loadGeneration = 0
+
     // A refresh asked for while another load was in flight; it runs as soon as
     // that load finishes. Several requests in the meantime coalesce into one,
     // which reads after all of them.
@@ -191,6 +198,7 @@ class ProfileViewModel(
         currentPage = 0
         canLoadMore = true
         _userPosts.value = emptyList() // Clear old posts immediately
+        val generation = ++loadGeneration
 
         viewModelScope.launch {
             try {
@@ -209,6 +217,7 @@ class ProfileViewModel(
 
                 // Fetch Profile Details
                 val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
+                if (generation != loadGeneration) return@launch
                 if (profileResponse.isSuccessful) {
                     val profile = profileResponse.body()
                     _profileDetails.value = profile
@@ -221,6 +230,7 @@ class ProfileViewModel(
 
                 // Fetch Initial User Posts (Page 0)
                 val postsResponse = api.getPostsForUser(userSession.sessionToken, username, 0)
+                if (generation != loadGeneration) return@launch
                 if (postsResponse.isSuccessful) {
                     val newPosts = postsResponse.body() ?: emptyList()
                     _userPosts.value = newPosts
@@ -264,6 +274,7 @@ class ProfileViewModel(
 
         _isRefreshing.value = true
         _errorMessage.value = null
+        val generation = ++loadGeneration
 
         viewModelScope.launch {
             try {
@@ -274,6 +285,7 @@ class ProfileViewModel(
                 }
 
                 val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
+                if (generation != loadGeneration) return@launch
                 if (profileResponse.isSuccessful) {
                     val profile = profileResponse.body()
                     _profileDetails.value = profile
@@ -287,6 +299,7 @@ class ProfileViewModel(
                 }
 
                 val postsResponse = api.getPostsForUser(userSession.sessionToken, username, 0)
+                if (generation != loadGeneration) return@launch
                 if (postsResponse.isSuccessful) {
                     val newPosts = postsResponse.body() ?: emptyList()
                     _userPosts.value = newPosts
@@ -641,6 +654,9 @@ class ProfileViewModel(
                         // stale. Reload them (and the follow state with them)
                         // rather than patching only the button.
                         if (filedRequest) {
+                            // Supersede any load still in flight, so its older
+                            // response can't undo what follows.
+                            loadGeneration++
                             // The account went private. Fail closed before the
                             // best-effort reload: the cached public grid and
                             // counts must not stay on screen for someone who is

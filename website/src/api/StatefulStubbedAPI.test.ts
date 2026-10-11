@@ -1238,6 +1238,7 @@ test('a non-follower cannot find or interact with a private post', async () => {
   await register(api, 'viewer')
 
   expect(await api.getPostsByTag('beach', 0)).toEqual([])
+  await expect(api.getPostDetails(post.post_identifier)).rejects.toThrow('No post with that identifier')
   await expect(api.likePost(post.post_identifier)).rejects.toThrow('No post with that identifier')
   await expect(api.reportPost(post.post_identifier, 'x')).rejects.toThrow('No post with that identifier')
   await expect(api.commentOnPost(post.post_identifier, 'hi')).rejects.toThrow('No post with that identifier')

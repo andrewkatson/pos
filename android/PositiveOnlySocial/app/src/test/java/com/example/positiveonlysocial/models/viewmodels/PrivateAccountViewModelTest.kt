@@ -265,6 +265,49 @@ class PrivateAccountViewModelTest {
         verify(api, org.mockito.kotlin.times(2)).getProfileDetails("token123", "owner")
     }
 
+    @Test
+    fun `a stale in-flight refresh can't undo the fail-closed private state`() = runTest {
+        // Load public; start a pull-to-refresh that stalls; follow, which reveals
+        // the account went private (fail closed, reload queued behind the
+        // refresh). The stalled refresh then returns the old public profile, and
+        // the queued reload fails: the profile must stay private and empty.
+        val api: PositiveOnlySocialAPI = mock()
+        val public = ProfileDetailsResponse("author", 3, 10, 5, isFollowing = false, isPrivate = false)
+        val post = com.example.positiveonlysocial.data.model.Post(
+            postIdentifier = "p1", imageUrl = "a.jpg", authorUsername = "author", caption = "hi")
+        val offline = "{\"error\":\"offline\"}".toResponseBody("application/json".toMediaTypeOrNull())
+        val staleProfile = CompletableDeferred<Response<ProfileDetailsResponse>>()
+        var profileCalls = 0
+        var postsCalls = 0
+        api.stub {
+            onBlocking { getProfileDetails("token123", "author") } doSuspendableAnswer {
+                when (++profileCalls) {
+                    1 -> Response.success(public)
+                    2 -> staleProfile.await()
+                    else -> Response.error(500, offline)
+                }
+            }
+            onBlocking { getPostsForUser("token123", "author", 0) } doSuspendableAnswer {
+                if (++postsCalls == 1) Response.success(listOf(post)) else Response.error(500, offline)
+            }
+            onBlocking { followUser("token123", "author") } doSuspendableAnswer {
+                Response.success(GenericResponse("Follow requested", null, null, followRequestPending = true))
+            }
+        }
+        val viewModel = ProfileViewModel(api, keychainFor("token123", "viewer"))
+        viewModel.fetchProfile("author")
+        viewModel.refreshProfile("author") // stalls on the profile read
+
+        viewModel.toggleFollow("author")
+        staleProfile.complete(Response.success(public))
+
+        val profile = viewModel.profileDetails.value!!
+        assertEquals(true, profile.isPrivate)
+        assertEquals(true, profile.followRequestPending)
+        assertEquals(0, profile.followerCount)
+        assertTrue(viewModel.userPosts.value.isEmpty())
+    }
+
     // --- FollowRequestsViewModel ---
 
     private val requesters = listOf(User("alice", true), User("bob", false))

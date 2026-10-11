@@ -1355,8 +1355,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const user = this.requireUser()
     const post = this.findPost(postIdentifier)
     // Mirror can_view_post: a restricted post the viewer isn't in the audience
-    // for reads exactly like a missing one (issue #392).
-    if (post.authorId !== user.id && !this.audienceAdmits(post, user.id)) {
+    // for (issue #392), or a private account's post for a non-follower (issue
+    // #96), reads exactly like a missing one.
+    if (
+      post.authorId !== user.id &&
+      (!this.audienceAdmits(post, user.id) || !this.privacyAdmits(post.authorId, user))
+    ) {
       throw new ApiError(400, 'No post with that identifier')
     }
     const author = this.users.find((u) => u.id === post.authorId)
