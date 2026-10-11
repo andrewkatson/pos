@@ -26,7 +26,8 @@ is a 400.
   across a page boundary and be repeated or skipped by the next page. Clients
   number rows by list position, so ranks are approximate past the first page
   while the board is moving. Clients drop a repeated post when appending a page,
-  so the list never holds the same post twice. Serving pages from a stable snapshot comes with
+  so the list never holds the same post twice, and keep fetching past a page
+  made up only of repeats so pagination doesn't stall on it. Serving pages from a stable snapshot comes with
   pre-computation (issue #559).
 - **Switching period.** All three clients discard a response that arrives for
   a period the viewer has since switched away from, always reload page 0 for

@@ -93,6 +93,9 @@ function FeedTab() {
   // page after switching to Top — is dropped instead of overwriting or being
   // appended to the newer feed.
   const loadGeneration = useRef(0)
+  // Ids already in the list, kept in step with `posts` so a page load can tell
+  // synchronously whether a page added anything new.
+  const listedIds = useRef(new Set<string>())
 
   const loadFeed = useCallback(
     async (pageToLoad: number, replace: boolean) => {
@@ -100,22 +103,34 @@ function FeedTab() {
       const generation = loadGeneration.current
       const isCurrent = () => isMounted.current && generation === loadGeneration.current
       try {
-        const newPosts = await fetcher(pageToLoad)
-        if (!isCurrent()) return
-        if (replace) {
-          setPosts(newPosts)
-          setCanLoadMore(newPosts.length > 0)
-          setPage(newPosts.length > 0 ? 1 : 0)
-        } else if (newPosts.length === 0) {
-          setCanLoadMore(false)
-        } else {
+        let nextPage = pageToLoad
+        for (;;) {
+          const newPosts = await fetcher(nextPage)
+          if (!isCurrent()) return
+          if (replace) {
+            listedIds.current = new Set(newPosts.map(post => post.post_identifier))
+            setPosts(newPosts)
+            setCanLoadMore(newPosts.length > 0)
+            setPage(newPosts.length > 0 ? 1 : 0)
+            break
+          }
+          if (newPosts.length === 0) {
+            setCanLoadMore(false)
+            break
+          }
           // Live OFFSET paging can repeat a post whose rank moved between
           // requests (Top especially); drop repeats so keys stay unique.
-          setPosts(prev => {
-            const seen = new Set(prev.map(post => post.post_identifier))
-            return [...prev, ...newPosts.filter(post => !seen.has(post.post_identifier))]
-          })
-          setPage(prev => prev + 1)
+          const unseen = newPosts.filter(post => !listedIds.current.has(post.post_identifier))
+          nextPage += 1
+          setPage(nextPage)
+          if (unseen.length > 0) {
+            unseen.forEach(post => listedIds.current.add(post.post_identifier))
+            setPosts(prev => [...prev, ...unseen])
+            break
+          }
+          // A page of nothing but repeats would make "Load more" look like it
+          // did nothing; keep going until a page adds something or comes back
+          // empty (the server stops the Top board at 100).
         }
       } catch {
         if (isCurrent()) setCanLoadMore(false)
@@ -135,6 +150,7 @@ function FeedTab() {
     // for a render and a microtask, and an old response landing in between
     // would otherwise repopulate the list just cleared below.
     loadGeneration.current += 1
+    listedIds.current = new Set()
     setIsLoading(true)
     setPosts([])
     setCanLoadMore(true)

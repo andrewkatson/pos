@@ -95,28 +95,41 @@ final class TopPostsViewModel: ObservableObject {
                 return
             }
 
-            let responseData = try await api.getTopPosts(
-                sessionManagementToken: userSession.sessionToken,
-                batch: page,
-                period: selectedPeriod.rawValue)
+            var page = page
+            while true {
+                let responseData = try await api.getTopPosts(
+                    sessionManagementToken: userSession.sessionToken,
+                    batch: page,
+                    period: selectedPeriod.rawValue)
 
-            // A newer load owns the list and the loading flag now.
-            guard generation == loadGeneration else { return }
+                // A newer load owns the list and the loading flag now.
+                guard generation == loadGeneration else { return }
 
-            let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
+                let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
 
-            if replacingExisting {
-                topPosts = newPosts
-                canLoadMore = !newPosts.isEmpty
-                currentPage = newPosts.isEmpty ? 0 : 1
-            } else if newPosts.isEmpty {
-                canLoadMore = false
-            } else {
+                if replacingExisting {
+                    topPosts = newPosts
+                    canLoadMore = !newPosts.isEmpty
+                    currentPage = newPosts.isEmpty ? 0 : 1
+                    break
+                }
+                if newPosts.isEmpty {
+                    canLoadMore = false
+                    break
+                }
                 // Live OFFSET paging can repeat a post whose rank moved between
                 // requests; drop repeats so ForEach identities stay unique.
                 let seen = Set(topPosts.map(\.id))
-                topPosts.append(contentsOf: newPosts.filter { !seen.contains($0.id) })
+                let unseen = newPosts.filter { !seen.contains($0.id) }
                 currentPage += 1
+                if !unseen.isEmpty {
+                    topPosts.append(contentsOf: unseen)
+                    break
+                }
+                // A page of nothing but repeats appends no row, so the last
+                // row's onAppear would never fire again: keep going until a page
+                // adds something or comes back empty (the server stops at 100).
+                page = currentPage
             }
         } catch {
             NSLog("%@", "Failed to fetch top posts: \(error)")

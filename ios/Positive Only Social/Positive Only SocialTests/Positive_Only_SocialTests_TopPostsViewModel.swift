@@ -204,6 +204,34 @@ struct Positive_Only_SocialTests_TopPostsViewModel {
         #expect(Set(sut.topPosts.map(\.id)).count == sut.topPosts.count)
     }
 
+    @Test func testFetchTopPosts_RepeatOnlyPage_DoesNotStall() async throws {
+        stubAPI.pageSize = 2
+        let sut = TopPostsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "topRepeatOnly")
+        let authorToken = try await registerUserAndGetToken(username: "author")
+        let p1 = try await makePost(token: authorToken, caption: "p1")
+        let p2 = try await makePost(token: authorToken, caption: "p2")
+        let p3 = try await makePost(token: authorToken, caption: "p3")
+        let p4 = try await makePost(token: authorToken, caption: "p4")
+        let p5 = try await makePost(token: authorToken, caption: "p5")
+        let viewerToken = try await registerUserAndGetToken(username: "viewer")
+        try signIn(viewerToken, username: "viewer", account: "topRepeatOnly")
+
+        // Page 0: p5, p4 (no likes yet, so newest first)
+        sut.fetchTopPosts()
+        await yield()
+        #expect(sut.topPosts.map(\.id) == [p5, p4])
+
+        // p2 and p1 climb above them, so page 1 is now p5, p4 again
+        _ = try await stubAPI.likePost(sessionManagementToken: viewerToken, postIdentifier: p2)
+        _ = try await stubAPI.likePost(sessionManagementToken: viewerToken, postIdentifier: p1)
+
+        // One fetch walks past the repeat-only page to p3 on page 2
+        sut.fetchTopPosts()
+        await yield()
+        #expect(sut.topPosts.map(\.id) == [p5, p4, p3])
+        #expect(sut.isLoadingNextPage == false)
+    }
+
     @Test func testFetchTopPosts_NoSession_LeavesFeedEmpty() async throws {
         let sut = TopPostsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "topNoSession")
 

@@ -173,6 +173,24 @@ class TopPostsViewModelTest {
     }
 
     @Test
+    fun `a page of nothing but repeats does not stall pagination`() = runTest {
+        val a = Post("a", "urlA", "a", "userA", 9)
+        val b = Post("b", "urlB", "b", "userB", 8)
+        val c = Post("c", "urlC", "c", "userC", 7)
+        whenever(api.getTopPosts("token123", 0, "week")).thenReturn(Response.success(listOf(a, b)))
+        whenever(api.getTopPosts("token123", 1, "week")).thenReturn(Response.success(listOf(a, b)))
+        whenever(api.getTopPosts("token123", 2, "week")).thenReturn(Response.success(listOf(c)))
+
+        viewModel.fetchTopPosts()
+        // One fetch reaches page 2 instead of stopping on the repeat-only page 1,
+        // which would leave the list (and so the pagination trigger) unchanged.
+        viewModel.fetchTopPosts()
+
+        assertEquals(listOf(a, b, c), viewModel.topPosts.value)
+        assertFalse(viewModel.isLoadingNextPage.value)
+    }
+
+    @Test
     fun `fetchTopPosts failure surfaces a load error`() = runTest {
         whenever(api.getTopPosts("token123", 0, "week")).thenReturn(Response.error(500, "error".toResponseBody()))
 

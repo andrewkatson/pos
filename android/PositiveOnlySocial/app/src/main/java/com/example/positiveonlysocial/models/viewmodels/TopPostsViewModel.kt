@@ -156,26 +156,36 @@ class TopPostsViewModel(
                     return@launch
                 }
 
-                val response = api.getTopPosts(userSession.sessionToken, currentPage, _selectedPeriod.value.value)
-                if (generation != loadGeneration) return@launch
-                if (response.isSuccessful) {
+                while (true) {
+                    val response = api.getTopPosts(userSession.sessionToken, currentPage, _selectedPeriod.value.value)
+                    if (generation != loadGeneration) return@launch
+                    if (!response.isSuccessful) {
+                        // See refreshTopPosts: the message has to be resolved
+                        // before the one-shot error body is read for the log.
+                        val message = ApiErrors.messageFor(response, fallback = TOP_POSTS_LOAD_FAILED)
+                        Log.e(TAG, "Failed to fetch top posts: ${response.code()} $message")
+                        _loadError.value = message
+                        break
+                    }
+                    _loadError.value = null
                     val newPosts = response.body() ?: emptyList()
                     if (newPosts.isEmpty()) {
                         canLoadMore = false
-                    } else {
-                        // Live OFFSET paging can repeat a post whose rank moved
-                        // between requests; drop repeats so rows stay unique.
-                        val seen = _topPosts.value.mapTo(HashSet()) { it.postIdentifier }
-                        _topPosts.value += newPosts.filterNot { it.postIdentifier in seen }
-                        currentPage += 1
+                        break
                     }
-                    _loadError.value = null
-                } else {
-                    // See refreshTopPosts: the message has to be resolved
-                    // before the one-shot error body is read for the log.
-                    val message = ApiErrors.messageFor(response, fallback = TOP_POSTS_LOAD_FAILED)
-                    Log.e(TAG, "Failed to fetch top posts: ${response.code()} $message")
-                    _loadError.value = message
+                    // Live OFFSET paging can repeat a post whose rank moved
+                    // between requests; drop repeats so rows stay unique.
+                    val seen = _topPosts.value.mapTo(HashSet()) { it.postIdentifier }
+                    val unseen = newPosts.filterNot { it.postIdentifier in seen }
+                    currentPage += 1
+                    if (unseen.isNotEmpty()) {
+                        _topPosts.value += unseen
+                        break
+                    }
+                    // A page of nothing but repeats leaves the list unchanged, so
+                    // the last row's pagination effect wouldn't restart: keep
+                    // going until a page adds something or comes back empty (the
+                    // server stops at 100).
                 }
             } catch (e: CancellationException) {
                 throw e

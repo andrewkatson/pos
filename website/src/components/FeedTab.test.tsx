@@ -290,6 +290,31 @@ test('a post repeated across Top pages is only listed once (#558)', async () => 
   expect(screen.queryByLabelText('Rank 4')).not.toBeInTheDocument()
 })
 
+test('Load more skips past a Top page of nothing but repeats (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  const post = (id: string) => ({
+    post_identifier: id,
+    image_url: `http://img/${id}.jpg`,
+    author_username: `author_${id}`,
+    caption: id,
+  })
+  const pages: Record<number, ReturnType<typeof post>[]> = {
+    0: [post('a'), post('b')],
+    1: [post('a'), post('b')],
+    2: [post('c')],
+  }
+  mockGetTop.mockImplementation(batch => Promise.resolve(pages[batch] ?? []))
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await screen.findByRole('button', { name: 'Open post by author_b' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  // One click reaches page 2's new post instead of stalling on page 1.
+  expect(await screen.findByRole('button', { name: 'Open post by author_c' })).toBeInTheDocument()
+  expect(mockGetTop).toHaveBeenCalledWith(2, 'week')
+})
+
 test('the period picker and ranks are only on the Top feed (#558)', async () => {
   mockGetFeed.mockResolvedValue([
     { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },
