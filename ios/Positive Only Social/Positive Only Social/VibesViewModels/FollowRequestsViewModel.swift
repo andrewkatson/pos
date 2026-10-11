@@ -24,6 +24,9 @@ final class FollowRequestsViewModel: ObservableObject {
 
     @Published var requests: [User] = []
     @Published var isLoading = false
+    /// Set once a load succeeds, so a failed load shows only its error — never
+    /// the "no one is waiting" empty state for a list that was never fetched.
+    @Published var hasLoaded = false
     @Published var errorMessage: String?
     /// Usernames with an approve/deny in flight, so each row's buttons disable
     /// independently (several decisions may overlap).
@@ -55,6 +58,7 @@ final class FollowRequestsViewModel: ObservableObject {
             }
             let data = try await api.getFollowRequests(sessionManagementToken: session.sessionToken)
             requests = try JSONDecoder().decode([User].self, from: data)
+            hasLoaded = true
         } catch {
             if error.isCancellation {
                 NSLog("%@", "Follow requests load cancelled")

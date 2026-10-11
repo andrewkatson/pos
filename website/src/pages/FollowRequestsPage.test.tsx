@@ -98,3 +98,11 @@ test('a failed decision keeps the row and shows the error', async () => {
   expect(screen.getByRole('link', { name: 'alice' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Approve alice' })).toBeEnabled()
 })
+
+test('a failed load shows the error, not the empty state', async () => {
+  mockGetRequests.mockRejectedValue({ message: 'Server unavailable' })
+  renderPage()
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Server unavailable')
+  expect(screen.queryByText('No one is waiting to follow you.')).not.toBeInTheDocument()
+})

@@ -234,6 +234,7 @@ class PrivateAccountViewModelTest {
 
         viewModel.load()
         assertEquals(requesters, viewModel.requests.value)
+        assertTrue(viewModel.hasLoaded.value)
 
         viewModel.approve("alice")
         viewModel.deny("bob")
@@ -241,6 +242,19 @@ class PrivateAccountViewModelTest {
         assertTrue(viewModel.requests.value.isEmpty())
         assertNull(viewModel.errorMessage.value)
         assertEquals(emptySet<String>(), viewModel.decidingUsernames.value)
+    }
+
+    @Test
+    fun `a failed load is not reported as loaded`() = runTest {
+        val api: PositiveOnlySocialAPI = mock()
+        val errorBody = "{\"error\":\"boom\"}".toResponseBody("application/json".toMediaTypeOrNull())
+        whenever(api.getFollowRequests("token123")).thenReturn(Response.error(500, errorBody))
+        val viewModel = FollowRequestsViewModel(api, keychainFor("token123", "owner"))
+
+        viewModel.load()
+
+        assertFalse(viewModel.hasLoaded.value)
+        assertEquals("boom", viewModel.errorMessage.value)
     }
 
     @Test

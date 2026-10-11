@@ -327,6 +327,7 @@ struct Positive_Only_SocialTests_PrivateAccounts {
 
         await sut.load()
         #expect(sut.requests.map(\.username) == ["otherFan", "curiousViewer"], "Newest first")
+        #expect(sut.hasLoaded == true)
 
         await sut.approve(username: "curiousViewer")
         await sut.deny(username: "otherFan")
@@ -335,6 +336,16 @@ struct Positive_Only_SocialTests_PrivateAccounts {
         #expect(sut.errorMessage == nil)
         #expect(try await profile(viewerToken, of: "privateAuthor").isFollowing == true)
         #expect(try await profile(otherToken, of: "privateAuthor").isFollowing == false)
+    }
+
+    @Test func followRequestsFailedLoadIsNotReportedAsLoaded() async throws {
+        // No session in the keychain under this account: the load can't run.
+        let sut = FollowRequestsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "nobody_account")
+
+        await sut.load()
+
+        #expect(sut.hasLoaded == false)
+        #expect(sut.requests.isEmpty)
     }
 
     @Test func followRequestsUnknownRequestSetsError() async throws {

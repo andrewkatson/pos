@@ -19,7 +19,7 @@ struct FollowRequestsView: View {
 
     var body: some View {
         List {
-            if viewModel.requests.isEmpty && !viewModel.isLoading {
+            if viewModel.hasLoaded && viewModel.requests.isEmpty && !viewModel.isLoading {
                 Text("No one is waiting to follow you.").foregroundColor(.gray)
             }
             ForEach(viewModel.requests) { user in

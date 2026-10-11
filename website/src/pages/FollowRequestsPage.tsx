@@ -30,6 +30,9 @@ function FollowRequestsView() {
 
   const [requests, setRequests] = useState<UserSearchResult[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  // Set once a load succeeds, so a failed load shows only its error — never the
+  // "no one is waiting" empty state for a list that was never fetched.
+  const [hasLoaded, setHasLoaded] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   // Usernames with an approve/deny in flight, so each row's buttons disable
   // independently (several decisions may overlap).
@@ -41,6 +44,7 @@ function FollowRequestsView() {
       const users = await apiClient.getFollowRequests()
       if (!isMounted.current) return
       setRequests(users)
+      setHasLoaded(true)
     } catch (err) {
       if (isMounted.current) setErrorMessage((err as ApiError).message ?? 'Failed to load.')
     } finally {
@@ -106,7 +110,9 @@ function FollowRequestsView() {
           </div>
         ) : (
           <section className="settings-group">
-            {requests.length === 0 && <p className="muted">No one is waiting to follow you.</p>}
+            {hasLoaded && requests.length === 0 && (
+              <p className="muted">No one is waiting to follow you.</p>
+            )}
             <div className="user-list">
               {requests.map(user => (
                 <div key={user.username} className="user-list__item">

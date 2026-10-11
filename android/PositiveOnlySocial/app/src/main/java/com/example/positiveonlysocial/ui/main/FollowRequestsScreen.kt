@@ -44,6 +44,7 @@ fun FollowRequestsScreen(
         val isLoading by viewModel.isLoading.collectAsState()
         val errorMessage by viewModel.errorMessage.collectAsState()
         val decidingUsernames by viewModel.decidingUsernames.collectAsState()
+        val hasLoaded by viewModel.hasLoaded.collectAsState()
 
         LaunchedEffect(Unit) { viewModel.load() }
 
@@ -69,7 +70,7 @@ fun FollowRequestsScreen(
             }
         ) { padding ->
             LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
-                if (requests.isEmpty() && !isLoading) {
+                if (hasLoaded && requests.isEmpty() && !isLoading) {
                     item {
                         Text(
                             text = "No one is waiting to follow you.",

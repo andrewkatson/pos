@@ -54,6 +54,11 @@ class FollowRequestsViewModel(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    // Set once a load succeeds, so a failed load shows only its error — never
+    // the "no one is waiting" empty state for a list that was never fetched.
+    private val _hasLoaded = MutableStateFlow(false)
+    val hasLoaded: StateFlow<Boolean> = _hasLoaded.asStateFlow()
+
     /**
      * Usernames with an approve/deny in flight, so each row's buttons disable
      * independently (several decisions may overlap).
@@ -84,6 +89,7 @@ class FollowRequestsViewModel(
                 val response = api.getFollowRequests(userSession.sessionToken)
                 if (response.isSuccessful) {
                     _requests.value = response.body() ?: emptyList()
+                    _hasLoaded.value = true
                 } else {
                     _errorMessage.value = ApiErrors.messageFor(response, fallback = "Request failed. Please try again.")
                 }
