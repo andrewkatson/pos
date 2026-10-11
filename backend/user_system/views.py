@@ -5369,17 +5369,27 @@ def get_profile_details(request, username):
         logger.warning("Get profile details refused: requester and profile are in different age bands")
         return log_and_return_json("get_profile_details", {'error': "User not found"}, status=400)
 
-    # Count only the posts the requesting user is allowed to see, so a
-    # shadow-banned profile shows no posts to others (but all to its owner).
-    post_count = visible_posts(profile_user.post_set.all(), request.user).count()
+    # A private account shows non-followers none of its counts (issue #96) —
+    # the grid is already empty for them via visible_posts, and the follower /
+    # following numbers are the account's information too. Zeroed rather than
+    # omitted, as for a blocker below, so clients keep a stable shape; the
+    # clients hide the stats row for a locked profile instead of showing zeros.
+    # Decided before counting, so a non-follower viewing a popular private
+    # profile costs no count queries.
+    if not privacy_admits(profile_user, request.user):
+        post_count = follower_count = following_count = 0
+    else:
+        # Count only the posts the requesting user is allowed to see, so a
+        # shadow-banned profile shows no posts to others (but all to its owner).
+        post_count = visible_posts(profile_user.post_set.all(), request.user).count()
 
-    # The follower/following counts must agree with the filtered lists
-    # (issue #398): a shadow-banned or cross-age-band account is hidden from the
-    # follower/following list, so it must not inflate the count either. Apply the
-    # same searchable_users exclusion the list endpoints use — mirroring how
-    # post_count above counts only visible_posts.
-    follower_count = searchable_users(profile_user.followers.all(), request.user).count()
-    following_count = searchable_users(profile_user.following.all(), request.user).count()
+        # The follower/following counts must agree with the filtered lists
+        # (issue #398): a shadow-banned or cross-age-band account is hidden from
+        # the follower/following list, so it must not inflate the count either.
+        # Apply the same searchable_users exclusion the list endpoints use —
+        # mirroring how post_count above counts only visible_posts.
+        follower_count = searchable_users(profile_user.followers.all(), request.user).count()
+        following_count = searchable_users(profile_user.following.all(), request.user).count()
 
     # The follow edge (if any) carries the viewer's relationship category for
     # this profile user (issue #392); null when not following.
@@ -5399,16 +5409,6 @@ def get_profile_details(request, username):
     # waiting on an answer (issue #96).
     follow_request_pending = FollowRequest.objects.filter(
         user_from=request.user, user_to=profile_user).exists()
-
-    # A private account shows non-followers none of its counts (issue #96) —
-    # the grid is already empty for them via visible_posts, and the follower /
-    # following numbers are the account's information too. Zeroed rather than
-    # omitted, as for a blocker below, so clients keep a stable shape; the
-    # clients hide the stats row for a locked profile instead of showing zeros.
-    if not privacy_admits(profile_user, request.user):
-        post_count = 0
-        follower_count = 0
-        following_count = 0
 
     if is_blocked_by:
         # Return limited info or error?

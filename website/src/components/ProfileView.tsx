@@ -180,8 +180,9 @@ function ProfileView({
       // Could be a missing user or a transient network/server error — we can't
       // tell them apart, so offer a retry rather than a dead end. The Profile
       // tab has no other way back from this, since it can't be navigated away
-      // from and re-entered like the pushed profile route can.
-      if (isMounted.current) setLoadFailed(true)
+      // from and re-entered like the pushed profile route can. A superseded
+      // load's failure is ignored, like its success: a newer load owns the view.
+      if (isMounted.current && generation === loadGeneration.current) setLoadFailed(true)
     }
   }, [fetchProfile, applyRelationship])
 

@@ -35,6 +35,10 @@ final class FollowRequestsViewModel: ObservableObject {
     /// row is answered meanwhile, so answering rows can't shift a later request
     /// out of the next page.
     private var nextCursor: Int?
+    /// Bumped by every approve/deny that succeeds. A load or page that started
+    /// before a decision drops its response, so a pull-to-refresh overlapping a
+    /// decision can't put the answered row back.
+    private var decisionGeneration = 0
     @Published var errorMessage: String?
     /// Usernames with an approve/deny in flight, so each row's buttons disable
     /// independently (several decisions may overlap).
@@ -56,6 +60,7 @@ final class FollowRequestsViewModel: ObservableObject {
 
     /// Loads (or reloads) the incoming requests, newest first.
     func load() async {
+        let generation = decisionGeneration
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -65,7 +70,9 @@ final class FollowRequestsViewModel: ObservableObject {
                 return
             }
             let data = try await api.getFollowRequests(sessionManagementToken: session.sessionToken, after: nil)
-            requests = try JSONDecoder().decode([User].self, from: data)
+            let page = try JSONDecoder().decode([User].self, from: data)
+            guard generation == decisionGeneration else { return }
+            requests = page
             nextCursor = requests.last?.requestId
             canLoadMore = !requests.isEmpty
             hasLoaded = true
@@ -83,12 +90,14 @@ final class FollowRequestsViewModel: ObservableObject {
     /// (answering rows shifts later pages up). An empty page ends the list.
     func loadMore() async {
         guard canLoadMore, !isLoadingMore, !isLoading else { return }
+        let generation = decisionGeneration
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
             guard let session = try loadSession() else { return }
             let data = try await api.getFollowRequests(sessionManagementToken: session.sessionToken, after: nextCursor)
             let page = try JSONDecoder().decode([User].self, from: data)
+            guard generation == decisionGeneration else { return }
             let shown = Set(requests.map(\.username))
             requests.append(contentsOf: page.filter { !shown.contains($0.username) })
             if let last = page.last?.requestId { nextCursor = last }
@@ -125,6 +134,7 @@ final class FollowRequestsViewModel: ObservableObject {
                 return
             }
             try await call(session.sessionToken)
+            decisionGeneration += 1
             requests.removeAll { $0.username == username }
             // The owner's profile refreshes its request badge and follower count.
             notificationCenter.post(name: .followRequestsChanged, object: nil)

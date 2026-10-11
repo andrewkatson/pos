@@ -625,3 +625,19 @@ test('a stale manual refresh cannot undo the private state a follow applied', as
   expect(screen.queryByRole('button', { name: 'Post by bob' })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Requested' })).toBeInTheDocument()
 })
+
+test('an older profile load failing after a newer refresh succeeded is ignored', async () => {
+  let rejectFirst: (err: Error) => void = () => {}
+  mockGetProfile
+    .mockImplementationOnce(() => new Promise((_, reject) => (rejectFirst = reject)))
+    .mockResolvedValue(baseProfile)
+  renderProfile()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Refresh' }))
+  expect(await screen.findByText('10')).toBeInTheDocument()
+  rejectFirst(new Error('timeout'))
+
+  await waitFor(() => expect(mockGetProfile).toHaveBeenCalledTimes(2))
+  expect(screen.queryByText("Couldn't load bob's profile.")).not.toBeInTheDocument()
+  expect(screen.getByText('10')).toBeInTheDocument()
+})
