@@ -158,6 +158,27 @@ struct Positive_Only_SocialTests_TopPostsViewModel {
         #expect(stubAPI.getTopPostsCallCount == 3)
     }
 
+    @Test func testTopPosts_StayWithinViewersAgeBand() async throws {
+        stubAPI.pageSize = 10
+        // A verified 16-year-old and an adult each post publicly.
+        let teenToken = try await registerUserAndGetToken(username: "teen")
+        let sixteen = Calendar.current.date(byAdding: .year, value: -16, to: Date())!
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        _ = try await stubAPI.verifyIdentity(sessionManagementToken: teenToken, dateOfBirth: formatter.string(from: sixteen))
+        let teenPost = try await makePost(token: teenToken, caption: "teen")
+        let adultToken = try await registerUserAndGetToken(username: "adult")
+        let adultPost = try await makePost(token: adultToken, caption: "adult")
+
+        struct Row: Decodable { let post_identifier: String }
+        func ids(_ token: String) async throws -> [String] {
+            let data = try await stubAPI.getTopPosts(sessionManagementToken: token, batch: 0, period: "week")
+            return try JSONDecoder().decode([Row].self, from: data).map(\.post_identifier)
+        }
+        #expect(try await ids(adultToken) == [adultPost])
+        #expect(try await ids(teenToken) == [teenPost])
+    }
+
     @Test func testFetchTopPosts_NoSession_LeavesFeedEmpty() async throws {
         let sut = TopPostsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "topNoSession")
 

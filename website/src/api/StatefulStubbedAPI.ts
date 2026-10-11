@@ -1246,8 +1246,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }
 
-  /** Mirrors get_top_posts (issue #558): public, live posts created within the
-   * period, most likes first (newest first on ties), capped at TOP_POSTS_LIMIT. */
+  /** Mirrors get_top_posts (issue #558): public, live, same-age-band posts
+   * created within the period, most likes first, then newest, then post id,
+   * capped at TOP_POSTS_LIMIT. */
   async getTopPosts(batch: number, period: TopPostPeriod): Promise<FeedPost[]> {
     const user = this.requireUser()
     const since = Date.now() - TOP_POST_PERIOD_DAYS[period] * 24 * 60 * 60 * 1000
@@ -1258,9 +1259,16 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
           p.audience === 'public' &&
           p.creationTime >= since &&
           !user.blocked.has(p.authorId) &&
-          !user.blockedBy.has(p.authorId),
+          !user.blockedBy.has(p.authorId) &&
+          // Same age band only (issue #329), as visible_posts enforces.
+          this.isVerifiedMinor(p.authorId) === (user.isVerified && !user.isAdult),
       )
-      .sort((a, b) => b.likes.size - a.likes.size || b.creationTime - a.creationTime)
+      .sort(
+        (a, b) =>
+          b.likes.size - a.likes.size ||
+          b.creationTime - a.creationTime ||
+          (a.postIdentifier < b.postIdentifier ? -1 : a.postIdentifier > b.postIdentifier ? 1 : 0),
+      )
       .slice(0, TOP_POSTS_LIMIT)
     return this.batch(ranked, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }

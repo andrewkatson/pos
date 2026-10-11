@@ -1,12 +1,14 @@
 package com.example.positiveonlysocial.api
 
 import com.example.positiveonlysocial.data.model.CreatePostRequest
+import com.example.positiveonlysocial.data.model.IdentityVerificationRequest
 import com.example.positiveonlysocial.data.model.PostAudience
 import com.example.positiveonlysocial.data.model.RegisterRequest
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
+import java.time.LocalDate
 
 /** The Top posts scoreboard (issue #558) against the in-memory stub. */
 class StatefulStubbedApiTopPostsTest {
@@ -37,5 +39,19 @@ class StatefulStubbedApiTopPostsTest {
         val token = register(api, "viewer")
 
         assertFalse(api.getTopPosts(token, 0, "decade").isSuccessful)
+    }
+
+    @Test
+    fun `top posts stay within the viewer's age band`() = runTest {
+        val api = StatefulStubbedAPI()
+        val teenToken = register(api, "teen")
+        api.verifyIdentity(teenToken, IdentityVerificationRequest(LocalDate.now().minusYears(16).toString()))
+        val teenPost = api.makePost(teenToken, CreatePostRequest(imageUrl = "t.jpg", caption = "teen")).body()!!.postIdentifier
+
+        val adultToken = register(api, "adult")
+        val adultPost = api.makePost(adultToken, CreatePostRequest(imageUrl = "a.jpg", caption = "adult")).body()!!.postIdentifier
+
+        assertEquals(listOf(adultPost), api.getTopPosts(adultToken, 0, "week").body()!!.map { it.postIdentifier })
+        assertEquals(listOf(teenPost), api.getTopPosts(teenToken, 0, "week").body()!!.map { it.postIdentifier })
     }
 }

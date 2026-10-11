@@ -60,6 +60,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // The Top posts windows and depth, matching backend/user_system/constants.py.
     private val TOP_POST_PERIOD_DAYS = mapOf("day" to 1, "week" to 7, "month" to 30, "year" to 365)
     private val TOP_POSTS_LIMIT = 100
+
+    /** Mirrors visibility.is_minor: verified and not adult (issue #329). */
+    private fun isVerifiedMinor(user: UserMock?): Boolean =
+        user != null && user.isVerified && !user.isAdult
     private val COMMENT_BATCH_SIZE = 10
     private val LIKE_BATCH_SIZE = 10
 
@@ -1058,8 +1062,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(dtos)
     }
 
-    /** Mirrors get_top_posts (issue #558): public, live posts created within the
-     * period, most likes first (newest first on ties), capped at the top 100. */
+    /** Mirrors get_top_posts (issue #558): public, live, same-age-band posts
+     * created within the period, most likes first, then newest, then post id,
+     * capped at the top 100. */
     override suspend fun getTopPosts(token: String, batch: Int, period: String): Response<List<Post>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val days = TOP_POST_PERIOD_DAYS[period] ?: return errorGeneric(400, "Invalid period")
@@ -1070,9 +1075,13 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             it.audience == PostAudience.PUBLIC.value &&
             it.creationTime >= since &&
             !user.blocked.contains(it.authorId) &&
-            !user.blockedBy.contains(it.authorId)
+            !user.blockedBy.contains(it.authorId) &&
+            // Same age band only (issue #329), as visible_posts enforces.
+            isVerifiedMinor(users.find { u -> u.id == it.authorId }) == isVerifiedMinor(user)
         }.sortedWith(
-            compareByDescending<PostMock> { it.likes.size }.thenByDescending { it.creationTime }
+            compareByDescending<PostMock> { it.likes.size }
+                .thenByDescending { it.creationTime }
+                .thenBy { it.postIdentifier }
         ).take(TOP_POSTS_LIMIT)
 
         val dtos = getBatch(ranked, batch, POST_BATCH_SIZE).map { post ->

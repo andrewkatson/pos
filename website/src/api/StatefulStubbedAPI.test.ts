@@ -1177,3 +1177,26 @@ test('top posts only include posts created within the period', async () => {
     vi.useRealTimers()
   }
 })
+
+test('top posts stay within the viewer\'s age band', async () => {
+  const api = new StatefulStubbedAPI()
+  const thisYear = new Date().getFullYear()
+  await api.register({
+    username: 'teen',
+    email: 'teen@example.com',
+    password: 'password123',
+    date_of_birth: `${thisYear - 16}-01-01`,
+  })
+  const teenPost = await api.createPost({ caption: 'teen post' })
+
+  await register(api, 'adult')
+  const adultPost = await api.createPost({ caption: 'adult post' })
+  expect((await api.getTopPosts(0, 'week')).map((p) => p.post_identifier)).toEqual([
+    adultPost.post_identifier,
+  ])
+
+  await api.login({ username_or_email: 'teen', password: 'password123' })
+  expect((await api.getTopPosts(0, 'week')).map((p) => p.post_identifier)).toEqual([
+    teenPost.post_identifier,
+  ])
+})

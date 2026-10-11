@@ -1383,8 +1383,9 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
-    /// Mirrors get_top_posts (issue #558): public, live posts created within the
-    /// period, most likes first (newest first on ties), capped at the top 100.
+    /// Mirrors get_top_posts (issue #558): public, live, same-age-band posts
+    /// created within the period, most likes first, then newest, then post id,
+    /// capped at the top 100.
     func getTopPosts(sessionManagementToken: String, batch: Int, period: String) async throws -> Data {
         getTopPostsCallCount += 1
         lastTopPostsPeriod = period
@@ -1404,12 +1405,14 @@ final class StatefulStubbedAPI: Networking {
                 post.audience == PostAudience.public.rawValue &&
                 post.createdDate >= since &&
                 !currentUser.blocked.contains(post.authorId) &&
-                !currentUser.blockedBy.contains(post.authorId)
+                !currentUser.blockedBy.contains(post.authorId) &&
+                // Same age band only (issue #329), as visible_posts enforces.
+                isVerifiedMinor(users.first { $0.id == post.authorId }) == isVerifiedMinor(currentUser)
             }
             .sorted {
-                $0.likes.count != $1.likes.count
-                    ? $0.likes.count > $1.likes.count
-                    : $0.createdDate > $1.createdDate
+                if $0.likes.count != $1.likes.count { return $0.likes.count > $1.likes.count }
+                if $0.createdDate != $1.createdDate { return $0.createdDate > $1.createdDate }
+                return $0.postIdentifier < $1.postIdentifier
             }
             .prefix(Self.topPostsLimit)
 
@@ -1425,6 +1428,12 @@ final class StatefulStubbedAPI: Networking {
     // The Top posts windows and depth, matching backend/user_system/constants.py.
     private static let topPostPeriodDays = ["day": 1, "week": 7, "month": 30, "year": 365]
     private static let topPostsLimit = 100
+
+    /// Mirrors visibility.is_minor: verified and not adult (issue #329).
+    private func isVerifiedMinor(_ user: MockUser?) -> Bool {
+        guard let user else { return false }
+        return user.identityIsVerified && !user.isAdult
+    }
 
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {
         getPostsForUserCallCount += 1

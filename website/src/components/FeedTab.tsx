@@ -126,6 +126,10 @@ function FeedTab() {
   // selection's posts never sit under the new one — ranked as if they were
   // the new Top board — while it loads, or for good if that load fails.
   function startSelectionChange() {
+    // Invalidate in-flight loads now, not when the reload starts: that waits
+    // for a render and a microtask, and an old response landing in between
+    // would otherwise repopulate the list just cleared below.
+    loadGeneration.current += 1
     setIsLoading(true)
     setPosts([])
     setCanLoadMore(true)
