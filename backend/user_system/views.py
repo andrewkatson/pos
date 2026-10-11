@@ -4530,6 +4530,29 @@ def _approve_follow_request(follow_request):
         follow_request.delete()
 
 
+# Rows per INSERT when going public converts every pending request at once.
+FOLLOW_REQUEST_BULK_BATCH_SIZE = 500
+
+
+def _approve_all_follow_requests(owner):
+    """Turn every pending request to `owner` into the follow edge it asked for,
+    in a fixed number of queries however many are waiting (issue #96): one
+    read, batched bulk inserts, one delete. Called with the owner's row locked,
+    so a popular account going public does not hold that lock across one round
+    trip per request. ignore_conflicts keeps an edge that already exists, just
+    as _approve_follow_request's get_or_create does."""
+    pending = list(FollowRequest.objects.filter(user_to=owner).values_list('user_from_id', 'category'))
+    if not pending:
+        return
+    UserFollow.objects.bulk_create(
+        [UserFollow(user_from_id=requester_id, user_to=owner, category=category)
+         for requester_id, category in pending],
+        batch_size=FOLLOW_REQUEST_BULK_BATCH_SIZE,
+        ignore_conflicts=True,
+    )
+    FollowRequest.objects.filter(user_to=owner).delete()
+
+
 @csrf_exempt
 @api_login_required
 @ratelimit(key='user', rate='60/m', block=True)
@@ -4628,8 +4651,7 @@ def set_account_privacy(request):
         user.is_private = is_private
         user.save(update_fields=['is_private'])
         if not is_private:
-            for follow_request in FollowRequest.objects.filter(user_to=user):
-                _approve_follow_request(follow_request)
+            _approve_all_follow_requests(user)
     logger.info(f"Account privacy set to {is_private} for user_id: {user.id}")
     return log_and_return_json("set_account_privacy", {Fields.is_private: is_private})
 

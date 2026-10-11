@@ -141,6 +141,20 @@ struct Positive_Only_SocialTests_PrivateAccounts {
                 formatting: nil, audience: nil)
         }
 
+        await #expect(throws: (any Error).self) {
+            _ = try await stubAPI.savePost(sessionManagementToken: viewerToken, postIdentifier: postId)
+        }
+        // Pairing the private comment's ids with an unrelated public post's id
+        // must not get past the privacy check either.
+        let (otherToken, _) = try await registerUser(username: "publicNeighbor")
+        let publicData = try await stubAPI.makePost(sessionManagementToken: otherToken, imageURL: "img/2", caption: "hi")
+        let publicPostId = try JSONDecoder().decode(MakePostResponse.self, from: publicData).postIdentifier
+        await #expect(throws: (any Error).self) {
+            _ = try await stubAPI.likeComment(
+                sessionManagementToken: viewerToken, postIdentifier: publicPostId,
+                commentThreadIdentifier: ids.comment_thread_identifier, commentIdentifier: ids.comment_identifier)
+        }
+
         _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "beachAuthor")
         _ = try await stubAPI.approveFollowRequest(sessionManagementToken: authorToken, username: "beachViewer")
         let unlockedTag = try await stubAPI.getPostsForTag(sessionManagementToken: viewerToken, tag: "beach", batch: 0)

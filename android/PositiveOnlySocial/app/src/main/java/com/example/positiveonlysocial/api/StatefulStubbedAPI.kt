@@ -1019,7 +1019,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun savePost(token: String, postId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val post = posts.find { it.postIdentifier == postId }
+        // A private account's post reads as missing to a non-follower (issue #96).
+        val post = posts.find { it.postIdentifier == postId }?.takeIf { privacyAdmits(it.authorId, user) }
             ?: return error(404, "No post with that identifier")
         // Mirror the backend (save_post): a repeat save is rejected with 400
         // ("Already saved post"), like a double-like — so the client's optimistic

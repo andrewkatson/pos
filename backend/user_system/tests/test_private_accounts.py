@@ -274,6 +274,44 @@ class AccountPrivacySettingTests(PrivateAccountTestBase):
         self.assertEqual(edge.category, FOLLOW_CATEGORY_FRIEND)
         self.assertFalse(FollowRequest.objects.exists())
 
+    def test_going_public_converts_requests_in_constant_queries(self):
+        """The conversion is bulk: the query count doesn't grow with the number
+        of pending requests, and each keeps its requested category."""
+        categories = [FOLLOW_CATEGORY_FOLLOWING, FOLLOW_CATEGORY_FRIEND, FOLLOW_CATEGORY_FAMILY]
+        requesters = []
+        for i, category in enumerate(categories * 3):
+            requester = PositiveOnlySocialUser.objects.get(
+                username=self.make_user_with_prefix(prefix=f'fan{i}')[Fields.username])
+            FollowRequest.objects.create(user_from=requester, user_to=self.author, category=category)
+            requesters.append((requester, category))
+        # One requester already follows (e.g. from before the account went
+        # private); the conversion keeps that edge rather than failing.
+        UserFollow.objects.create(user_from=requesters[0][0], user_to=self.author,
+                                  category=FOLLOW_CATEGORY_FAMILY)
+
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        with CaptureQueriesContext(connection) as queries:
+            self._set_private(False, self.author_header)
+        many = len(queries)
+
+        for requester, category in requesters[1:]:
+            self.assertEqual(
+                UserFollow.objects.get(user_from=requester, user_to=self.author).category, category)
+        self.assertEqual(
+            UserFollow.objects.get(user_from=requesters[0][0], user_to=self.author).category,
+            FOLLOW_CATEGORY_FAMILY)
+        self.assertFalse(FollowRequest.objects.exists())
+
+        # The same toggle with a single pending request costs the same.
+        self._set_private(True, self.author_header)
+        lone = PositiveOnlySocialUser.objects.get(
+            username=self.make_user_with_prefix(prefix='lone')[Fields.username])
+        FollowRequest.objects.create(user_from=lone, user_to=self.author)
+        with CaptureQueriesContext(connection) as queries:
+            self._set_private(False, self.author_header)
+        self.assertEqual(len(queries), many)
+
     def test_going_private_keeps_existing_followers(self):
         self._set_private(False, self.author_header)
         self._label(self.viewer, self.author, FOLLOW_CATEGORY_FOLLOWING)

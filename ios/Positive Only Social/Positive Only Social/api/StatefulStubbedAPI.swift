@@ -309,6 +309,23 @@ final class StatefulStubbedAPI: Networking {
             userFollows.contains { $0.userFromId == from && $0.userToId == to }
     }
 
+    /// The index of a comment addressed by its full (post, thread, comment) id
+    /// tuple, or nil when the ids don't belong together or the post it really
+    /// sits on is a private account's post the viewer doesn't follow (issue
+    /// #96). Resolving the tuple first means a private comment can't be reached
+    /// by pairing its id with some unrelated public post's id, as the backend's
+    /// lookup by all three ids also prevents.
+    private func reachableCommentIndex(postIdentifier: String, threadIdentifier: String,
+                                       commentIdentifier: String, viewer: MockUser) -> Int? {
+        guard let index = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }),
+              comments[index].threadId == threadIdentifier,
+              let thread = commentThreads.first(where: { $0.commentThreadIdentifier == threadIdentifier }),
+              thread.postId == postIdentifier,
+              let post = findPost(byIdentifier: postIdentifier),
+              privacyAdmits(authorId: post.authorId, viewer: viewer) else { return nil }
+        return index
+    }
+
     /// privacyAdmits for the post a comment thread sits on (issue #96). An
     /// unknown thread is left to the caller's own not-found handling.
     private func threadPostPrivacyAdmits(_ threadId: String, viewer: MockUser) -> Bool {
@@ -1320,7 +1337,9 @@ final class StatefulStubbedAPI: Networking {
     func savePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let saver = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // A private account's post reads as missing to a non-follower (issue #96).
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }),
+              privacyAdmits(authorId: posts[postIndex].authorId, viewer: saver) else { throw APIError.badServerResponse(statusCode: 400) }
         // Mirror the backend (save_post): a repeat save is rejected with 400
         // ("Already saved post"), like a double-like — so the client's optimistic
         // revert path is exercised. Saving your own post is still allowed.
@@ -1612,9 +1631,9 @@ final class StatefulStubbedAPI: Networking {
         guard let liker = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         // A comment on a private account's post is out of reach for a
         // non-follower (issue #96), judged by the post it sits on.
-        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }),
-              let parentPost = findPost(byIdentifier: postIdentifier),
-              privacyAdmits(authorId: parentPost.authorId, viewer: liker) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let commentIndex = reachableCommentIndex(
+            postIdentifier: postIdentifier, threadIdentifier: commentThreadIdentifier,
+            commentIdentifier: commentIdentifier, viewer: liker) else { throw APIError.badServerResponse(statusCode: 400) }
         if comments[commentIndex].authorUsername == liker.username { throw APIError.badServerResponse(statusCode: 400) }
         if comments[commentIndex].likes.contains(liker.username) { throw APIError.badServerResponse(statusCode: 400) }
 
@@ -1627,9 +1646,9 @@ final class StatefulStubbedAPI: Networking {
         guard let unliker = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         // Undo actions treat a comment on a private account's post as missing
         // to a non-follower too (issue #96).
-        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }),
-              let parentPost = findPost(byIdentifier: postIdentifier),
-              privacyAdmits(authorId: parentPost.authorId, viewer: unliker) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let commentIndex = reachableCommentIndex(
+            postIdentifier: postIdentifier, threadIdentifier: commentThreadIdentifier,
+            commentIdentifier: commentIdentifier, viewer: unliker) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let likeIndex = comments[commentIndex].likes.firstIndex(of: unliker.username) else { throw APIError.badServerResponse(statusCode: 400) }
         
         comments[commentIndex].likes.remove(at: likeIndex)
@@ -1702,9 +1721,9 @@ final class StatefulStubbedAPI: Networking {
         guard let reporter = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         // A comment on a private account's post is out of reach for a
         // non-follower (issue #96), judged by the post it sits on.
-        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }),
-              let parentPost = findPost(byIdentifier: postIdentifier),
-              privacyAdmits(authorId: parentPost.authorId, viewer: reporter) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let commentIndex = reachableCommentIndex(
+            postIdentifier: postIdentifier, threadIdentifier: commentThreadIdentifier,
+            commentIdentifier: commentIdentifier, viewer: reporter) else { throw APIError.badServerResponse(statusCode: 400) }
         if comments[commentIndex].authorUsername == reporter.username { throw APIError.badServerResponse(statusCode: 400) }
         if comments[commentIndex].reports.contains(where: { $0.username == reporter.username }) { throw APIError.badServerResponse(statusCode: 400) }
         
@@ -1723,9 +1742,9 @@ final class StatefulStubbedAPI: Networking {
         guard let retractor = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         // Undo actions treat a comment on a private account's post as missing
         // to a non-follower too (issue #96).
-        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }),
-              let parentPost = findPost(byIdentifier: postIdentifier),
-              privacyAdmits(authorId: parentPost.authorId, viewer: retractor) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let commentIndex = reachableCommentIndex(
+            postIdentifier: postIdentifier, threadIdentifier: commentThreadIdentifier,
+            commentIdentifier: commentIdentifier, viewer: retractor) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let reportIndex = comments[commentIndex].reports.firstIndex(where: { $0.username == retractor.username }) else { throw APIError.badServerResponse(statusCode: 400) }
 
         comments[commentIndex].reports.remove(at: reportIndex)

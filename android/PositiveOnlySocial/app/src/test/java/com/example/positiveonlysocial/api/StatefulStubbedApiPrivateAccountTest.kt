@@ -126,6 +126,7 @@ class StatefulStubbedApiPrivateAccountTest {
             ).isSuccessful
         )
 
+        assertFalse(api.savePost(viewerToken, postId).isSuccessful)
         assertFalse(api.getCommentsForPost(viewerToken, postId, 0, null).isSuccessful)
         assertFalse(api.getCommentsForThread(viewerToken, comment.threadIdentifier!!, 0, null).isSuccessful)
         assertFalse(api.replyToThread(viewerToken, postId, comment.threadIdentifier!!, CommentRequest("hi")).isSuccessful)
