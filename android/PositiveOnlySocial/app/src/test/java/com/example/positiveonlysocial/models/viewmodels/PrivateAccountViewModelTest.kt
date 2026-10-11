@@ -218,6 +218,34 @@ class PrivateAccountViewModelTest {
         assertEquals(true, profile.profileDetails.value!!.isPrivate)
     }
 
+    @Test
+    fun `a follow that reveals the account went private fails closed if the reload fails`() = runTest {
+        val api: PositiveOnlySocialAPI = mock()
+        val public = ProfileDetailsResponse("author", 3, 10, 5, isFollowing = false, isPrivate = false)
+        val offline = "{\"error\":\"offline\"}".toResponseBody("application/json".toMediaTypeOrNull())
+        whenever(api.getProfileDetails("token123", "author"))
+            .thenReturn(Response.success(public), Response.error(500, offline))
+        val post = com.example.positiveonlysocial.data.model.Post(
+            postIdentifier = "p1", imageUrl = "a.jpg", authorUsername = "author", caption = "hi")
+        whenever(api.getPostsForUser("token123", "author", 0))
+            .thenReturn(Response.success(listOf(post)), Response.error(500, offline))
+        whenever(api.followUser("token123", "author"))
+            .thenReturn(Response.success(GenericResponse("Follow requested", null, null, followRequestPending = true)))
+        val viewModel = ProfileViewModel(api, keychainFor("token123", "viewer"))
+        viewModel.fetchProfile("author")
+        assertEquals(1, viewModel.userPosts.value.size)
+
+        viewModel.toggleFollow("author")
+
+        val profile = viewModel.profileDetails.value!!
+        assertEquals(true, profile.isPrivate)
+        assertEquals(true, profile.followRequestPending)
+        assertEquals(0, profile.postCount)
+        assertEquals(0, profile.followerCount)
+        assertTrue(viewModel.userPosts.value.isEmpty())
+        assertFalse(viewModel.isFollowing.value)
+    }
+
     // --- FollowRequestsViewModel ---
 
     private val requesters = listOf(User("alice", true), User("bob", false))

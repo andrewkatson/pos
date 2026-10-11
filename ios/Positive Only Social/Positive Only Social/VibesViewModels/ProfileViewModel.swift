@@ -483,6 +483,13 @@ class ProfileViewModel: ObservableObject {
                         // stale. Reload them (and the follow state with them)
                         // rather than patching only the button.
                         revertFollow(wasFollowing: false, expectedRequest: expectsRequest)
+                        if filedRequest {
+                            // The account went private. Fail closed before the
+                            // best-effort reload (which swallows errors): the
+                            // cached public grid and counts must not stay on
+                            // screen for someone who is now only a requester.
+                            applyLockedPendingState()
+                        }
                         await refreshProfileDetails()
                         await refreshUserPosts()
                     }
@@ -502,6 +509,24 @@ class ProfileViewModel: ObservableObject {
         }
         isFollowing = wasFollowing
         adjustFollowerCount(by: wasFollowing ? 1 : -1)
+    }
+
+    /// The fail-closed view of a profile that just turned out to be private with
+    /// the viewer's request pending (issue #96): private, pending, no counts and
+    /// no posts, until a reload says otherwise.
+    private func applyLockedPendingState() {
+        isFollowing = false
+        followRequestPending = true
+        if var details = profileDetails {
+            details.isPrivate = true
+            details.followRequestPending = true
+            details.isFollowing = false
+            details.postCount = 0
+            details.followerCount = 0
+            details.followingCount = 0
+            profileDetails = details
+        }
+        userPosts = []
     }
 
     /// Withdraws the viewer's pending request to follow this private account
@@ -525,6 +550,9 @@ class ProfileViewModel: ObservableObject {
                 // cached "Requested" state is stale. Reload the profile and grid
                 // rather than restore it — the viewer may now be a follower.
                 NSLog("%@", "Error cancelling follow request: \(error)")
+                // Restore the last known state first, so a failed reload leaves
+                // "Requested" rather than a guess.
+                followRequestPending = true
                 await refreshProfileDetails()
                 await refreshUserPosts()
             }

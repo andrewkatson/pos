@@ -410,6 +410,16 @@ function ProfileView({
           // The owner changed their privacy since this page loaded, so the
           // cached privacy, counts and grid are all stale: reload them from the
           // server rather than patching only the follow state (issue #96).
+          if (filedRequest) {
+            // The account went private. Fail closed before the best-effort
+            // reload: if it fails, the cached public grid and counts must not
+            // stay on screen for someone who is now only a requester.
+            setFollowRequestPending(true)
+            setProfile(p =>
+              p ? { ...p, is_private: true, post_count: 0, follower_count: 0, following_count: 0 } : p,
+            )
+            setPosts([])
+          }
           refresh()
         } else if (filedRequest) {
           // A private account: the call filed a request, nothing changes until

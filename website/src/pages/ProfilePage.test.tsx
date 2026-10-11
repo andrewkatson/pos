@@ -566,3 +566,26 @@ test('a cancel that finds the request already answered reloads the profile', asy
   expect(mockGetPosts).toHaveBeenCalledTimes(2)
   expect(screen.queryByText('This account is private')).not.toBeInTheDocument()
 })
+
+test('a follow that reveals the account went private fails closed if the reload fails', async () => {
+  mockGetProfile.mockResolvedValueOnce(baseProfile).mockRejectedValue(new Error('offline'))
+  mockGetPosts
+    .mockResolvedValueOnce([
+      { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'bob', caption: 'hi' },
+    ])
+    .mockRejectedValue(new Error('offline'))
+  mockFollow.mockResolvedValue({
+    message: 'Follow requested',
+    follow_category: null,
+    follow_request_pending: true,
+  })
+  renderProfile()
+  await screen.findByRole('button', { name: 'Post by bob' })
+
+  await userEvent.click(screen.getByRole('button', { name: 'Follow' }))
+
+  expect(await screen.findByText('This account is private')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Requested' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Post by bob' })).not.toBeInTheDocument()
+  expect(screen.queryByText('Followers')).not.toBeInTheDocument()
+})

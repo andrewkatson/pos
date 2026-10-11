@@ -620,6 +620,23 @@ class ProfileViewModel(
                         // loaded, so the cached privacy, counts and grid are all
                         // stale. Reload them (and the follow state with them)
                         // rather than patching only the button.
+                        if (filedRequest) {
+                            // The account went private. Fail closed before the
+                            // best-effort reload: the cached public grid and
+                            // counts must not stay on screen for someone who is
+                            // now only a requester.
+                            _profileDetails.value = currentProfile.copy(
+                                isPrivate = true,
+                                followRequestPending = true,
+                                isFollowing = false,
+                                followCategory = null,
+                                postCount = 0,
+                                followerCount = 0,
+                                followingCount = 0
+                            )
+                            _isFollowing.value = false
+                            _userPosts.value = emptyList()
+                        }
                         refreshProfile(username)
                     }
                 }
@@ -656,6 +673,9 @@ class ProfileViewModel(
                     // public and approved it) while this profile was open, so the
                     // cached "Requested" state is stale. Reload the profile and
                     // grid rather than restore it — the viewer may now follow.
+                    // Restore the last known state first, so a failed reload
+                    // leaves "Requested" rather than a guess.
+                    _profileDetails.value = currentProfile
                     refreshProfile(username)
                 }
             } catch (e: Exception) {
