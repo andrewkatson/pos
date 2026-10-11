@@ -267,6 +267,29 @@ test('switching to a feed that fails to load does not keep the old posts (#558)'
   expect(await screen.findByText('No posts here yet.')).toBeInTheDocument()
 })
 
+test('a post repeated across Top pages is only listed once (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  const post = (id: string) => ({
+    post_identifier: id,
+    image_url: `http://img/${id}.jpg`,
+    author_username: `author_${id}`,
+    caption: id,
+  })
+  mockGetTop.mockImplementation(batch =>
+    Promise.resolve(batch === 0 ? [post('a'), post('b')] : [post('b'), post('c')]),
+  )
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await screen.findByRole('button', { name: 'Open post by author_b' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  await screen.findByRole('button', { name: 'Open post by author_c' })
+
+  expect(screen.getAllByRole('button', { name: 'Open post by author_b' })).toHaveLength(1)
+  expect(screen.getByLabelText('Rank 3')).toBeInTheDocument()
+  expect(screen.queryByLabelText('Rank 4')).not.toBeInTheDocument()
+})
+
 test('the period picker and ranks are only on the Top feed (#558)', async () => {
   mockGetFeed.mockResolvedValue([
     { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },

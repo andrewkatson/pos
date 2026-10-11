@@ -109,7 +109,12 @@ function FeedTab() {
         } else if (newPosts.length === 0) {
           setCanLoadMore(false)
         } else {
-          setPosts(prev => [...prev, ...newPosts])
+          // Live OFFSET paging can repeat a post whose rank moved between
+          // requests (Top especially); drop repeats so keys stay unique.
+          setPosts(prev => {
+            const seen = new Set(prev.map(post => post.post_identifier))
+            return [...prev, ...newPosts.filter(post => !seen.has(post.post_identifier))]
+          })
           setPage(prev => prev + 1)
         }
       } catch {

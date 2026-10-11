@@ -159,6 +159,20 @@ class TopPostsViewModelTest {
     }
 
     @Test
+    fun `a post repeated across pages is only listed once`() = runTest {
+        val a = Post("a", "urlA", "a", "userA", 9)
+        val b = Post("b", "urlB", "b", "userB", 8)
+        val c = Post("c", "urlC", "c", "userC", 7)
+        whenever(api.getTopPosts("token123", 0, "week")).thenReturn(Response.success(listOf(a, b)))
+        whenever(api.getTopPosts("token123", 1, "week")).thenReturn(Response.success(listOf(b, c)))
+
+        viewModel.fetchTopPosts()
+        viewModel.fetchTopPosts()
+
+        assertEquals(listOf(a, b, c), viewModel.topPosts.value)
+    }
+
+    @Test
     fun `fetchTopPosts failure surfaces a load error`() = runTest {
         whenever(api.getTopPosts("token123", 0, "week")).thenReturn(Response.error(500, "error".toResponseBody()))
 

@@ -163,7 +163,10 @@ class TopPostsViewModel(
                     if (newPosts.isEmpty()) {
                         canLoadMore = false
                     } else {
-                        _topPosts.value += newPosts
+                        // Live OFFSET paging can repeat a post whose rank moved
+                        // between requests; drop repeats so rows stay unique.
+                        val seen = _topPosts.value.mapTo(HashSet()) { it.postIdentifier }
+                        _topPosts.value += newPosts.filterNot { it.postIdentifier in seen }
                         currentPage += 1
                     }
                     _loadError.value = null

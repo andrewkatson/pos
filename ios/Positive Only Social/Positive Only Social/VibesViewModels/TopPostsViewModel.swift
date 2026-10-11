@@ -112,7 +112,10 @@ final class TopPostsViewModel: ObservableObject {
             } else if newPosts.isEmpty {
                 canLoadMore = false
             } else {
-                topPosts.append(contentsOf: newPosts)
+                // Live OFFSET paging can repeat a post whose rank moved between
+                // requests; drop repeats so ForEach identities stay unique.
+                let seen = Set(topPosts.map(\.id))
+                topPosts.append(contentsOf: newPosts.filter { !seen.contains($0.id) })
                 currentPage += 1
             }
         } catch {

@@ -179,6 +179,31 @@ struct Positive_Only_SocialTests_TopPostsViewModel {
         #expect(try await ids(teenToken) == [teenPost])
     }
 
+    @Test func testFetchTopPosts_RepeatedPostAcrossPages_ListedOnce() async throws {
+        stubAPI.pageSize = 2
+        let sut = TopPostsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "topDedupe")
+        let authorToken = try await registerUserAndGetToken(username: "author")
+        let oldest = try await makePost(token: authorToken, caption: "oldest")
+        _ = try await makePost(token: authorToken, caption: "middle")
+        _ = try await makePost(token: authorToken, caption: "newest")
+        let viewerToken = try await registerUserAndGetToken(username: "viewer")
+        try signIn(viewerToken, username: "viewer", account: "topDedupe")
+
+        // Page 0: newest, middle (no likes yet, so newest first)
+        sut.fetchTopPosts()
+        await yield()
+        #expect(sut.topPosts.count == 2)
+
+        // The oldest post climbs to #1, pushing middle onto page 1 again
+        _ = try await stubAPI.likePost(sessionManagementToken: viewerToken, postIdentifier: oldest)
+        sut.fetchTopPosts()
+        await yield()
+
+        // middle is not listed twice
+        #expect(sut.topPosts.count == 2)
+        #expect(Set(sut.topPosts.map(\.id)).count == sut.topPosts.count)
+    }
+
     @Test func testFetchTopPosts_NoSession_LeavesFeedEmpty() async throws {
         let sut = TopPostsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "topNoSession")
 
