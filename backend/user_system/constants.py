@@ -486,7 +486,10 @@ LIKE_BATCH_SIZE = 30
 # Top posts scoreboard (issue #558): the selectable windows, as rolling
 # lookbacks in days from now, and how deep the ranking goes. Batches past
 # TOP_POSTS_LIMIT come back empty — it is a "top N" board, not a second
-# endless feed — which also bounds the on-the-fly ranking cost per request.
+# endless feed. The limit caps what is returned, not the ranking work: each
+# request still filters the whole window and counts every candidate's likes
+# before slicing, which grows with the window (year especially). Pre-computing
+# the boards to bound that is issue #559.
 TOP_POST_PERIOD_DAY = "day"
 TOP_POST_PERIOD_WEEK = "week"
 TOP_POST_PERIOD_MONTH = "month"
