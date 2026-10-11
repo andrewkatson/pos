@@ -28,12 +28,17 @@ is a 400.
   while the board is moving. Serving pages from a stable snapshot comes with
   pre-computation (issue #559).
 - **Switching period.** All three clients discard a response that arrives for
-  a period (or feed) the viewer has since switched away from, and always reload
-  page 0 for the newly selected period, even if a load was still in flight. Every client also clears the old list as soon as the
-  selection changes, so a previous board is never shown under the new period
-  (or left behind if the new load fails), and on iOS and Android the new
-  page's rows are freshly created so the last row's appear hook can still
-  request the next page.
+  a period the viewer has since switched away from, always reload page 0 for
+  the newly selected period even if a load was still in flight, and clear the
+  old list as soon as the period changes — so a previous board is never shown
+  under the new period, or left behind if the new load fails. On iOS and
+  Android that also means the new page's rows are freshly created, so the last
+  row's appear hook can still request the next page.
+- **Switching feed.** The website shows one list for all three feeds, so it
+  applies the same discard-and-clear handling when switching between For You,
+  Following and Top (and the Following group). iOS and Android keep a separate
+  view model per feed, so switching feed leaves each feed's own list and any
+  in-flight request in place; nothing from one feed can land in another.
 - **Depth.** The board stops at `TOP_POSTS_LIMIT` (100). Batches past it are
   empty: it is a "top N", not a second endless feed.
 
