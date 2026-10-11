@@ -88,11 +88,20 @@ function FeedTab() {
     [selected, group, period],
   )
 
+  // Bumped on every from-scratch load. A response from an older generation —
+  // say a Week page still in flight after the user picked Year, or a For You
+  // page after switching to Top — is dropped instead of overwriting or being
+  // appended to the newer feed.
+  const loadGeneration = useRef(0)
+
   const loadFeed = useCallback(
     async (pageToLoad: number, replace: boolean) => {
+      if (replace) loadGeneration.current += 1
+      const generation = loadGeneration.current
+      const isCurrent = () => isMounted.current && generation === loadGeneration.current
       try {
         const newPosts = await fetcher(pageToLoad)
-        if (!isMounted.current) return
+        if (!isCurrent()) return
         if (replace) {
           setPosts(newPosts)
           setCanLoadMore(newPosts.length > 0)
@@ -104,9 +113,10 @@ function FeedTab() {
           setPage(prev => prev + 1)
         }
       } catch {
-        if (isMounted.current) setCanLoadMore(false)
+        if (isCurrent()) setCanLoadMore(false)
       } finally {
-        if (isMounted.current) setIsLoading(false)
+        // A superseded load leaves the spinner to the load that replaced it.
+        if (isCurrent()) setIsLoading(false)
       }
     },
     [fetcher],

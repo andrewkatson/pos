@@ -11,6 +11,7 @@ import com.example.positiveonlysocial.data.model.TopPostPeriod
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -59,6 +60,12 @@ class TopPostsViewModel(
     private var currentPage = 0
     private val service = "positive-only-social.Positive-Only-Social"
 
+    // Bumped when the period changes, so a load still in flight for the old
+    // period can recognise it has been superseded and drop its response rather
+    // than fill the list under the new selection.
+    private var loadGeneration = 0
+    private var loadJob: Job? = null
+
     /**
      * Switches the time period and reloads from the first page. A no-op when the
      * period is unchanged so re-selecting doesn't refetch.
@@ -66,6 +73,12 @@ class TopPostsViewModel(
     fun selectPeriod(period: TopPostPeriod) {
         if (period == _selectedPeriod.value) return
         _selectedPeriod.value = period
+        // Supersede any in-flight load: its response belongs to the old period,
+        // and its loading flag would otherwise make the refresh below a no-op.
+        loadGeneration += 1
+        loadJob?.cancel()
+        _isLoadingNextPage.value = false
+        _isRefreshing.value = false
         refreshTopPosts()
     }
 
@@ -78,7 +91,8 @@ class TopPostsViewModel(
 
         _isRefreshing.value = true
 
-        viewModelScope.launch {
+        val generation = loadGeneration
+        loadJob = viewModelScope.launch {
             try {
                 val userSession = loadSession()
                 if (userSession == null) {
@@ -88,6 +102,7 @@ class TopPostsViewModel(
                 }
 
                 val response = api.getTopPosts(userSession.sessionToken, 0, _selectedPeriod.value.value)
+                if (generation != loadGeneration) return@launch
                 if (response.isSuccessful) {
                     val newPosts = response.body() ?: emptyList()
                     _topPosts.value = newPosts
@@ -108,9 +123,12 @@ class TopPostsViewModel(
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to refresh top posts", e)
-                _loadError.value = ApiErrors.messageFor(e, fallback = TOP_POSTS_LOAD_FAILED)
+                if (generation == loadGeneration) {
+                    _loadError.value = ApiErrors.messageFor(e, fallback = TOP_POSTS_LOAD_FAILED)
+                }
             } finally {
-                _isRefreshing.value = false
+                // A superseded load leaves the flags to the load that replaced it.
+                if (generation == loadGeneration) _isRefreshing.value = false
             }
         }
     }
@@ -122,7 +140,8 @@ class TopPostsViewModel(
 
         _isLoadingNextPage.value = true
 
-        viewModelScope.launch {
+        val generation = loadGeneration
+        loadJob = viewModelScope.launch {
             try {
                 val userSession = loadSession()
                 if (userSession == null) {
@@ -132,6 +151,7 @@ class TopPostsViewModel(
                 }
 
                 val response = api.getTopPosts(userSession.sessionToken, currentPage, _selectedPeriod.value.value)
+                if (generation != loadGeneration) return@launch
                 if (response.isSuccessful) {
                     val newPosts = response.body() ?: emptyList()
                     if (newPosts.isEmpty()) {
@@ -152,9 +172,11 @@ class TopPostsViewModel(
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch top posts", e)
-                _loadError.value = ApiErrors.messageFor(e, fallback = TOP_POSTS_LOAD_FAILED)
+                if (generation == loadGeneration) {
+                    _loadError.value = ApiErrors.messageFor(e, fallback = TOP_POSTS_LOAD_FAILED)
+                }
             } finally {
-                _isLoadingNextPage.value = false
+                if (generation == loadGeneration) _isLoadingNextPage.value = false
             }
         }
     }

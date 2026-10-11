@@ -2960,7 +2960,11 @@ def get_top_posts(request, batch):
         # would count each like once per edge.
         .annotate(like_count=Count('postlike', distinct=True))
         # Newest first among equal like counts, then the primary key, so the
-        # order is total and LIMIT/OFFSET batches never drop or repeat a post.
+        # order is deterministic for a given state of the data. That is all
+        # OFFSET paging can promise: a post whose likes change between two
+        # page requests can move across the boundary, so the next page may
+        # repeat or skip it. A stable paged snapshot comes with the
+        # pre-computed boards (#559).
         .order_by('-like_count', '-creation_time', 'post_identifier')
         .select_related('author')
         .prefetch_related('tags')

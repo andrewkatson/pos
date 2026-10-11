@@ -19,6 +19,10 @@ final class TopPostsViewModel: ObservableObject {
     @Published private(set) var selectedPeriod: TopPostPeriod = .week
     private var canLoadMore = true
     private var currentPage = 0
+    // Bumped when the period changes, so a load still in flight for the old
+    // period recognises it was superseded and drops its response instead of
+    // filling the list under the new selection.
+    private var loadGeneration = 0
 
     // Listens for `.postDeleted` so a post deleted from the feed itself or from
     // its detail view drops out of the list without reloading it.
@@ -46,8 +50,11 @@ final class TopPostsViewModel: ObservableObject {
         guard !isLoadingNextPage && canLoadMore else { return }
         isLoadingNextPage = true
 
+        // Captured now, not inside the Task: a period switch landing before the
+        // Task starts must still mark this load as superseded.
+        let generation = loadGeneration
         Task {
-            await loadPage(currentPage, replacingExisting: false)
+            await loadPage(currentPage, replacingExisting: false, generation: generation)
         }
     }
 
@@ -56,7 +63,12 @@ final class TopPostsViewModel: ObservableObject {
     func selectPeriod(_ period: TopPostPeriod) {
         guard period != selectedPeriod else { return }
         selectedPeriod = period
-        Task { await refreshFeed() }
+        // Supersede any in-flight load rather than going through refreshFeed(),
+        // whose loading guard would otherwise skip the reload entirely.
+        loadGeneration += 1
+        isLoadingNextPage = true
+        let generation = loadGeneration
+        Task { await loadPage(0, replacingExisting: true, generation: generation) }
     }
 
     /// Reloads the scoreboard from the first page. `async` so `.refreshable`
@@ -66,10 +78,10 @@ final class TopPostsViewModel: ObservableObject {
         guard !isLoadingNextPage else { return }
 
         isLoadingNextPage = true
-        await loadPage(0, replacingExisting: true)
+        await loadPage(0, replacingExisting: true, generation: loadGeneration)
     }
 
-    private func loadPage(_ page: Int, replacingExisting: Bool) async {
+    private func loadPage(_ page: Int, replacingExisting: Bool, generation: Int) async {
         do {
             guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                 NSLog("%@", "No active session — cannot fetch top posts")
@@ -81,6 +93,9 @@ final class TopPostsViewModel: ObservableObject {
                 sessionManagementToken: userSession.sessionToken,
                 batch: page,
                 period: selectedPeriod.rawValue)
+
+            // A newer load owns the list and the loading flag now.
+            guard generation == loadGeneration else { return }
 
             let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
 
@@ -96,6 +111,7 @@ final class TopPostsViewModel: ObservableObject {
             }
         } catch {
             NSLog("%@", "Failed to fetch top posts: \(error)")
+            guard generation == loadGeneration else { return }
         }
         isLoadingNextPage = false
     }

@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import FeedTab from './FeedTab'
+import type { FeedPost } from '../api/types'
 
 vi.mock('../api/client', () => ({
   apiClient: {
@@ -220,6 +221,34 @@ test('changing the Top period reloads the scoreboard (#558)', async () => {
 
   await userEvent.selectOptions(screen.getByLabelText('Top posts time period'), 'year')
   await waitFor(() => expect(mockGetTop).toHaveBeenCalledWith(0, 'year'))
+})
+
+test('a slow response for the previous period does not overwrite the new one (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  let resolveWeek: (posts: FeedPost[]) => void = () => {}
+  mockGetTop.mockImplementation((_batch, period) =>
+    period === 'week'
+      ? new Promise<FeedPost[]>(resolve => {
+          resolveWeek = resolve
+        })
+      : Promise.resolve([
+          { post_identifier: 'y1', image_url: 'http://img/y.jpg', author_username: 'yearly', caption: 'y' },
+        ]),
+  )
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalledWith(0, 'week'))
+  await userEvent.selectOptions(screen.getByLabelText('Top posts time period'), 'year')
+  expect(await screen.findByRole('button', { name: 'Open post by yearly' })).toBeInTheDocument()
+
+  // The Week request finally lands; it must be ignored.
+  resolveWeek([
+    { post_identifier: 'w1', image_url: 'http://img/w.jpg', author_username: 'weekly', caption: 'w' },
+  ])
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(screen.queryByRole('button', { name: 'Open post by weekly' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Open post by yearly' })).toBeInTheDocument()
 })
 
 test('the period picker and ranks are only on the Top feed (#558)', async () => {

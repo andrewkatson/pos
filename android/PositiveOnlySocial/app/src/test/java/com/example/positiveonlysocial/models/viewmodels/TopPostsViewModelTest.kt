@@ -6,7 +6,9 @@ import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.TopPostPeriod
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
@@ -17,7 +19,9 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.doSuspendableAnswer
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.stub
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
@@ -73,6 +77,30 @@ class TopPostsViewModelTest {
 
         assertEquals(TopPostPeriod.YEAR, viewModel.selectedPeriod.value)
         assertEquals(yearPosts, viewModel.topPosts.value)
+    }
+
+    @Test
+    fun `switching period mid-load reloads and drops the stale response`() = runTest {
+        // Park the week load in flight, then switch to the yearly board.
+        val weekPosts = listOf(Post("1", "url1", "caption1", "user1", 5))
+        val yearPosts = listOf(Post("9", "url9", "caption9", "user9", 50))
+        val gate = CompletableDeferred<Unit>()
+        api.stub {
+            onBlocking { getTopPosts("token123", 0, "week") } doSuspendableAnswer {
+                gate.await()
+                Response.success(weekPosts)
+            }
+        }
+        whenever(api.getTopPosts("token123", 0, "year")).thenReturn(Response.success(yearPosts))
+
+        viewModel.fetchTopPosts()
+        viewModel.selectPeriod(TopPostPeriod.YEAR)
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(yearPosts, viewModel.topPosts.value)
+        assertFalse(viewModel.isLoadingNextPage.value)
+        assertFalse(viewModel.isRefreshing.value)
     }
 
     @Test

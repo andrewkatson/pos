@@ -89,6 +89,26 @@ struct Positive_Only_SocialTests_TopPostsViewModel {
         #expect(stubAPI.getTopPostsCallCount == 2)
     }
 
+    @Test func testSelectPeriod_WhileLoading_StillReloadsNewPeriod() async throws {
+        let sut = TopPostsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "topSelectWhileLoading")
+        let token = try await registerUserAndGetToken(username: "viewer")
+        try signIn(token, username: "viewer", account: "topSelectWhileLoading")
+
+        // Given: The weekly board is still loading (the stub sleeps per call)
+        sut.fetchTopPosts()
+        #expect(sut.isLoadingNextPage == true)
+
+        // When: The user switches period mid-load
+        sut.selectPeriod(.year)
+        await yield()
+
+        // Then: The yearly board was still requested, rather than the switch
+        // being swallowed by the in-flight load's loading guard
+        #expect(stubAPI.getTopPostsCallCount == 2)
+        #expect(stubAPI.lastTopPostsPeriod == "year")
+        #expect(sut.isLoadingNextPage == false)
+    }
+
     @Test func testFetchTopPosts_Pagination_FetchesPagesAndStops() async throws {
         stubAPI.pageSize = 2
         let sut = TopPostsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "topPagination")

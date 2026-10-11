@@ -18,9 +18,18 @@ is a 400.
   (`TOP_POST_PERIOD_DAYS`). `PostLike` has no timestamp, so "top this week"
   means posts *created* in the last 7 days, ranked by their total likes.
 - **Ranking.** Like count descending, then newest first, then the post id, so
-  the order is total and batches never drop or repeat a post. Likes are counted
+  the order is deterministic for a given state of the data. Likes are counted
   `distinct`, since `visible_posts` joins the author's follow edges and would
   otherwise count each like once per edge.
+- **Paging is live, not a snapshot.** Batches are LIMIT/OFFSET over the current
+  ranking, so a post whose likes change between two page requests can move
+  across a page boundary and be repeated or skipped by the next page. Clients
+  number rows by list position, so ranks are approximate past the first page
+  while the board is moving. Serving pages from a stable snapshot comes with
+  pre-computation (issue #559).
+- **Switching period.** All three clients discard a response that arrives for
+  a period (or feed) the viewer has since switched away from, and always reload
+  page 0 for the newly selected period, even if a load was still in flight.
 - **Depth.** The board stops at `TOP_POSTS_LIMIT` (100). Batches past it are
   empty: it is a "top N", not a second endless feed.
 
