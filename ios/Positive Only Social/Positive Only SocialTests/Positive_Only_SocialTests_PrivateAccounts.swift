@@ -78,7 +78,7 @@ struct Positive_Only_SocialTests_PrivateAccounts {
             sessionManagementToken: viewerToken, username: "privateAuthor", batch: 0)
         #expect(try JSONDecoder().decode([Post].self, from: lockedGrid).isEmpty)
 
-        let requestsData = try await stubAPI.getFollowRequests(sessionManagementToken: authorToken, batch: 0)
+        let requestsData = try await stubAPI.getFollowRequests(sessionManagementToken: authorToken, after: nil)
         #expect(try JSONDecoder().decode([User].self, from: requestsData).map(\.username) == ["curiousViewer"])
         #expect(try await profile(authorToken, of: "privateAuthor").followRequestCount == 1)
 
@@ -177,7 +177,7 @@ struct Positive_Only_SocialTests_PrivateAccounts {
 
         _ = try await stubAPI.deleteUser(sessionManagementToken: viewerToken)
 
-        let requests = try await stubAPI.getFollowRequests(sessionManagementToken: authorToken, batch: 0)
+        let requests = try await stubAPI.getFollowRequests(sessionManagementToken: authorToken, after: nil)
         #expect(try JSONDecoder().decode([User].self, from: requests).isEmpty)
         #expect(try await profile(authorToken, of: "privateAuthor").followRequestCount == 0)
     }
@@ -225,7 +225,7 @@ struct Positive_Only_SocialTests_PrivateAccounts {
         await yield()
 
         #expect(sut.followRequestPending == false)
-        let remaining = try await stubAPI.getFollowRequests(sessionManagementToken: authorToken, batch: 0)
+        let remaining = try await stubAPI.getFollowRequests(sessionManagementToken: authorToken, after: nil)
         #expect(try JSONDecoder().decode([User].self, from: remaining).isEmpty)
     }
 
@@ -396,7 +396,7 @@ struct Positive_Only_SocialTests_PrivateAccounts {
         let minorYear = Calendar.current.component(.year, from: Date()) - 16
         _ = try await stubAPI.verifyIdentity(sessionManagementToken: viewerToken, dateOfBirth: "\(minorYear)-01-01")
 
-        let listed = try await stubAPI.getFollowRequests(sessionManagementToken: authorToken, batch: 0)
+        let listed = try await stubAPI.getFollowRequests(sessionManagementToken: authorToken, after: nil)
         #expect(try JSONDecoder().decode([User].self, from: listed).isEmpty)
         await #expect(throws: (any Error).self) {
             _ = try await stubAPI.approveFollowRequest(sessionManagementToken: authorToken, username: "curiousViewer")

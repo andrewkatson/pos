@@ -228,7 +228,7 @@ class FollowRequestListTests(PrivateAccountTestBase):
 
         self.assertEqual(self._list(self.author_header), [self.viewer_username])
 
-    def test_list_is_paginated(self):
+    def test_list_is_keyset_paginated(self):
         for i in range(3):
             fan = self.make_user_with_prefix(prefix=f'pager{i}')
             self._follow(self.local_username,
@@ -236,17 +236,18 @@ class FollowRequestListTests(PrivateAccountTestBase):
         url = reverse('get_follow_requests')
 
         with patch('user_system.views.FOLLOW_REQUEST_BATCH_SIZE', 2):
-            first = [row[Fields.username] for row in self.client.get(url, **self.author_header).json()]
-            second = [row[Fields.username] for row in
-                      self.client.get(url, {'batch': 1}, **self.author_header).json()]
-            third = self.client.get(url, {'batch': 2}, **self.author_header).json()
+            first = self.client.get(url, **self.author_header).json()
+            # Answer a row from the first page before fetching the next one: a
+            # cursor is unaffected, where an offset would now skip a request.
+            self._request_action('approve', first[0][Fields.username], self.author_header)
+            second = self.client.get(url, {'after': first[-1][Fields.request_id]}, **self.author_header).json()
+            third = self.client.get(url, {'after': second[-1][Fields.request_id]}, **self.author_header).json()
 
         self.assertEqual(len(first), 2)
         self.assertEqual(len(second), 1)
         self.assertEqual(third, [])
-        self.assertEqual(len(set(first + second)), 3)
-        self.assertEqual(self.client.get(url, {'batch': -1}, **self.author_header).status_code, 400)
-        self.assertEqual(self.client.get(url, {'batch': 'x'}, **self.author_header).status_code, 400)
+        self.assertEqual(len({row[Fields.username] for row in first + second}), 3)
+        self.assertEqual(self.client.get(url, {'after': 'x'}, **self.author_header).status_code, 400)
 
     def test_shadow_banned_requester_hidden_from_list_and_count(self):
         self._follow(self.local_username, self.viewer_header)

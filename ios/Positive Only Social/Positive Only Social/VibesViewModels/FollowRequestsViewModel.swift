@@ -31,7 +31,10 @@ final class FollowRequestsViewModel: ObservableObject {
     /// is unbounded, so the list is paginated).
     @Published private(set) var canLoadMore = false
     @Published private(set) var isLoadingMore = false
-    private var nextBatch = 0
+    /// Keyset cursor: the oldest request id loaded so far, kept even if that
+    /// row is answered meanwhile, so answering rows can't shift a later request
+    /// out of the next page.
+    private var nextCursor: Int?
     @Published var errorMessage: String?
     /// Usernames with an approve/deny in flight, so each row's buttons disable
     /// independently (several decisions may overlap).
@@ -61,9 +64,9 @@ final class FollowRequestsViewModel: ObservableObject {
                 NSLog("%@", "No active session found — cannot load follow requests")
                 return
             }
-            let data = try await api.getFollowRequests(sessionManagementToken: session.sessionToken, batch: 0)
+            let data = try await api.getFollowRequests(sessionManagementToken: session.sessionToken, after: nil)
             requests = try JSONDecoder().decode([User].self, from: data)
-            nextBatch = 1
+            nextCursor = requests.last?.requestId
             canLoadMore = !requests.isEmpty
             hasLoaded = true
         } catch {
@@ -84,11 +87,11 @@ final class FollowRequestsViewModel: ObservableObject {
         defer { isLoadingMore = false }
         do {
             guard let session = try loadSession() else { return }
-            let data = try await api.getFollowRequests(sessionManagementToken: session.sessionToken, batch: nextBatch)
+            let data = try await api.getFollowRequests(sessionManagementToken: session.sessionToken, after: nextCursor)
             let page = try JSONDecoder().decode([User].self, from: data)
             let shown = Set(requests.map(\.username))
             requests.append(contentsOf: page.filter { !shown.contains($0.username) })
-            nextBatch += 1
+            if let last = page.last?.requestId { nextCursor = last }
             canLoadMore = !page.isEmpty
         } catch {
             if !error.isCancellation {

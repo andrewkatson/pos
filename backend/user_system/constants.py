@@ -393,6 +393,9 @@ class Fields:
     is_private = "is_private"
     follow_request_pending = "follow_request_pending"
     follow_request_count = "follow_request_count"
+    # Each incoming follow request row's id, the keyset cursor for paging the
+    # list (`?after=<request_id>` returns older requests).
+    request_id = "request_id"
     category = "category"
     audience = "audience"
     # Whether the post's author has turned off commenting (issue #492) — set at

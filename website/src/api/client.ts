@@ -26,6 +26,7 @@ import type {
   DisableTotpResponse,
   FeedPost,
   FollowCategory,
+  FollowRequestRow,
   GoogleLoginRequest,
   HiddenComment,
   HiddenPost,
@@ -853,8 +854,9 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<UserSearchResult[]>('GET', '/users/following/', { auth: true })
   }
 
-  getFollowRequests(batch: number): Promise<UserSearchResult[]> {
-    return this.request<UserSearchResult[]>('GET', `/users/follow-requests/?batch=${batch}`, {
+  getFollowRequests(after?: number): Promise<FollowRequestRow[]> {
+    const query = after === undefined ? '' : `?after=${after}`
+    return this.request<FollowRequestRow[]>('GET', `/users/follow-requests/${query}`, {
       auth: true,
     })
   }

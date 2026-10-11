@@ -47,7 +47,7 @@ class StatefulStubbedApiPrivateAccountTest {
         assertTrue(api.getPostsForUser(viewerToken, "author", 0).body()!!.isEmpty())
         assertFalse(api.followUser(viewerToken, "author").isSuccessful)
 
-        assertEquals(listOf("viewer"), api.getFollowRequests(authorToken, 0).body()!!.map { it.username })
+        assertEquals(listOf("viewer"), api.getFollowRequests(authorToken, null).body()!!.map { it.username })
         assertEquals(1, api.getProfileDetails(authorToken, "author").body()!!.followRequestCount)
     }
 
@@ -63,7 +63,7 @@ class StatefulStubbedApiPrivateAccountTest {
         assertTrue(unlocked.isFollowing)
         assertEquals(1, unlocked.postCount)
         assertEquals(1, api.getPostsForUser(viewerToken, "author", 0).body()!!.size)
-        assertTrue(api.getFollowRequests(authorToken, 0).body()!!.isEmpty())
+        assertTrue(api.getFollowRequests(authorToken, null).body()!!.isEmpty())
     }
 
     @Test
@@ -102,7 +102,7 @@ class StatefulStubbedApiPrivateAccountTest {
 
         api.toggleBlock(authorToken, "viewer")
 
-        assertTrue(api.getFollowRequests(authorToken, 0).body()!!.isEmpty())
+        assertTrue(api.getFollowRequests(authorToken, null).body()!!.isEmpty())
     }
 
     @Test
@@ -155,7 +155,7 @@ class StatefulStubbedApiPrivateAccountTest {
 
         api.deleteUser(viewerToken)
 
-        assertTrue(api.getFollowRequests(authorToken, 0).body()!!.isEmpty())
+        assertTrue(api.getFollowRequests(authorToken, null).body()!!.isEmpty())
         assertEquals(0, api.getProfileDetails(authorToken, "author").body()!!.followRequestCount)
     }
 
@@ -167,14 +167,14 @@ class StatefulStubbedApiPrivateAccountTest {
         val minorYear = java.time.LocalDate.now().year - 16
         api.verifyIdentity(viewerToken, com.example.positiveonlysocial.data.model.IdentityVerificationRequest("$minorYear-01-01"))
 
-        assertTrue(api.getFollowRequests(authorToken, 0).body()!!.isEmpty())
+        assertTrue(api.getFollowRequests(authorToken, null).body()!!.isEmpty())
         assertFalse(api.approveFollowRequest(authorToken, "viewer").isSuccessful)
         api.setAccountPrivacy(authorToken, SetAccountPrivacyRequest(false))
         assertEquals(0, api.getProfileDetails(authorToken, "author").body()!!.followerCount)
     }
 
     @Test
-    fun `follow requests are paginated`() = runTest {
+    fun `follow requests page by request-id cursor, unaffected by answering rows`() = runTest {
         val api = StatefulStubbedAPI()
         api.followRequestBatchSize = 1
         val (authorToken, viewerToken) = privateAuthorAndViewer(api)
@@ -182,8 +182,11 @@ class StatefulStubbedApiPrivateAccountTest {
         api.followUser(viewerToken, "author")
         api.followUser(otherToken, "author")
 
-        assertEquals(listOf("other"), api.getFollowRequests(authorToken, 0).body()!!.map { it.username })
-        assertEquals(listOf("viewer"), api.getFollowRequests(authorToken, 1).body()!!.map { it.username })
-        assertTrue(api.getFollowRequests(authorToken, 2).body()!!.isEmpty())
+        val first = api.getFollowRequests(authorToken, null).body()!!
+        assertEquals(listOf("other"), first.map { it.username })
+        api.approveFollowRequest(authorToken, "other") // answering a row doesn't shift the cursor
+        val second = api.getFollowRequests(authorToken, first.last().requestId).body()!!
+        assertEquals(listOf("viewer"), second.map { it.username })
+        assertTrue(api.getFollowRequests(authorToken, second.last().requestId).body()!!.isEmpty())
     }
 }

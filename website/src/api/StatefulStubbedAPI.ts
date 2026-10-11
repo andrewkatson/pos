@@ -34,6 +34,7 @@ import type {
   DisableTotpResponse,
   FeedPost,
   FollowCategory,
+  FollowRequestRow,
   GoogleLoginRequest,
   HiddenComment,
   HiddenPost,
@@ -300,6 +301,10 @@ function ageFromDateOfBirth(dateOfBirth: string): number | null {
 
 export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   private users: UserMock[] = []
+  /** Each pending request's id, keyed `${ownerId}|${requesterId}` — the keyset
+   * cursor the backend pages the request list by (issue #96). */
+  private followRequestIds = new Map<string, number>()
+  private nextFollowRequestId = 1
   private sessions: SessionMock[] = []
   private loginCookies: LoginCookieMock[] = []
   private twoFactorChallenges: TwoFactorChallengeMock[] = []
@@ -1913,6 +1918,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         throw new ApiError(400, 'Follow already requested')
       }
       target.followRequests.set(user.id, followCategory)
+      this.followRequestIds.set(`${target.id}|${user.id}`, this.nextFollowRequestId++)
       return { message: 'Follow requested', follow_category: null, follow_request_pending: true }
     }
     user.following.add(target.id)
@@ -1952,19 +1958,27 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return requester
   }
 
-  async getFollowRequests(batch: number): Promise<UserSearchResult[]> {
+  async getFollowRequests(after?: number): Promise<FollowRequestRow[]> {
     const user = this.requireUser()
-    // Newest first and paginated, like the backend; cross-band requesters are
-    // hidden there too.
-    const requesters = [...user.followRequests.keys()]
-      .reverse()
-      .map((id) => this.users.find((u) => u.id === id))
-      .filter((u): u is UserMock => u !== undefined && this.inSameAgeBand(user, u))
-    return this.batch(requesters, batch, FOLLOW_REQUEST_BATCH_SIZE)
-      .map((u) => ({
-        username: u.username,
-        identity_is_verified: u.isVerified,
-        ...this.authorAvatarFields(u.id),
+    // Newest first and keyset-paginated by request id, like the backend;
+    // cross-band requesters are hidden there too.
+    return [...user.followRequests.keys()]
+      .map((id) => ({
+        requester: this.users.find((u) => u.id === id),
+        requestId: this.followRequestIds.get(`${user.id}|${id}`) ?? 0,
+      }))
+      .filter(
+        (row): row is { requester: UserMock; requestId: number } =>
+          row.requester !== undefined && this.inSameAgeBand(user, row.requester),
+      )
+      .filter((row) => after === undefined || row.requestId < after)
+      .sort((a, b) => b.requestId - a.requestId)
+      .slice(0, FOLLOW_REQUEST_BATCH_SIZE)
+      .map(({ requester, requestId }) => ({
+        username: requester.username,
+        identity_is_verified: requester.isVerified,
+        request_id: requestId,
+        ...this.authorAvatarFields(requester.id),
       }))
   }
 

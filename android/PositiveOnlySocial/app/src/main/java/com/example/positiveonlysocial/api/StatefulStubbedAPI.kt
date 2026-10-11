@@ -59,6 +59,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private val POST_BATCH_SIZE = 10
     // Incoming follow requests per page (issue #96), matching the backend.
     var followRequestBatchSize = 30
+    // Each pending request's id, keyed "ownerId|requesterId" — the keyset cursor
+    // the backend pages the request list by.
+    private val followRequestIds = mutableMapOf<String, Long>()
+    private var nextFollowRequestId = 1L
     private val COMMENT_BATCH_SIZE = 10
     private val LIKE_BATCH_SIZE = 10
 
@@ -1457,6 +1461,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             }
             if (target.followRequests.containsKey(user.id)) return error(400, "Follow already requested")
             target.followRequests[user.id] = FollowCategory.FOLLOWING.value
+            followRequestIds["${target.id}|${user.id}"] = nextFollowRequestId++
             return Response.success(
                 GenericResponse("Follow requested", null, null, followRequestPending = true))
         }
@@ -1482,17 +1487,23 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         }
     }
 
-    override suspend fun getFollowRequests(token: String, batch: Int): Response<List<User>> {
+    override suspend fun getFollowRequests(token: String, after: Long?): Response<List<User>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
-        // Newest first and paginated, like the backend; cross-band requesters are
-        // hidden there too.
-        val requesters = user.followRequests.keys.reversed()
-            .mapNotNull { id -> users.find { it.id == id } }
-            .filter { inSameAgeBand(user, it) }
-        return Response.success(
-            getBatch(requesters, batch, followRequestBatchSize)
-                .map { User(it.username, it.isVerified, approvedAvatarFor(it.id), approvedAvatarFor(it.id)) }
-        )
+        // Newest first and keyset-paginated by request id, like the backend;
+        // cross-band requesters are hidden there too.
+        val rows = user.followRequests.keys
+            .mapNotNull { id ->
+                val requester = users.find { it.id == id } ?: return@mapNotNull null
+                requester to (followRequestIds["${user.id}|$id"] ?: 0L)
+            }
+            .filter { (requester, requestId) ->
+                inSameAgeBand(user, requester) && (after == null || requestId < after)
+            }
+            .sortedByDescending { it.second }
+            .take(followRequestBatchSize)
+        return Response.success(rows.map { (u, requestId) ->
+            User(u.username, u.isVerified, approvedAvatarFor(u.id), approvedAvatarFor(u.id), requestId = requestId)
+        })
     }
 
     /** Mirrors visibility.in_same_age_band (issue #329): verified minors form

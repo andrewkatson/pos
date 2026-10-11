@@ -4483,34 +4483,34 @@ def get_follow_requests(request):
     surfaced (follow_user already refuses cross-band follows, but an account can
     change band by verifying its age after asking).
 
-    Paginated by an optional `?batch=` query parameter (default 0, the newest
-    page) because a popular account's backlog is unbounded; older clients that
-    send no parameter simply get the first page."""
+    Keyset-paginated, newest first: each row carries its `request_id`, and
+    `?after=<request_id>` returns the next FOLLOW_REQUEST_BATCH_SIZE requests
+    older than it (no parameter is the first page). A cursor, not an offset,
+    because the owner answers rows while paging: removing an answered row from
+    an offset page would shift a later request into a page already read and
+    skip it."""
     logger.info("Endpoint get_follow_requests invoked by IP or User")
+    after = request.GET.get('after')
     try:
-        batch = int(request.GET.get('batch', 0))
+        after = int(after) if after not in (None, '') else None
     except (TypeError, ValueError):
-        return log_and_return_json("get_follow_requests", {'error': "Invalid batch parameter"}, status=400)
-    if batch < 0:
-        return log_and_return_json("get_follow_requests", {'error': "Invalid batch parameter"}, status=400)
+        return log_and_return_json("get_follow_requests", {'error': "Invalid after parameter"}, status=400)
 
-    incoming = FollowRequest.objects.filter(user_to=request.user)
-    # Ordered via a subquery, as _liker_batch does, rather than by the reverse
-    # relation: ordering across follow_requests_sent would join every request
-    # the requester ever sent, not just the one to the caller.
-    requested_at = incoming.filter(user_from=OuterRef('pk')).values('created')[:1]
-    requesters = searchable_users(
-        PositiveOnlySocialUser.objects.filter(pk__in=incoming.values('user_from_id')),
-        request.user,
-    ).annotate(requested_at=Subquery(requested_at)).order_by('-requested_at', 'username')
+    incoming = FollowRequest.objects.filter(
+        user_to=request.user,
+        user_from__in=searchable_users(PositiveOnlySocialUser.objects.all(), request.user),
+    ).select_related('user_from').order_by('-pk')
+    if after is not None:
+        incoming = incoming.filter(pk__lt=after)
 
     users_data = [
         {
-            Fields.username: user.username,
-            Fields.identity_is_verified: user.identity_is_verified,
-            **_author_avatar_fields(user),
+            Fields.username: follow_request.user_from.username,
+            Fields.identity_is_verified: follow_request.user_from.identity_is_verified,
+            Fields.request_id: follow_request.pk,
+            **_author_avatar_fields(follow_request.user_from),
         }
-        for user in get_queryset_batch(requesters, batch, FOLLOW_REQUEST_BATCH_SIZE)
+        for follow_request in incoming[:FOLLOW_REQUEST_BATCH_SIZE]
     ]
     logger.info(f"Get follow requests successful: count: {len(users_data)} for user_id: {request.user.id}")
     return log_and_return_json("get_follow_requests", users_data, safe=False)
@@ -4548,37 +4548,49 @@ FOLLOW_REQUEST_BULK_BATCH_SIZE = 500
 
 def _approve_all_follow_requests(owner):
     """Turn every pending request to `owner` into the follow edge it asked for
-    (issue #96), a bounded chunk at a time: each round reads at most
-    FOLLOW_REQUEST_BULK_BATCH_SIZE requests, bulk-creates their follows and
-    deletes them, so memory stays flat however large the backlog and the work is
-    a handful of queries per chunk rather than a round trip per request. Called
-    with the owner's row locked. ignore_conflicts keeps an edge that already
-    exists, just as _approve_follow_request's get_or_create does.
+    (issue #96), one bounded chunk per committed transaction: each round locks
+    the owner, reads at most FOLLOW_REQUEST_BULK_BATCH_SIZE requests,
+    bulk-creates their follows and deletes them. Memory stays flat and no single
+    transaction (or hold on the owner's row) grows with the backlog. If the
+    owner goes private again part-way through, the rest stay pending, which is
+    exactly right for a private account. ignore_conflicts keeps an edge that
+    already exists, just as _approve_follow_request's get_or_create does.
 
     Only requesters still in the owner's age band are approved (issue #329): a
     requester can verify into the other band after asking, and approving them
-    one at a time is already refused. Their requests are deleted with the rest
-    — they are hidden from the owner's list and could never be approved."""
+    one at a time is already refused. Each chunk's requesters are row-locked
+    before their band is read, so a verification can't move one across between
+    the check and the insert; a requester whose row is busy right now (SKIP
+    LOCKED — the owner is already locked, so waiting could deadlock) is treated
+    as ineligible. Every request in the chunk is deleted either way: the
+    ineligible ones are hidden from the owner's list and could never be
+    approved, and the account is public now, so anyone dropped can just follow."""
     while True:
-        chunk = list(
-            FollowRequest.objects.filter(user_to=owner).order_by('pk')
-            .values_list('pk', 'user_from_id', 'category')[:FOLLOW_REQUEST_BULK_BATCH_SIZE]
-        )
-        if not chunk:
-            return
-        eligible = set(
-            same_age_band_users(
-                get_user_model().objects.filter(pk__in=[requester_id for _, requester_id, _ in chunk]),
-                owner,
-            ).values_list('pk', flat=True)
-        )
-        UserFollow.objects.bulk_create(
-            [UserFollow(user_from_id=requester_id, user_to=owner, category=category)
-             for _, requester_id, category in chunk if requester_id in eligible],
-            ignore_conflicts=True,
-        )
-        # Every request in the chunk goes, the ineligible cross-band ones too.
-        FollowRequest.objects.filter(pk__in=[pk for pk, _, _ in chunk]).delete()
+        with transaction.atomic():
+            locked_owner = get_user_model().objects.select_for_update(no_key=True).get(pk=owner.pk)
+            if locked_owner.is_private:
+                return
+            chunk = list(
+                FollowRequest.objects.filter(user_to=locked_owner).order_by('pk')
+                .values_list('pk', 'user_from_id', 'category')[:FOLLOW_REQUEST_BULK_BATCH_SIZE]
+            )
+            if not chunk:
+                return
+            requester_ids = [requester_id for _, requester_id, _ in chunk]
+            locked_ids = list(
+                get_user_model().objects.select_for_update(no_key=True, skip_locked=True)
+                .filter(pk__in=requester_ids).order_by('pk').values_list('pk', flat=True)
+            )
+            eligible = set(
+                same_age_band_users(get_user_model().objects.filter(pk__in=locked_ids), locked_owner)
+                .values_list('pk', flat=True)
+            )
+            UserFollow.objects.bulk_create(
+                [UserFollow(user_from_id=requester_id, user_to=locked_owner, category=category)
+                 for _, requester_id, category in chunk if requester_id in eligible],
+                ignore_conflicts=True,
+            )
+            FollowRequest.objects.filter(pk__in=[pk for pk, _, _ in chunk]).delete()
 
 
 @csrf_exempt
@@ -4590,12 +4602,15 @@ def approve_follow_request(request, username):
     follower and can see the caller's posts."""
     logger.info("Endpoint approve_follow_request invoked by IP or User")
     with transaction.atomic():
-        # Lock the owner's row, which toggle_block also locks, then read the
-        # request under that lock: a block between the two people either
-        # deleted it already (nothing to approve) or waits until the follow edge
-        # exists and then removes it. Approval can never resurrect a request a
-        # block dropped.
-        _lock_users(request.user)
+        # Lock both accounts in primary-key order (as toggle_block does), then
+        # read the request and the requester's age band under those locks: a
+        # block between the two people either deleted the request already or
+        # waits until the follow edge exists and then removes it, and an
+        # identity verification moving the requester into the other band can't
+        # land between the band check and the insert.
+        requester = (get_user_with_username(username)
+                     if is_valid_pattern(username, Patterns.username) else None)
+        _lock_users(request.user, *([requester] if requester else []))
         follow_request, error = _incoming_follow_request(request, "approve_follow_request", username)
         if error is not None:
             return error
@@ -4678,8 +4693,12 @@ def set_account_privacy(request):
         user = get_user_model().objects.select_for_update(no_key=True).get(pk=request.user.pk)
         user.is_private = is_private
         user.save(update_fields=['is_private'])
-        if not is_private:
-            _approve_all_follow_requests(user)
+    # Converting the backlog runs after the setting has committed, a chunk per
+    # short transaction, so the owner's row is never held across the whole of
+    # it. Requests waiting between chunks on a now-public account are harmless:
+    # they grant no visibility, and following directly simply works.
+    if not is_private:
+        _approve_all_follow_requests(user)
     logger.info(f"Account privacy set to {is_private} for user_id: {user.id}")
     return log_and_return_json("set_account_privacy", {Fields.is_private: is_private})
 

@@ -96,8 +96,9 @@ import Foundation
     // Relationship-category endpoint and query key (issue #392).
     static let pathSegmentCategory = "category"
     static let queryKeyCategory = "category"
-    // Page index for the paginated follow-request list (issue #96).
-    static let queryKeyBatch = "batch"
+    // Keyset cursor for the follow-request list (issue #96): the request id
+    // of the oldest row loaded so far.
+    static let queryKeyAfter = "after"
     // POST login/google/ — exchange a Google ID token for a session (issue #10).
     static let pathSegmentGoogle = "google"
     static let pathSegmentFollowers = "followers"

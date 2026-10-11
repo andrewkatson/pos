@@ -565,6 +565,12 @@ export interface UserSearchResult extends AuthorAvatarFields {
   identity_is_verified: boolean
 }
 
+/** One incoming follow request (issue #96): the requester plus the request's
+ * id, which is the keyset cursor for the next page (`?after=<request_id>`). */
+export interface FollowRequestRow extends UserSearchResult {
+  request_id: number
+}
+
 /**
  * The part of a profile that is about the profile's owner rather than about
  * whoever is looking: what `GET /public/profiles/<username>/details/` serves for

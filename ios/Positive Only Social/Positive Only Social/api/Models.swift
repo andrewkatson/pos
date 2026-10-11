@@ -517,6 +517,9 @@ struct User: Codable, Identifiable, Hashable {
     /// The photo's BlurHash (issue #460), decoded into a blurred preview shown
     /// while it loads. Nil when there is no photo or on older responses.
     var authorProfileImageBlurHash: String? = nil
+    /// Present only on follow-request rows (issue #96): the request's id, the
+    /// keyset cursor for loading the next page.
+    var requestId: Int? = nil
 
     init(username: String, identityIsVerified: Bool,
          authorProfileImageUrl: String? = nil, authorProfileImageOriginalUrl: String? = nil,
@@ -534,6 +537,7 @@ struct User: Codable, Identifiable, Hashable {
         case authorProfileImageUrl = "author_profile_image_url"
         case authorProfileImageOriginalUrl = "author_profile_image_original_url"
         case authorProfileImageBlurHash = "author_profile_image_blurhash"
+        case requestId = "request_id"
     }
 
     init(from decoder: Decoder) throws {
@@ -543,6 +547,7 @@ struct User: Codable, Identifiable, Hashable {
         authorProfileImageUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageUrl)
         authorProfileImageOriginalUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageOriginalUrl)
         authorProfileImageBlurHash = try container.decodeIfPresent(String.self, forKey: .authorProfileImageBlurHash)
+        requestId = try container.decodeIfPresent(Int.self, forKey: .requestId)
     }
 }
 

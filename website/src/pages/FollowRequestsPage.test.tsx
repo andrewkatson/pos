@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, test, expect } from 'vitest'
 import FollowRequestsPage from './FollowRequestsPage'
-import type { UserSearchResult } from '../api/types'
+import type { FollowRequestRow } from '../api/types'
 
 vi.mock('../api/client', () => ({
   apiClient: {
@@ -20,9 +20,9 @@ const mockGetRequests = vi.mocked(apiClient.getFollowRequests)
 const mockApprove = vi.mocked(apiClient.approveFollowRequest)
 const mockDeny = vi.mocked(apiClient.denyFollowRequest)
 
-const requests: UserSearchResult[] = [
-  { username: 'alice', identity_is_verified: true },
-  { username: 'bob', identity_is_verified: false },
+const requests: FollowRequestRow[] = [
+  { username: 'alice', identity_is_verified: true, request_id: 9 },
+  { username: 'bob', identity_is_verified: false, request_id: 8 },
 ]
 
 function renderPage() {
@@ -110,7 +110,10 @@ test('a failed load shows the error, not the empty state', async () => {
 test('load more fetches the next page and skips rows already shown', async () => {
   mockGetRequests
     .mockResolvedValueOnce(requests)
-    .mockResolvedValueOnce([{ username: 'bob', identity_is_verified: false }, { username: 'carol', identity_is_verified: false }])
+    .mockResolvedValueOnce([
+      { username: 'bob', identity_is_verified: false, request_id: 8 },
+      { username: 'carol', identity_is_verified: false, request_id: 7 },
+    ])
     .mockResolvedValueOnce([])
   renderPage()
   await screen.findByRole('link', { name: 'alice' })
@@ -118,7 +121,8 @@ test('load more fetches the next page and skips rows already shown', async () =>
   await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
 
   expect(await screen.findByRole('link', { name: 'carol' })).toBeInTheDocument()
-  expect(mockGetRequests).toHaveBeenLastCalledWith(1)
+  // Keyset cursor: the oldest request id loaded so far.
+  expect(mockGetRequests).toHaveBeenLastCalledWith(8)
   expect(screen.getAllByRole('link', { name: 'bob' })).toHaveLength(1)
 
   await userEvent.click(screen.getByRole('button', { name: 'Load more' }))

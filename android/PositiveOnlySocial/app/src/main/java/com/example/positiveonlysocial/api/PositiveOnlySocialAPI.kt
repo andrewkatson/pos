@@ -381,12 +381,14 @@ interface PositiveOnlySocialAPI {
     // Private accounts & follow requests (issue #96). Following a private account
     // files a request (followUser's followRequestPending); its owner lists,
     // approves and denies them, and the requester can cancel.
-    // One page of incoming requests, newest first; an empty page is the end
-    // (a popular account's backlog is unbounded, so the list is paginated).
+    // One page of incoming requests, newest first (a popular account's backlog
+    // is unbounded, so the list is paginated). Pass the last row's requestId as
+    // `after` for the next, older page; null is the first page, an empty page
+    // the end. Retrofit omits the query when null.
     @GET("users/follow-requests/")
     suspend fun getFollowRequests(
         @Header("Authorization") token: String,
-        @Query("batch") batch: Int = 0
+        @Query("after") after: Long? = null
     ): Response<List<User>>
 
     @POST("users/{username}/follow-request/approve/")

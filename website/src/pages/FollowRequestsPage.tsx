@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
-import type { UserSearchResult } from '../api/types'
+import type { FollowRequestRow } from '../api/types'
 import Avatar from '../components/Avatar'
 import './MainApp.css'
 
@@ -28,14 +28,16 @@ function FollowRequestsView() {
     }
   }, [])
 
-  const [requests, setRequests] = useState<UserSearchResult[]>([])
+  const [requests, setRequests] = useState<FollowRequestRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   // Set once a load succeeds, so a failed load shows only its error — never the
   // "no one is waiting" empty state for a list that was never fetched.
   const [hasLoaded, setHasLoaded] = useState(false)
-  // The list is paginated (a popular account's backlog is unbounded): the next
-  // page to fetch, and whether the last one came back non-empty.
-  const [nextPage, setNextPage] = useState(0)
+  // The list is keyset-paginated (a popular account's backlog is unbounded):
+  // the cursor for the next page is the oldest request id loaded so far, kept
+  // even if that row is answered meanwhile, and whether the last page was
+  // non-empty.
+  const [nextCursor, setNextCursor] = useState<number | undefined>(undefined)
   const [canLoadMore, setCanLoadMore] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -46,10 +48,10 @@ function FollowRequestsView() {
   const load = useCallback(async () => {
     try {
       if (isMounted.current) setErrorMessage(null)
-      const users = await apiClient.getFollowRequests(0)
+      const users = await apiClient.getFollowRequests()
       if (!isMounted.current) return
       setRequests(users)
-      setNextPage(1)
+      setNextCursor(users[users.length - 1]?.request_id)
       setCanLoadMore(users.length > 0)
       setHasLoaded(true)
     } catch (err) {
@@ -67,14 +69,14 @@ function FollowRequestsView() {
     setIsLoadingMore(true)
     setErrorMessage(null)
     try {
-      const users = await apiClient.getFollowRequests(nextPage)
+      const users = await apiClient.getFollowRequests(nextCursor)
       if (!isMounted.current) return
       // Skip anyone already listed: answering rows shifts later pages up.
       setRequests(current => [
         ...current,
         ...users.filter(user => !current.some(existing => existing.username === user.username)),
       ])
-      setNextPage(page => page + 1)
+      if (users.length > 0) setNextCursor(users[users.length - 1].request_id)
       setCanLoadMore(users.length > 0)
     } catch (err) {
       if (isMounted.current) setErrorMessage((err as ApiError).message ?? 'Failed to load.')

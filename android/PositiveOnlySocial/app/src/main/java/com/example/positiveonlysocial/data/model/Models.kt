@@ -420,7 +420,10 @@ data class User(
     @SerializedName("author_profile_image_url") val authorProfileImageUrl: String? = null,
     @SerializedName("author_profile_image_original_url") val authorProfileImageOriginalUrl: String? = null,
     // That photo's BlurHash (issue #460), shown blurred while the avatar loads.
-    @SerializedName("author_profile_image_blurhash") val authorProfileImageBlurHash: String? = null
+    @SerializedName("author_profile_image_blurhash") val authorProfileImageBlurHash: String? = null,
+    // Present only on follow-request rows (issue #96): the request's id, the
+    // keyset cursor for loading the next page.
+    @SerializedName("request_id") val requestId: Long? = null
 )
 
 // Renamed from ProfileDto to ProfileDetailsResponse to match Swift

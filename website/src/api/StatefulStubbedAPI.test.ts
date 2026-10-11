@@ -1174,10 +1174,10 @@ test('following a private account files a request and hides its posts until appr
   await expect(api.followUser('author')).rejects.toThrow('Follow already requested')
 
   await api.login({ username_or_email: 'author', password: 'password123' })
-  expect((await api.getFollowRequests(0)).map((u) => u.username)).toEqual(['viewer'])
+  expect((await api.getFollowRequests()).map((u) => u.username)).toEqual(['viewer'])
   expect((await api.getProfile('author')).follow_request_count).toBe(1)
   await api.approveFollowRequest('viewer')
-  expect(await api.getFollowRequests(0)).toEqual([])
+  expect(await api.getFollowRequests()).toEqual([])
 
   await api.login({ username_or_email: 'viewer', password: 'password123' })
   const unlocked = await api.getProfile('author')
@@ -1298,7 +1298,7 @@ test('deleting a requester drops their pending follow request', async () => {
   await api.deleteAccount()
 
   await api.login({ username_or_email: 'author', password: 'password123' })
-  expect(await api.getFollowRequests(0)).toEqual([])
+  expect(await api.getFollowRequests()).toEqual([])
   expect((await api.getProfile('author')).follow_request_count).toBe(0)
 })
 
@@ -1316,9 +1316,26 @@ test('a requester who verified into the other age band cannot be approved', asyn
   await api.verifyIdentity(`${new Date().getFullYear() - 16}-01-01`) // viewer is a minor
 
   await api.login({ username_or_email: 'author', password: 'password123' })
-  expect(await api.getFollowRequests(0)).toEqual([])
+  expect(await api.getFollowRequests()).toEqual([])
   await expect(api.approveFollowRequest('viewer')).rejects.toThrow('User does not exist')
 
   await api.setAccountPrivacy(false)
   expect((await api.getProfile('author')).follower_count).toBe(0)
+})
+
+test('follow requests page by request-id cursor, unaffected by answering rows', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  await api.setAccountPrivacy(true)
+  for (const name of ['r1', 'r2', 'r3']) {
+    await register(api, name)
+    await api.followUser('author')
+  }
+  await api.login({ username_or_email: 'author', password: 'password123' })
+
+  const first = await api.getFollowRequests()
+  expect(first.map((r) => r.username)).toEqual(['r3', 'r2', 'r1'])
+  await api.approveFollowRequest('r3')
+  const older = await api.getFollowRequests(first[1].request_id)
+  expect(older.map((r) => r.username)).toEqual(['r1'])
 })

@@ -64,7 +64,10 @@ class FollowRequestsViewModel(
     private val _canLoadMore = MutableStateFlow(false)
     val canLoadMore: StateFlow<Boolean> = _canLoadMore.asStateFlow()
     private val _isLoadingMore = MutableStateFlow(false)
-    private var nextBatch = 0
+    // Keyset cursor: the oldest request id loaded so far, kept even if that row
+    // is answered meanwhile, so answering rows can't shift a later request out
+    // of the next page.
+    private var nextCursor: Long? = null
 
     /**
      * Usernames with an approve/deny in flight, so each row's buttons disable
@@ -93,11 +96,11 @@ class FollowRequestsViewModel(
                     Log.e(TAG, "No active session found — cannot load follow requests")
                     return@launch
                 }
-                val response = api.getFollowRequests(userSession.sessionToken, 0)
+                val response = api.getFollowRequests(userSession.sessionToken, null)
                 if (response.isSuccessful) {
                     val page = response.body() ?: emptyList()
                     _requests.value = page
-                    nextBatch = 1
+                    nextCursor = page.lastOrNull()?.requestId
                     _canLoadMore.value = page.isNotEmpty()
                     _hasLoaded.value = true
                 } else {
@@ -122,12 +125,12 @@ class FollowRequestsViewModel(
         viewModelScope.launch {
             try {
                 val userSession = session() ?: return@launch
-                val response = api.getFollowRequests(userSession.sessionToken, nextBatch)
+                val response = api.getFollowRequests(userSession.sessionToken, nextCursor)
                 if (response.isSuccessful) {
                     val page = response.body() ?: emptyList()
                     val shown = _requests.value.map { it.username }.toSet()
                     _requests.value = _requests.value + page.filterNot { it.username in shown }
-                    nextBatch += 1
+                    page.lastOrNull()?.requestId?.let { nextCursor = it }
                     _canLoadMore.value = page.isNotEmpty()
                 } else {
                     _errorMessage.value = ApiErrors.messageFor(response, fallback = "Request failed. Please try again.")

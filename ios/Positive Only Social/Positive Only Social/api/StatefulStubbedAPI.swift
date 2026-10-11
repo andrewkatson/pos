@@ -76,6 +76,8 @@ fileprivate struct MockFollowRequest {
     let userFromId: UUID
     let userToId: UUID
     var category: String = FollowCategory.following.rawValue
+    // Monotonic like the backend's primary key: the list's keyset cursor.
+    var id: Int = 0
 }
 
 fileprivate struct MockUserFollow {
@@ -287,6 +289,7 @@ final class StatefulStubbedAPI: Networking {
     public var pageSize = 2 // Make this small for easier testing
     // Incoming follow requests per page (issue #96), matching the backend.
     public var followRequestPageSize = 30
+    private var nextFollowRequestId = 1
     public private(set) var getPostsInFeedCallCount = 0
     public private(set) var getPostsForFollowedUsersCallCount = 0
     public private(set) var getPostsForUserCallCount = 0
@@ -1976,7 +1979,9 @@ final class StatefulStubbedAPI: Networking {
                 throw APIError.serverError(statusCode: 400, serverMessage: "Follow already requested")
             }
             followRequests.append(MockFollowRequest(
-                userFromId: currentUser.id, userToId: userToFollow.id, category: followCategory))
+                userFromId: currentUser.id, userToId: userToFollow.id, category: followCategory,
+                id: nextFollowRequestId))
+            nextFollowRequestId += 1
             return try createSerializedResponse(fields: Fields(
                 message: "Follow requested", follow_category: nil, follow_request_pending: true))
         }
@@ -2012,31 +2017,34 @@ final class StatefulStubbedAPI: Networking {
         return request
     }
 
-    func getFollowRequests(sessionManagementToken: String, batch: Int) async throws -> Data {
+    func getFollowRequests(sessionManagementToken: String, after: Int?) async throws -> Data {
         await simulateNetwork()
         guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
             throw APIError.badServerResponse(statusCode: 400)
         }
-        // Newest first and paginated, like the backend; cross-band requesters
-        // are hidden there too.
-        let allRequesters = followRequests
-            .filter { $0.userToId == currentUser.id }
-            .reversed()
-            .compactMap { request in users.first(where: { $0.id == request.userFromId }) }
-            .filter { inSameAgeBand(currentUser, $0) }
-        let start = min(batch * followRequestPageSize, allRequesters.count)
-        let end = min(start + followRequestPageSize, allRequesters.count)
-        let requesters = Array(allRequesters[start..<end])
+        // Newest first and keyset-paginated by request id, like the backend;
+        // cross-band requesters are hidden there too.
+        let rows = followRequests
+            .filter { $0.userToId == currentUser.id && (after == nil || $0.id < after!) }
+            .sorted { $0.id > $1.id }
+            .compactMap { request -> (MockUser, Int)? in
+                guard let requester = users.first(where: { $0.id == request.userFromId }),
+                      inSameAgeBand(currentUser, requester) else { return nil }
+                return (requester, request.id)
+            }
+            .prefix(followRequestPageSize)
 
         struct Fields: Codable {
             let username: String
             let identity_is_verified: Bool
+            let request_id: Int
             let author_profile_image_url: String?
             let author_profile_image_original_url: String?
         }
-        let fieldObjects = requesters.map { user -> Fields in
+        let fieldObjects = rows.map { user, requestId -> Fields in
             let avatar = user.profileImageStatus == "approved" ? user.profileImageUrl : nil
             return Fields(username: user.username, identity_is_verified: user.identityIsVerified,
+                          request_id: requestId,
                           author_profile_image_url: avatar, author_profile_image_original_url: avatar)
         }
         return try createSerializedListResponse(fieldsList: fieldObjects)

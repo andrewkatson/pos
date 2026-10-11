@@ -20,6 +20,7 @@ import type {
   DisableTotpResponse,
   FeedPost,
   FollowCategory,
+  FollowRequestRow,
   GoogleLoginRequest,
   HiddenComment,
   HiddenPost,
@@ -235,8 +236,9 @@ export interface PositiveOnlySocialAPI {
   /** Private accounts (issue #96). Following a private account files a
    * request (see followUser's follow_request_pending); its owner lists, approves
    * and denies them, and the requester can cancel. */
-  /** One page of incoming requests, newest first; an empty page is the end. */
-  getFollowRequests(batch: number): Promise<UserSearchResult[]>
+  /** One page of incoming requests, newest first. Pass the last row's
+   * `request_id` as `after` for the next (older) page; an empty page is the end. */
+  getFollowRequests(after?: number): Promise<FollowRequestRow[]>
   approveFollowRequest(username: string): Promise<MessageResponse>
   denyFollowRequest(username: string): Promise<MessageResponse>
   cancelFollowRequest(username: string): Promise<MessageResponse>
