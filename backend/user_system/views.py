@@ -4224,7 +4224,7 @@ def follow_user(request, username_to_follow):
         # the same row lock, so an account cannot go private between the check
         # and the write (gaining an unapproved follower) or go public between
         # them (stranding a request no one will ever need to approve).
-        user_to_follow_obj = get_user_model().objects.select_for_update().get(pk=user_to_follow_obj.pk)
+        user_to_follow_obj = get_user_model().objects.select_for_update(no_key=True).get(pk=user_to_follow_obj.pk)
 
         # Re-check the edge under the lock: an approval (which holds the same
         # lock) may have turned a pending request into a follow since the check
@@ -4261,9 +4261,18 @@ def _lock_users(*users):
     """Row-lock the given accounts for the rest of the current transaction, in
     primary-key order so two transactions locking the same pair can never
     deadlock. Serializes follow requests, approvals and blocks between the same
-    two people (issue #96)."""
+    two people (issue #96).
+
+    Every lock in this flow (here, in follow_user and in set_account_privacy) is
+    FOR NO KEY UPDATE rather than FOR UPDATE. On PostgreSQL, inserting a
+    FollowRequest or UserFollow takes a FOR KEY SHARE lock on both referenced
+    accounts for the foreign-key check; FOR UPDATE conflicts with that, so a
+    transaction holding the owner and inserting would wait on a toggle_block that
+    holds the requester and waits on the owner — a deadlock. FOR NO KEY UPDATE
+    still serializes these flows against each other but never blocks a foreign
+    key check, so that cycle cannot form. (SQLite ignores row locks entirely.)"""
     pks = sorted(user.pk for user in users)
-    list(get_user_model().objects.select_for_update().filter(pk__in=pks).order_by('pk'))
+    list(get_user_model().objects.select_for_update(no_key=True).filter(pk__in=pks).order_by('pk'))
 
 
 def _blocked_either_way(user_a, user_b):
@@ -4603,7 +4612,9 @@ def set_account_privacy(request):
         # The same row lock follow_user takes, so a concurrent follow sees either
         # the old setting or the new one — never decides on one and writes under
         # the other.
-        user = get_user_model().objects.select_for_update().get(pk=request.user.pk)
+        # NO KEY UPDATE, like _lock_users, so the approval inserts below (and
+        # concurrent ones elsewhere) never wait on it for a foreign-key check.
+        user = get_user_model().objects.select_for_update(no_key=True).get(pk=request.user.pk)
         user.is_private = is_private
         user.save(update_fields=['is_private'])
         if not is_private:
