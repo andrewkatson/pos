@@ -1524,7 +1524,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun denyFollowRequest(token: String, username: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val requester = users.find { it.username == username } ?: return error(400, "User does not exist")
+        // A cross-band requester reads as missing here too, as in the list and
+        // on approval (issue #329).
+        val requester = users.find { it.username == username }?.takeIf { inSameAgeBand(user, it) }
+            ?: return error(400, "User does not exist")
         if (user.followRequests.remove(requester.id) == null) return error(400, "No follow request from user")
         return Response.success(GenericResponse("Follow request denied", null))
     }
@@ -1701,7 +1704,12 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             bio = target.bio,
             isPrivate = target.isPrivate,
             followRequestPending = user != null && target.followRequests.containsKey(user.id),
-            followRequestCount = if (isOwnProfile) target.followRequests.size else null
+            // Counted like the list: cross-band requesters are hidden from both.
+            followRequestCount = if (isOwnProfile) {
+                target.followRequests.keys.count { id ->
+                    users.find { it.id == id }?.let { inSameAgeBand(target, it) } == true
+                }
+            } else null
         ))
     }
 

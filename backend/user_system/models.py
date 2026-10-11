@@ -131,6 +131,12 @@ class FollowRequest(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['user_from', 'user_to'], name='unique_follow_requests')
         ]
+        # Serves the owner's keyset-paginated request list
+        # (WHERE user_to = ? AND id < ? ORDER BY id DESC LIMIT n) straight off the
+        # index, so a page costs the same however large the backlog.
+        indexes = [
+            models.Index(fields=['user_to', '-id'], name='follow_request_owner_idx'),
+        ]
 
 
 # The model to explicitly define the "block" relationship

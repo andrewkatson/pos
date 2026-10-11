@@ -82,9 +82,9 @@ Following a private account takes a **follow request**:
   `GET /users/follow-requests/` — 30 per page; each row carries its
   `request_id`, and `?after=<request_id>` fetches the next, older page, a cursor
   rather than an offset so answering rows while paging can't skip one; the
-  clients load more as the list scrolls; their own only — there is no username
-  parameter; shadow-banned and cross-age-band requesters are left out, as in the
-  follower list) and answers each with
+  clients load more as the list scrolls. It lists their own requests only — there
+  is no username parameter — and leaves out shadow-banned and cross-age-band
+  requesters, as the follower list does. The owner answers each with
   `POST /users/<username>/follow-request/approve/` or `.../deny/`. Approving
   creates the follow edge; denying just drops the request, and the requester is
   not told — they may ask again.

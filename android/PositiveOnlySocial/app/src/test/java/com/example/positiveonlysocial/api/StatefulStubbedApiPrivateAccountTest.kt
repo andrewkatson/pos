@@ -168,7 +168,9 @@ class StatefulStubbedApiPrivateAccountTest {
         api.verifyIdentity(viewerToken, com.example.positiveonlysocial.data.model.IdentityVerificationRequest("$minorYear-01-01"))
 
         assertTrue(api.getFollowRequests(authorToken, null).body()!!.isEmpty())
+        assertEquals(0, api.getProfileDetails(authorToken, "author").body()!!.followRequestCount)
         assertFalse(api.approveFollowRequest(authorToken, "viewer").isSuccessful)
+        assertFalse(api.denyFollowRequest(authorToken, "viewer").isSuccessful)
         api.setAccountPrivacy(authorToken, SetAccountPrivacyRequest(false))
         assertEquals(0, api.getProfileDetails(authorToken, "author").body()!!.followerCount)
     }

@@ -2154,7 +2154,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       details.profile_image_status = target.profileImageStatus
       details.profile_image_reason_code = target.profileImageReasonCode
       details.pending_profile_image_url = target.pendingProfileImageUrl
-      details.follow_request_count = target.followRequests.size
+      // Counted like the list: cross-band requesters are hidden from both.
+      details.follow_request_count = [...target.followRequests.keys()].filter((id) => {
+        const requester = this.users.find((u) => u.id === id)
+        return requester !== undefined && this.inSameAgeBand(target, requester)
+      }).length
     }
     return details
   }

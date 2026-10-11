@@ -25,6 +25,7 @@ class Migration(migrations.Migration):
                 ('user_to', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='follow_requests_received', to=settings.AUTH_USER_MODEL)),
             ],
             options={
+                'indexes': [models.Index(fields=['user_to', '-id'], name='follow_request_owner_idx')],
                 'constraints': [models.UniqueConstraint(fields=('user_from', 'user_to'), name='unique_follow_requests')],
             },
         ),

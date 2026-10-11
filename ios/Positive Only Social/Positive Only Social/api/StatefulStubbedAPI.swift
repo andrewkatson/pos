@@ -2318,8 +2318,13 @@ final class StatefulStubbedAPI: Networking {
             bio: profileUser.bio,
             is_private: profileUser.isPrivate,
             follow_request_pending: followRequestPending,
+            // Counted like the list: cross-band requesters are hidden from both.
             follow_request_count: isOwnProfile
-                ? followRequests.filter { $0.userToId == profileUser.id }.count : nil
+                ? followRequests.filter { request in
+                    request.userToId == profileUser.id
+                        && users.first(where: { $0.id == request.userFromId })
+                            .map { inSameAgeBand(profileUser, $0) } == true
+                }.count : nil
         )
 
         // 6. Return the data using your existing helper

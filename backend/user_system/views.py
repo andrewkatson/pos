@@ -4019,17 +4019,17 @@ def get_public_profile_details(request, username):
     # Each count is what this viewer could actually see, mirroring
     # get_profile_details: only public posts, and only followers/followees who
     # are themselves publicly listable (issue #398).
-    post_count = visible_posts(profile_user.post_set.all(), PUBLIC_VIEWER).count()
-    follower_count = searchable_users(profile_user.followers.all(), PUBLIC_VIEWER).count()
-    following_count = searchable_users(profile_user.following.all(), PUBLIC_VIEWER).count()
     # A private account (issue #96) still shows its header — name, photo, bio,
     # join number — on a shared link, but none of its counts, exactly as for a
-    # signed-in non-follower. Its grid is already empty: visible_posts admits no
-    # private account's posts for the anonymous viewer.
+    # signed-in non-follower; they are not even computed, so an anonymous hit on
+    # a popular private profile costs no count queries. Its grid is already
+    # empty: visible_posts admits no private account's posts for this viewer.
     if profile_user.is_private:
-        post_count = 0
-        follower_count = 0
-        following_count = 0
+        post_count = follower_count = following_count = 0
+    else:
+        post_count = visible_posts(profile_user.post_set.all(), PUBLIC_VIEWER).count()
+        follower_count = searchable_users(profile_user.followers.all(), PUBLIC_VIEWER).count()
+        following_count = searchable_users(profile_user.following.all(), PUBLIC_VIEWER).count()
 
     live_avatar = profile_user.profile_image_url
     data = {

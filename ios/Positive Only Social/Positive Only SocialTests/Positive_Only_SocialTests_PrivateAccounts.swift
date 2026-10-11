@@ -398,6 +398,7 @@ struct Positive_Only_SocialTests_PrivateAccounts {
 
         let listed = try await stubAPI.getFollowRequests(sessionManagementToken: authorToken, after: nil)
         #expect(try JSONDecoder().decode([User].self, from: listed).isEmpty)
+        #expect(try await profile(authorToken, of: "privateAuthor").followRequestCount == 0)
         await #expect(throws: (any Error).self) {
             _ = try await stubAPI.approveFollowRequest(sessionManagementToken: authorToken, username: "curiousViewer")
         }

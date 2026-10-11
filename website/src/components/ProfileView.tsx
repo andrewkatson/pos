@@ -161,10 +161,18 @@ function ProfileView({
     setIsBlocked(details.is_blocked ?? false)
   }, [])
 
+  // Bumped by every refresh (issue #96): each profile/posts load remembers the
+  // generation it started in and drops its response if a newer load has begun
+  // since, so a slow, older response can't land after a newer one — e.g. undo
+  // the fail-closed private state a follow just applied by restoring a stale
+  // public grid and counts.
+  const loadGeneration = useRef(0)
+
   const loadProfile = useCallback(async () => {
+    const generation = loadGeneration.current
     try {
       const details = await fetchProfile()
-      if (!isMounted.current) return
+      if (!isMounted.current || generation !== loadGeneration.current) return
       setProfile(details)
       applyRelationship(details)
       setLoadFailed(false)
@@ -186,9 +194,10 @@ function ProfileView({
 
   const loadPosts = useCallback(
     async (pageToLoad: number, replace: boolean) => {
+      const generation = loadGeneration.current
       try {
         const newPosts = await fetchPosts(pageToLoad)
-        if (!isMounted.current) return
+        if (!isMounted.current || generation !== loadGeneration.current) return
         if (replace) {
           setPosts(newPosts)
           setCanLoadMore(newPosts.length > 0)
@@ -200,9 +209,10 @@ function ProfileView({
           setPage(prev => prev + 1)
         }
       } catch {
-        if (isMounted.current) setCanLoadMore(false)
+        if (isMounted.current && generation === loadGeneration.current) setCanLoadMore(false)
       } finally {
-        if (isMounted.current) setIsLoadingPosts(false)
+        // A superseded load leaves the spinner to the load that replaced it.
+        if (isMounted.current && generation === loadGeneration.current) setIsLoadingPosts(false)
       }
     },
     [fetchPosts],
@@ -260,12 +270,15 @@ function ProfileView({
   // Manual refresh reloads both the posts and the profile details
   // (follow/block/counts) so the whole view stays in sync — not just the grid.
   function refresh() {
+    // Supersede any load still in flight: only this refresh's responses apply.
+    loadGeneration.current += 1
+    const generation = loadGeneration.current
     setIsLoadingPosts(true)
     // A manual refresh grants a fresh reconcile-poll budget (#282).
     pollAttempts.current = 0
     fetchProfile()
       .then(details => {
-        if (!isMounted.current) return
+        if (!isMounted.current || generation !== loadGeneration.current) return
         setProfile(details)
         applyRelationship(details)
       })

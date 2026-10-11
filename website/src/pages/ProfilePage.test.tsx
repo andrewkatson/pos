@@ -589,3 +589,39 @@ test('a follow that reveals the account went private fails closed if the reload 
   expect(screen.queryByRole('button', { name: 'Post by bob' })).not.toBeInTheDocument()
   expect(screen.queryByText('Followers')).not.toBeInTheDocument()
 })
+
+test('a stale manual refresh cannot undo the private state a follow applied', async () => {
+  // Load public, start a manual refresh that stalls, then follow: the account
+  // turned private, so the page fails closed. The stalled refresh then resolves
+  // with the old public profile and grid — it must be ignored.
+  let resolveStaleProfile: (details: ProfileDetails) => void = () => {}
+  let resolveStalePosts: (posts: { post_identifier: string; image_url: string; author_username: string; caption: string }[]) => void = () => {}
+  const publicPost = { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'bob', caption: 'hi' }
+  mockGetProfile
+    .mockResolvedValueOnce(baseProfile)
+    .mockImplementationOnce(() => new Promise(resolve => (resolveStaleProfile = resolve)))
+    .mockResolvedValue({ ...privateProfile, follow_request_pending: true })
+  mockGetPosts
+    .mockResolvedValueOnce([publicPost])
+    .mockImplementationOnce(() => new Promise(resolve => (resolveStalePosts = resolve)))
+    .mockResolvedValue([])
+  mockFollow.mockResolvedValue({
+    message: 'Follow requested',
+    follow_category: null,
+    follow_request_pending: true,
+  })
+  renderProfile()
+  await screen.findByRole('button', { name: 'Post by bob' })
+
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Follow' }))
+  expect(await screen.findByText('This account is private')).toBeInTheDocument()
+
+  resolveStaleProfile(baseProfile)
+  resolveStalePosts([publicPost])
+  await waitFor(() => expect(mockGetProfile).toHaveBeenCalledTimes(3))
+
+  expect(await screen.findByText('This account is private')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Post by bob' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Requested' })).toBeInTheDocument()
+})

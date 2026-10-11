@@ -1317,6 +1317,7 @@ test('a requester who verified into the other age band cannot be approved', asyn
 
   await api.login({ username_or_email: 'author', password: 'password123' })
   expect(await api.getFollowRequests()).toEqual([])
+  expect((await api.getProfile('author')).follow_request_count).toBe(0)
   await expect(api.approveFollowRequest('viewer')).rejects.toThrow('User does not exist')
 
   await api.setAccountPrivacy(false)
