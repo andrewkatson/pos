@@ -269,6 +269,13 @@ def can_view_post(post, viewer):
     return _audience_allows(post, viewer)
 
 
+def same_age_band_users(users, viewer):
+    """Narrow a queryset of users to those in the viewer's age band (issue
+    #329) — the age half of searchable_users, for paths that must respect age
+    segregation without the shadow-ban exclusion."""
+    return users.filter(_same_age_band_q(viewer, ''))
+
+
 def searchable_users(users, viewer):
     """Excludes shadow-banned users, and users outside the viewer's age band,
     from user search results (so adults cannot find underage accounts and vice

@@ -66,7 +66,8 @@ from .cloudfront import sign_compressed_url, sign_original_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_source_bucket_url, \
     strip_query_and_fragment
 from .tags import set_post_tags
-from .visibility import audience_admits, can_view_post, in_same_age_band, privacy_admits, searchable_users, \
+from .visibility import audience_admits, can_view_post, in_same_age_band, privacy_admits, same_age_band_users, \
+    searchable_users, \
     visible_comment_threads, visible_comments, visible_posts, PUBLIC_VIEWER
 
 
@@ -4540,16 +4541,25 @@ def _approve_all_follow_requests(owner):
     read, batched bulk inserts, one delete. Called with the owner's row locked,
     so a popular account going public does not hold that lock across one round
     trip per request. ignore_conflicts keeps an edge that already exists, just
-    as _approve_follow_request's get_or_create does."""
-    pending = list(FollowRequest.objects.filter(user_to=owner).values_list('user_from_id', 'category'))
-    if not pending:
-        return
+    as _approve_follow_request's get_or_create does.
+
+    Only requesters still in the owner's age band are approved (issue #329): a
+    requester can verify into the other band after asking, and approving them
+    one at a time is already refused. Their requests are deleted with the rest
+    — they are hidden from the owner's list and could never be approved."""
+    pending = list(
+        FollowRequest.objects.filter(
+            user_to=owner,
+            user_from__in=same_age_band_users(get_user_model().objects.all(), owner),
+        ).values_list('user_from_id', 'category')
+    )
     UserFollow.objects.bulk_create(
         [UserFollow(user_from_id=requester_id, user_to=owner, category=category)
          for requester_id, category in pending],
         batch_size=FOLLOW_REQUEST_BULK_BATCH_SIZE,
         ignore_conflicts=True,
     )
+    # Every pending request goes, the ineligible cross-band ones included.
     FollowRequest.objects.filter(user_to=owner).delete()
 
 

@@ -312,6 +312,23 @@ class AccountPrivacySettingTests(PrivateAccountTestBase):
             self._set_private(False, self.author_header)
         self.assertEqual(len(queries), many)
 
+    def test_going_public_skips_requesters_now_in_the_other_age_band(self):
+        """Request, then the requester verifies as a minor, then the adult owner
+        goes public: no cross-band follow is created, and the stale request is
+        dropped rather than left pending."""
+        self.author.identity_is_verified = True
+        self.author.is_adult = True
+        self.author.save(update_fields=['identity_is_verified', 'is_adult'])
+        self._follow(self.local_username, self.viewer_header)
+        self.viewer.identity_is_verified = True
+        self.viewer.is_adult = False
+        self.viewer.save(update_fields=['identity_is_verified', 'is_adult'])
+
+        self._set_private(False, self.author_header)
+
+        self.assertFalse(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
+        self.assertFalse(FollowRequest.objects.exists())
+
     def test_going_private_keeps_existing_followers(self):
         self._set_private(False, self.author_header)
         self._label(self.viewer, self.author, FOLLOW_CATEGORY_FOLLOWING)
