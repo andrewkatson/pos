@@ -122,6 +122,15 @@ function FeedTab() {
     [fetcher],
   )
 
+  // Switching feed, group or period clears the list up front, so the previous
+  // selection's posts never sit under the new one — ranked as if they were
+  // the new Top board — while it loads, or for good if that load fails.
+  function startSelectionChange() {
+    setIsLoading(true)
+    setPosts([])
+    setCanLoadMore(true)
+  }
+
   // Reload from scratch whenever the selected feed changes. Deferred to a
   // microtask so the fetch's setState calls don't run synchronously inside the
   // effect (React flags that as cascading renders).
@@ -157,7 +166,7 @@ function FeedTab() {
               // Re-selecting the current feed wouldn't change `selected`, so
               // the reload effect wouldn't fire — guard against a stuck spinner.
               if (value === selected) return
-              setIsLoading(true)
+              startSelectionChange()
               setSelected(value)
             }}
           >
@@ -178,7 +187,7 @@ function FeedTab() {
               // Re-selecting the current group wouldn't change `group`, so the
               // reload effect wouldn't fire — guard against a stuck spinner.
               if (next === group) return
-              setIsLoading(true)
+              startSelectionChange()
               setGroup(next)
             }}
           >
@@ -201,7 +210,7 @@ function FeedTab() {
             onChange={e => {
               const next = e.target.value as TopPostPeriod
               if (next === period) return
-              setIsLoading(true)
+              startSelectionChange()
               setPeriod(next)
             }}
           >

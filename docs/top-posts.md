@@ -29,9 +29,11 @@ is a 400.
   pre-computation (issue #559).
 - **Switching period.** All three clients discard a response that arrives for
   a period (or feed) the viewer has since switched away from, and always reload
-  page 0 for the newly selected period, even if a load was still in flight. iOS and Android clear the old board as soon as the
-  period changes, so the new page's rows are freshly created and the last
-  row's appear hook can still request the next page.
+  page 0 for the newly selected period, even if a load was still in flight. Every client also clears the old list as soon as the
+  selection changes, so a previous board is never shown under the new period
+  (or left behind if the new load fails), and on iOS and Android the new
+  page's rows are freshly created so the last row's appear hook can still
+  request the next page.
 - **Depth.** The board stops at `TOP_POSTS_LIMIT` (100). Batches past it are
   empty: it is a "top N", not a second endless feed.
 

@@ -251,6 +251,22 @@ test('a slow response for the previous period does not overwrite the new one (#5
   expect(screen.getByRole('button', { name: 'Open post by yearly' })).toBeInTheDocument()
 })
 
+test('switching to a feed that fails to load does not keep the old posts (#558)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },
+  ])
+  mockGetTop.mockRejectedValue(new Error('boom'))
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalled())
+
+  expect(screen.queryByRole('button', { name: 'Open post by ada' })).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Rank 1')).not.toBeInTheDocument()
+  expect(await screen.findByText('No posts here yet.')).toBeInTheDocument()
+})
+
 test('the period picker and ranks are only on the Top feed (#558)', async () => {
   mockGetFeed.mockResolvedValue([
     { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },
