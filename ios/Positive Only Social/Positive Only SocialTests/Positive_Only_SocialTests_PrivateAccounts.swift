@@ -125,6 +125,22 @@ struct Positive_Only_SocialTests_PrivateAccounts {
                 reason: "x")
         }
 
+        await #expect(throws: (any Error).self) {
+            _ = try await stubAPI.getCommentsForPost(
+                sessionManagementToken: viewerToken, postIdentifier: postId, batch: 0, category: nil)
+        }
+        await #expect(throws: (any Error).self) {
+            _ = try await stubAPI.getCommentsForThread(
+                sessionManagementToken: viewerToken, commentThreadIdentifier: ids.comment_thread_identifier,
+                batch: 0, category: nil)
+        }
+        await #expect(throws: (any Error).self) {
+            _ = try await stubAPI.replyToCommentThread(
+                sessionManagementToken: viewerToken, postIdentifier: postId,
+                commentThreadIdentifier: ids.comment_thread_identifier, commentText: "hi",
+                formatting: nil, audience: nil)
+        }
+
         _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "beachAuthor")
         _ = try await stubAPI.approveFollowRequest(sessionManagementToken: authorToken, username: "beachViewer")
         let unlockedTag = try await stubAPI.getPostsForTag(sessionManagementToken: viewerToken, tag: "beach", batch: 0)

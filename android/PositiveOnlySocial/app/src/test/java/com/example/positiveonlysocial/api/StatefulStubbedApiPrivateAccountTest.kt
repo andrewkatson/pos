@@ -126,9 +126,14 @@ class StatefulStubbedApiPrivateAccountTest {
             ).isSuccessful
         )
 
+        assertFalse(api.getCommentsForPost(viewerToken, postId, 0, null).isSuccessful)
+        assertFalse(api.getCommentsForThread(viewerToken, comment.threadIdentifier!!, 0, null).isSuccessful)
+        assertFalse(api.replyToThread(viewerToken, postId, comment.threadIdentifier!!, CommentRequest("hi")).isSuccessful)
+
         api.followUser(viewerToken, "author")
         api.approveFollowRequest(authorToken, "viewer")
         assertEquals(1, api.getPostsByTag(viewerToken, "beach", 0).body()!!.size)
+        assertEquals(1, api.getCommentsForThread(viewerToken, comment.threadIdentifier!!, 0, null).body()!!.size)
         assertTrue(api.likePost(viewerToken, postId).isSuccessful)
     }
 

@@ -309,6 +309,14 @@ final class StatefulStubbedAPI: Networking {
             userFollows.contains { $0.userFromId == from && $0.userToId == to }
     }
 
+    /// privacyAdmits for the post a comment thread sits on (issue #96). An
+    /// unknown thread is left to the caller's own not-found handling.
+    private func threadPostPrivacyAdmits(_ threadId: String, viewer: MockUser) -> Bool {
+        guard let thread = commentThreads.first(where: { $0.commentThreadIdentifier == threadId }),
+              let post = findPost(byIdentifier: thread.postId) else { return true }
+        return privacyAdmits(authorId: post.authorId, viewer: viewer)
+    }
+
     /// Mirrors visibility.privacy_admits (issue #96): a private account's posts
     /// reach only the account itself and the people who follow it.
     private func privacyAdmits(authorId: UUID, viewer: MockUser) -> Bool {
@@ -1574,6 +1582,9 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let threadIndex = commentThreads.firstIndex(where: { $0.commentThreadIdentifier == commentThreadIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // A thread on a private account's post reads as missing to a
+        // non-follower (issue #96).
+        guard threadPostPrivacyAdmits(commentThreadIdentifier, viewer: user) else { throw APIError.badServerResponse(statusCode: 400) }
         // The author may disable commenting at creation or lock it afterward
         // (issue #492). Existing replies stay visible; only new ones blocked.
         if let post = findPost(byIdentifier: commentThreads[threadIndex].postId), post.commentsDisabled {
@@ -1710,6 +1721,11 @@ final class StatefulStubbedAPI: Networking {
     func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+        // A private account's post reads as missing to a non-follower (issue #96),
+        // as the backend's can_view_post check makes it.
+        if let post = findPost(byIdentifier: postIdentifier), !privacyAdmits(authorId: post.authorId, viewer: user) {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
         let categoryFilter = category.flatMap { FollowCategory(rawValue: $0) }
         // Only threads with a comment the viewer may see under the current filter
         // survive (issue #445), mirroring visible_comment_threads.
@@ -1731,6 +1747,9 @@ final class StatefulStubbedAPI: Networking {
     func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+        // A thread on a private account's post reads as missing to a
+        // non-follower (issue #96).
+        guard threadPostPrivacyAdmits(commentThreadIdentifier, viewer: user) else { throw APIError.badServerResponse(statusCode: 400) }
         let categoryFilter = category.flatMap { FollowCategory(rawValue: $0) }
         let relevantComments = visibleComments(inThread: commentThreadIdentifier, viewer: user, category: categoryFilter)
             .sorted { $0.createdDate < $1.createdDate }

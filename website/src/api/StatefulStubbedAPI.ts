@@ -379,6 +379,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return comment
   }
 
+  /** privacyAdmits for the post a comment thread sits on (issue #96). */
+  private threadPostPrivacyAdmits(thread: CommentThreadMock, viewer: UserMock): boolean {
+    const post = this.posts.find((p) => p.postIdentifier === thread.postId)
+    return !post || this.privacyAdmits(post.authorId, viewer)
+  }
+
   private findComment(postId: string, threadId: string, commentId: string): CommentMock {
     const thread = this.commentThreads.find(
       (t) => t.threadIdentifier === threadId && t.postId === postId,
@@ -1632,7 +1638,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const thread = this.commentThreads.find(
       (t) => t.threadIdentifier === commentThreadIdentifier && t.postId === postIdentifier,
     )
-    if (!thread) {
+    // A thread on a private account's post reads as missing to a non-follower
+    // (issue #96).
+    if (!thread || !this.threadPostPrivacyAdmits(thread, user)) {
       throw new ApiError(400, 'Comment thread not found for the given post')
     }
     const post = this.findPost(thread.postId)
@@ -1681,6 +1689,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     category?: FollowCategory,
   ): Promise<CommentThreadRef[]> {
     const user = this.requireUser()
+    // A private account's post reads as missing to a non-follower (issue #96),
+    // as the backend's can_view_post check makes it.
+    this.findReachablePost(postIdentifier, user)
     const threads = this.commentThreads
       .filter((t) => t.postId === postIdentifier)
       .filter((t) => this.visibleComments(t, user, category).length > 0)
@@ -1698,7 +1709,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const thread = this.commentThreads.find(
       (t) => t.threadIdentifier === commentThreadIdentifier,
     )
-    if (!thread) {
+    // A thread on a private account's post reads as missing to a non-follower
+    // (issue #96).
+    if (!thread || !this.threadPostPrivacyAdmits(thread, user)) {
       throw new ApiError(400, 'No comment thread with that identifier')
     }
     const visible = this.visibleComments(thread, user, category).sort(

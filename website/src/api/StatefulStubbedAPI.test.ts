@@ -1247,6 +1247,11 @@ test('a non-follower cannot find or interact with a private post', async () => {
   await expect(
     api.reportComment(post.post_identifier, comment.comment_thread_identifier, comment.comment_identifier, 'x'),
   ).rejects.toThrow('Comment not found')
+  await expect(api.getCommentsForPost(post.post_identifier, 0)).rejects.toThrow()
+  await expect(api.getCommentsForThread(comment.comment_thread_identifier, 0)).rejects.toThrow()
+  await expect(
+    api.replyToCommentThread(post.post_identifier, comment.comment_thread_identifier, 'hi'),
+  ).rejects.toThrow()
 
   await api.followUser('author')
   await api.login({ username_or_email: 'author', password: 'password123' })

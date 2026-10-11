@@ -1267,7 +1267,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun replyToThread(token: String, postId: String, threadId: String, request: CommentRequest): Response<CommentResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // A thread on a private account's post reads as missing to a
+        // non-follower (issue #96).
         val thread = commentThreads.find { it.threadIdentifier == threadId && it.postId == postId }
+            ?.takeIf { postPrivacyAdmits(it.postId, user) }
             ?: return errorGeneric(404, "Thread not found")
         // The author may disable commenting at creation or lock it afterward
         // (issue #492). Existing replies stay visible; only new ones blocked.
@@ -1363,6 +1366,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun getCommentsForPost(token: String, postId: String, batch: Int, category: String?): Response<List<CommentThreadDto>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // A private account's post reads as missing to a non-follower (issue #96),
+        // as the backend's can_view_post check makes it.
+        if (!postPrivacyAdmits(postId, user)) return errorGeneric(400, "No post with that identifier")
         // Only threads with a comment the viewer may see under the current filter
         // survive (issue #445), mirroring visible_comment_threads.
         val threads = commentThreads.filter {
@@ -1374,7 +1380,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun getCommentsForThread(token: String, threadId: String, batch: Int, category: String?): Response<List<CommentDto>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // A thread on a private account's post reads as missing to a
+        // non-follower (issue #96).
         val thread = commentThreads.find { it.threadIdentifier == threadId }
+            ?.takeIf { postPrivacyAdmits(it.postId, user) }
             ?: return errorGeneric(404, "Thread not found")
 
         val comments = visibleComments(thread, user, category).sortedBy { it.creationTime }
