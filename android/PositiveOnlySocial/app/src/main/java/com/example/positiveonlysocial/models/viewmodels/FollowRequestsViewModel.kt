@@ -9,13 +9,30 @@ import com.example.positiveonlysocial.data.model.GenericResponse
 import com.example.positiveonlysocial.data.model.User
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import retrofit2.Response
 
 private const val TAG = "FollowRequestsViewModel"
+
+/**
+ * Fires after the signed-in user approves or denies a follow request (issue
+ * #96). Their own profile listens so its "Follow Requests (n)" badge and
+ * follower count refresh when they come back from the list — the profile's view
+ * model outlives the trip, so it would not reload on its own.
+ */
+object FollowRequestEvents {
+    private val _decisions = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val decisions: SharedFlow<Unit> = _decisions
+
+    fun notifyDecision() {
+        _decisions.tryEmit(Unit)
+    }
+}
 
 /**
  * Loads the signed-in private account's incoming follow requests and approves
@@ -97,6 +114,7 @@ class FollowRequestsViewModel(
                 val response = call(userSession.sessionToken)
                 if (response.isSuccessful) {
                     _requests.value = _requests.value.filterNot { it.username == username }
+                    FollowRequestEvents.notifyDecision()
                 } else {
                     _errorMessage.value = ApiErrors.messageFor(response, fallback = "Request failed. Please try again.")
                 }

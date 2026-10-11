@@ -150,6 +150,21 @@ class ProfileViewModel(
     private var currentPage = 0
     private var canLoadMore = true
 
+    // The username this view model last loaded, so an event-driven refresh
+    // (follow request decisions, issue #96) knows which profile to reload.
+    private var loadedUsername: String? = null
+
+    init {
+        // Approving or denying follow requests changes the owner's request badge
+        // and follower count; refresh their own profile when it happens.
+        viewModelScope.launch {
+            FollowRequestEvents.decisions.collect {
+                val username = loadedUsername
+                if (_isOwnProfile.value && username != null) refreshProfile(username)
+            }
+        }
+    }
+
     fun fetchProfile(username: String) {
         _isLoading.value = true
         _errorMessage.value = null
@@ -172,6 +187,7 @@ class ProfileViewModel(
                 }
 
                 _isOwnProfile.value = (userSession.username == username)
+                loadedUsername = username
 
                 // Fetch Profile Details
                 val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
@@ -591,17 +607,11 @@ class ProfileViewModel(
                     // private (it may have changed since the profile loaded).
                     val filedRequest = response.body()?.followRequestPending == true
                     if (filedRequest != expectsRequest) {
-                        _profileDetails.value = if (filedRequest) {
-                            currentProfile.copy(followRequestPending = true)
-                        } else {
-                            currentProfile.copy(
-                                isFollowing = true,
-                                followCategory = FollowCategory.FOLLOWING.value,
-                                followerCount = currentProfile.followerCount + 1
-                            )
-                        }
-                        _isFollowing.value = !filedRequest
-                        _followCategory.value = FollowCategory.FOLLOWING
+                        // The owner changed their privacy since this profile
+                        // loaded, so the cached privacy, counts and grid are all
+                        // stale. Reload them (and the follow state with them)
+                        // rather than patching only the button.
+                        refreshProfile(username)
                     }
                 }
             } catch (e: Exception) {

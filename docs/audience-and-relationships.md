@@ -89,7 +89,15 @@ Following a private account takes a **follow request**:
   `UserFollow` row, so no audience or feed query can mistake one for a follow.
 
 Switching **private on** keeps every existing follower; it only changes how new
-followers arrive. Switching **private off** approves every pending request, since
+followers arrive. It also takes effect at the API, not on image bytes already
+handed out: a post image URL issued while the account was public stays usable
+until its CloudFront signature expires (`CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS`,
+24h by default — see [Images](images.md)), and indefinitely on a deploy without
+signing configured. That grace window is the same one every other visibility
+change (a block, a shadow ban, a hidden post) already has; nothing new is
+*served* after the switch. `follow_user` and `set_account_privacy` take a row lock
+on the account, so a follow racing a privacy change is decided against the
+setting it is actually written under. Switching **private off** approves every pending request, since
 a public account has nothing left to approve. Blocking drops any pending request
 in either direction, alongside the follow edges.
 

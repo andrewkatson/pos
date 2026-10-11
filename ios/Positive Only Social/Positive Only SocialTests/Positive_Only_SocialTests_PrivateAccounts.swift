@@ -165,6 +165,49 @@ struct Positive_Only_SocialTests_PrivateAccounts {
         #expect(sut.followRequestCount == 1)
     }
 
+    @Test func profileFollowAfterOwnerWentPrivateReloadsTheProfile() async throws {
+        // The profile loads while the account is public, then the owner goes
+        // private: the follow files a request, so the cached grid must go.
+        let (authorToken, author) = try await registerUser(username: "turncoat")
+        _ = try await stubAPI.makePost(sessionManagementToken: authorToken, imageURL: "img/1", caption: "Hi")
+        let (viewerToken, viewer) = try await registerUser(username: "lateFollower")
+        let account = try signIn(viewer, token: viewerToken)
+        let sut = ProfileViewModel(user: author, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.fetchProfileDetails()
+        sut.fetchUserPosts()
+        await yield()
+        #expect(sut.userPosts.count == 1, "Pre-condition: public grid loaded")
+
+        _ = try await stubAPI.setAccountPrivacy(sessionManagementToken: authorToken, isPrivate: true)
+        sut.toggleFollow()
+        await yield()
+
+        #expect(sut.followRequestPending == true)
+        #expect(sut.isFollowing == false)
+        #expect(sut.isLocked == true)
+        #expect(sut.userPosts.isEmpty, "The stale public grid is replaced")
+    }
+
+    @Test func answeringRequestsRefreshesTheOwnersProfile() async throws {
+        let (authorToken, author, viewerToken, _) = try await privateAuthorAndViewer()
+        _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "privateAuthor")
+        let account = try signIn(author, token: authorToken)
+        let center = NotificationCenter()
+        let profile = ProfileViewModel(user: author, api: stubAPI, keychainHelper: keychainHelper,
+                                       account: account, notificationCenter: center)
+        profile.fetchProfileDetails()
+        await yield()
+        #expect(profile.followRequestCount == 1, "Pre-condition: one request waiting")
+
+        let requests = FollowRequestsViewModel(api: stubAPI, keychainHelper: keychainHelper,
+                                               account: account, notificationCenter: center)
+        await requests.approve(username: "curiousViewer")
+        await yield()
+
+        #expect(profile.followRequestCount == 0)
+        #expect(profile.profileDetails?.followerCount == 1)
+    }
+
     // MARK: - FollowRequestsViewModel
 
     @Test func followRequestsApproveAndDenyDropRows() async throws {

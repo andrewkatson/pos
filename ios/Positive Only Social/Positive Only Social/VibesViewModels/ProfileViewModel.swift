@@ -105,6 +105,9 @@ class ProfileViewModel: ObservableObject {
     // Listens for `.postCreated` so a brand new post shows up on the signed-in
     // user's own profile grid right away (issue #347).
     private var postCreatedCancellable: AnyCancellable?
+    // Listens for `.followRequestsChanged` so the owner's request badge and
+    // follower count refresh after approving or denying requests (issue #96).
+    private var followRequestsChangedCancellable: AnyCancellable?
 
     /// Whether this profile belongs to the signed-in user, which hides Follow /
     /// Block and enables the classification poll.
@@ -200,6 +203,16 @@ class ProfileViewModel: ObservableObject {
                     // refresh. A user can only delete their own posts, so this only
                     // matters on your own profile.
                     Task { @MainActor in await self.refreshProfileDetails() }
+                }
+            }
+
+        // Follow requests are only ever answered on your own account.
+        followRequestsChangedCancellable = notificationCenter.publisher(for: .followRequestsChanged)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.isOwnProfile else { return }
+                    await self.refreshProfileDetails()
                 }
             }
 
@@ -465,14 +478,13 @@ class ProfileViewModel: ObservableObject {
                     // The server has the final word on whether the account is
                     // private (it may have changed since the profile loaded).
                     if filedRequest != expectsRequest {
+                        // The owner changed their privacy since this profile
+                        // loaded, so the cached privacy, counts and grid are all
+                        // stale. Reload them (and the follow state with them)
+                        // rather than patching only the button.
                         revertFollow(wasFollowing: false, expectedRequest: expectsRequest)
-                        if filedRequest {
-                            followRequestPending = true
-                        } else {
-                            isFollowing = true
-                            followCategory = .following
-                            adjustFollowerCount(by: 1)
-                        }
+                        await refreshProfileDetails()
+                        await refreshUserPosts()
                     }
                 }
             } catch {

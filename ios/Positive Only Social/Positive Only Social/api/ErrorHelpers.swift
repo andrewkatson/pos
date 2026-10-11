@@ -34,6 +34,11 @@ extension Notification.Name {
     /// profile grid listens for this so the new post shows up there immediately,
     /// without waiting for a manual pull-to-refresh (issue #347).
     static let postCreated = Notification.Name("postCreated")
+
+    /// Posted after the signed-in user approves or denies a follow request
+    /// (issue #96). Their own profile listens so its "Follow Requests (n)"
+    /// badge and follower count refresh when they come back from the list.
+    static let followRequestsChanged = Notification.Name("followRequestsChanged")
 }
 
 extension Error {

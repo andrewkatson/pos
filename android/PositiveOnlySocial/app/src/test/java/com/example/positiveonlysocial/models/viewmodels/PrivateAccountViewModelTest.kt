@@ -118,6 +118,44 @@ class PrivateAccountViewModelTest {
         assertFalse(ProfileViewModel.isLocked(viewModel.profileDetails.value, false, viewModel.isFollowing.value))
     }
 
+    @Test
+    fun `a follow after the owner went private reloads the profile`() = runTest {
+        // Loaded while public, then the owner goes private: the follow files a
+        // request, so the cached public grid must be replaced, not just the button.
+        val api = StatefulStubbedAPI()
+        val authorToken = register(api, "author")
+        api.makePost(authorToken, CreatePostRequest(imageUrl = "a.jpg", caption = "hello"))
+        val viewerToken = register(api, "viewer")
+        val viewModel = ProfileViewModel(api, keychainFor(viewerToken, "viewer"))
+        viewModel.fetchProfile("author")
+        assertEquals(1, viewModel.userPosts.value.size)
+
+        api.setAccountPrivacy(authorToken, SetAccountPrivacyRequest(true))
+        viewModel.toggleFollow("author")
+
+        val profile = viewModel.profileDetails.value!!
+        assertEquals(true, profile.isPrivate)
+        assertEquals(true, profile.followRequestPending)
+        assertFalse(viewModel.isFollowing.value)
+        assertTrue(viewModel.userPosts.value.isEmpty())
+    }
+
+    @Test
+    fun `answering a request refreshes the owner's profile`() = runTest {
+        val api = StatefulStubbedAPI()
+        val (authorToken, viewerToken) = privateAuthorAndViewer(api)
+        api.followUser(viewerToken, "author")
+        val keychain = keychainFor(authorToken, "author")
+        val profile = ProfileViewModel(api, keychain)
+        profile.fetchProfile("author")
+        assertEquals(1, profile.profileDetails.value!!.followRequestCount)
+
+        FollowRequestsViewModel(api, keychain).approve("viewer")
+
+        assertEquals(0, profile.profileDetails.value!!.followRequestCount)
+        assertEquals(1, profile.profileDetails.value!!.followerCount)
+    }
+
     // --- FollowRequestsViewModel ---
 
     private val requesters = listOf(User("alice", true), User("bob", false))

@@ -29,10 +29,14 @@ final class FollowRequestsViewModel: ObservableObject {
     /// independently (several decisions may overlap).
     @Published var decidingUsernames: Set<String> = []
 
-    init(api: Networking, keychainHelper: KeychainHelperProtocol, account: String = "userSessionToken") {
+    private let notificationCenter: NotificationCenter
+
+    init(api: Networking, keychainHelper: KeychainHelperProtocol, account: String = "userSessionToken",
+         notificationCenter: NotificationCenter = .default) {
         self.api = api
         self.keychainHelper = keychainHelper
         self.account = account
+        self.notificationCenter = notificationCenter
     }
 
     private func loadSession() throws -> UserSession? {
@@ -86,6 +90,8 @@ final class FollowRequestsViewModel: ObservableObject {
             }
             try await call(session.sessionToken)
             requests.removeAll { $0.username == username }
+            // The owner's profile refreshes its request badge and follower count.
+            notificationCenter.post(name: .followRequestsChanged, object: nil)
         } catch {
             NSLog("%@", "Error answering follow request: \(error)")
             errorMessage = error.userFacingMessage

@@ -530,3 +530,23 @@ test('a signed-out visitor sees a private profile header but not its posts', asy
   expect(screen.getByText('Only people bob approves can see their posts.')).toBeInTheDocument()
   expect(screen.queryByText('Followers')).not.toBeInTheDocument()
 })
+
+test('a follow answered with a request on a profile loaded as public reloads it', async () => {
+  // The owner went private after this page loaded: the follow filed a request,
+  // so the cached public grid and counts must be replaced, not just the button.
+  mockFollow.mockResolvedValue({
+    message: 'Follow requested',
+    follow_category: null,
+    follow_request_pending: true,
+  })
+  mockGetProfile
+    .mockResolvedValueOnce(baseProfile)
+    .mockResolvedValue({ ...privateProfile, follow_request_pending: true })
+  renderProfile()
+  await userEvent.click(await screen.findByRole('button', { name: 'Follow' }))
+
+  await waitFor(() => expect(mockGetProfile).toHaveBeenCalledTimes(2))
+  expect(mockGetPosts).toHaveBeenCalledTimes(2)
+  expect(await screen.findByRole('button', { name: 'Requested' })).toBeInTheDocument()
+  expect(screen.getByText('This account is private')).toBeInTheDocument()
+})

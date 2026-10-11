@@ -397,7 +397,13 @@ function ProfileView({
         )
       } else {
         const response = await apiClient.followUser(username)
-        if (response.follow_request_pending) {
+        const filedRequest = response.follow_request_pending ?? false
+        if (filedRequest !== (profile?.is_private ?? false)) {
+          // The owner changed their privacy since this page loaded, so the
+          // cached privacy, counts and grid are all stale: reload them from the
+          // server rather than patching only the follow state (issue #96).
+          refresh()
+        } else if (filedRequest) {
           // A private account: the call filed a request, nothing changes until
           // the owner approves it (issue #96).
           setFollowRequestPending(true)

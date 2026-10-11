@@ -4218,22 +4218,31 @@ def follow_user(request, username_to_follow):
     if request.user.following.filter(pk=user_to_follow_obj.pk).exists():
         return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
 
-    # A private account (issue #96) is not followed outright: the call files a
-    # follow request the owner approves or denies, carrying the chosen category
-    # so approval creates exactly the edge the requester asked for.
-    if user_to_follow_obj.is_private:
-        return _request_to_follow(request, user_to_follow_obj, category)
+    with transaction.atomic():
+        # Decide follow-vs-request on a locked, fresh read of the target, and
+        # write in the same transaction (issue #96). set_account_privacy takes
+        # the same row lock, so an account cannot go private between the check
+        # and the write (gaining an unapproved follower) or go public between
+        # them (stranding a request no one will ever need to approve).
+        user_to_follow_obj = get_user_model().objects.select_for_update().get(pk=user_to_follow_obj.pk)
 
-    # Create the through row directly so the category is set; .add() cannot pass
-    # extra through-model fields. The pre-check above handles the common case, but
-    # two concurrent follow requests can still race past it, so the unique
-    # (user_from, user_to) constraint is the real guard: translate the resulting
-    # IntegrityError into the same clean "Already following" 400 rather than a 500.
-    try:
-        with transaction.atomic():
-            UserFollow.objects.create(user_from=request.user, user_to=user_to_follow_obj, category=category)
-    except IntegrityError:
-        return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
+        # A private account (issue #96) is not followed outright: the call files
+        # a follow request the owner approves or denies, carrying the chosen
+        # category so approval creates exactly the edge the requester asked for.
+        if user_to_follow_obj.is_private:
+            return _request_to_follow(request, user_to_follow_obj, category)
+
+        # Create the through row directly so the category is set; .add() cannot
+        # pass extra through-model fields. The pre-check above handles the common
+        # case, but two concurrent follow requests can still race past it, so the
+        # unique (user_from, user_to) constraint is the real guard: translate the
+        # resulting IntegrityError into the same clean "Already following" 400
+        # rather than a 500.
+        try:
+            with transaction.atomic():
+                UserFollow.objects.create(user_from=request.user, user_to=user_to_follow_obj, category=category)
+        except IntegrityError:
+            return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
     logger.info(f"Follow user successful: target_user_id: {user_to_follow_obj.id} by user_id: {request.user.id}")
     return log_and_return_json("follow_user", {
         'message': 'User followed',
@@ -4540,8 +4549,11 @@ def set_account_privacy(request):
         return log_and_return_json(
             "set_account_privacy", {'error': f"Invalid fields ['{Fields.is_private}']"}, status=400)
 
-    user = request.user
     with transaction.atomic():
+        # The same row lock follow_user takes, so a concurrent follow sees either
+        # the old setting or the new one — never decides on one and writes under
+        # the other.
+        user = get_user_model().objects.select_for_update().get(pk=request.user.pk)
         user.is_private = is_private
         user.save(update_fields=['is_private'])
         if not is_private:

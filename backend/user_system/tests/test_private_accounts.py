@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 from django.urls import reverse
 
@@ -87,6 +88,20 @@ class FollowPrivateAccountTests(PrivateAccountTestBase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()['error'], "User does not exist")
         self.assertFalse(FollowRequest.objects.exists())
+
+    def test_decision_uses_fresh_privacy_not_the_stale_lookup(self):
+        """The follow-vs-request decision re-reads the target under a row lock
+        in the write's transaction, so an account that went private after the
+        view first looked it up still gets a request, not an unapproved follow."""
+        stale = PositiveOnlySocialUser.objects.get(pk=self.author.pk)
+        stale.is_private = False
+
+        with patch('user_system.views.get_user_with_username', return_value=stale):
+            response = self._follow(self.local_username, self.viewer_header)
+
+        self.assertTrue(response.json()[Fields.follow_request_pending])
+        self.assertFalse(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
+        self.assertTrue(FollowRequest.objects.filter(user_from=self.viewer, user_to=self.author).exists())
 
     def test_existing_follower_is_already_following(self):
         self._label(self.viewer, self.author, FOLLOW_CATEGORY_FOLLOWING)
