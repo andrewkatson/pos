@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -113,6 +114,10 @@ fun ProfileBody(
     val isLoading by viewModel.isLoading.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val isOwnProfile by viewModel.isOwnProfile.collectAsState()
+    // A private account the viewer doesn't follow (issue #96): no stats, and a
+    // "this account is private" note in place of the grid.
+    val isLocked = ProfileViewModel.isLocked(profileDetails, isOwnProfile, isFollowing)
+    val followRequestPending = profileDetails?.followRequestPending == true
     val isPhotoBusy by viewModel.isPhotoBusy.collectAsState()
     val photoErrorMessage by viewModel.photoErrorMessage.collectAsState()
     val reviewNotice by viewModel.reviewNotice.collectAsState()
@@ -311,6 +316,40 @@ fun ProfileBody(
                 blurHash = if (pendingAvatar != null) null else profileDetails?.profileImageBlurHash
             )
 
+            // A lock under the avatar marks a private account (issue #96).
+            if (profileDetails?.isPrivate == true) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.testTag("PrivateAccountBadge")
+                ) {
+                    Icon(
+                        Icons.Filled.Lock,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        "Private account",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // The owner's incoming follow requests (issue #96), offered while the
+            // account is private or anyone is still waiting.
+            val followRequestCount = profileDetails?.followRequestCount ?: 0
+            if (isOwnProfile && (profileDetails?.isPrivate == true || followRequestCount > 0)) {
+                TextButton(
+                    onClick = { navController.navigate(Screen.FollowRequests.route) },
+                    modifier = Modifier.testTag("FollowRequestsLink")
+                ) {
+                    Text(if (followRequestCount > 0) "Follow Requests ($followRequestCount)" else "Follow Requests")
+                }
+            }
+
             // Own-profile photo controls: add/change and remove, plus the
             // pending/rejected review status.
             if (isOwnProfile) {
@@ -374,7 +413,9 @@ fun ProfileBody(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Row(
+            // The backend zeroes a locked profile's counts (issue #96), so hide
+            // the row rather than show zeros.
+            if (!isLocked) Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
@@ -461,12 +502,23 @@ fun ProfileBody(
             if (!isOwnProfile) {
                 Button(
                     onClick = { viewModel.toggleFollow(username) },
-                    modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isFollowing) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
-                    )
+                        containerColor = if (isFollowing || followRequestPending) MaterialTheme.colorScheme.secondary
+                            else MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("FollowButton")
                 ) {
-                    Text(if (isFollowing) "Following" else "Follow")
+                    // "Requested" while a follow request to a private account is
+                    // pending (issue #96); tapping it cancels the request.
+                    Text(
+                        when {
+                            isFollowing -> "Following"
+                            followRequestPending -> "Requested"
+                            else -> "Follow"
+                        }
+                    )
                 }
 
                 // Relationship category, shown once you follow (issue #392).
@@ -532,7 +584,30 @@ fun ProfileBody(
                 onRefresh = { viewModel.refreshProfile(username) },
                 modifier = Modifier.fillMaxSize()
             ) {
-                if (userPosts.isEmpty()) {
+                if (isLocked) {
+                    // A private account the viewer doesn't follow (issue #96).
+                    // Scrollable so pull-to-refresh still works.
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp)
+                            .testTag("PrivateAccountNotice"),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Spacer(modifier = Modifier.height(48.dp))
+                        Icon(Icons.Filled.Lock, contentDescription = null)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("This account is private", fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            if (followRequestPending) "Once $username approves your request, you'll see their posts."
+                            else "Follow $username to see their posts.",
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else if (userPosts.isEmpty()) {
                     // Scrollable so the pull-to-refresh gesture works with no posts.
                     Column(
                         modifier = Modifier

@@ -61,6 +61,64 @@ listing keeps only threads with a matching visible comment). Like the feed filte
 it is an exact-category match and naturally drops your own comments, since you do
 not follow yourself.
 
+## Private accounts (issue #96)
+
+Any account can be made **private** from Settings (`POST /profile/private/` with
+`{"is_private": true|false}`; `GET /me/` reports the current setting). A private
+account's **posts** are visible only to the account itself and its approved
+followers — the people with a follow edge *to* it. Everyone else, signed in or
+out, gets an empty grid, and a private post's own link reads as missing.
+
+Following a private account takes a **follow request**:
+
+- `follow_user` on a private account files a request instead of following, and
+  answers `follow_request_pending: true` (with `follow_category: null`). A
+  `category` sent with the call is kept on the request and applied when it is
+  approved. Asking twice is refused ("Follow already requested"), and a user the
+  account has blocked gets "User does not exist", the same as a missing account.
+- The owner lists incoming requests, newest first, with
+  `GET /users/follow-requests/` (their own only — there is no username
+  parameter; shadow-banned and cross-age-band requesters are left out, as in the
+  follower list) and answers each with
+  `POST /users/<username>/follow-request/approve/` or `.../deny/`. Approving
+  creates the follow edge; denying just drops the request, and the requester is
+  not told — they may ask again.
+- The requester can withdraw their own request with
+  `POST /users/<username>/follow-request/cancel/`.
+- Pending requests live in their own table (`FollowRequest`), never as a
+  `UserFollow` row, so no audience or feed query can mistake one for a follow.
+
+Switching **private on** keeps every existing follower; it only changes how new
+followers arrive. Switching **private off** approves every pending request, since
+a public account has nothing left to approve. Blocking drops any pending request
+in either direction, alongside the follow edges.
+
+The privacy rule lives in `visibility.py` (`privacy_admits`, and `_privacy_q` in
+`visible_posts` / `can_view_post`), so it applies everywhere posts are served —
+discovery, following and tag feeds, profile grids, saved posts, post details and
+the public share pages. Liking, reporting, and liking or reporting a comment on a
+private account's post are refused to non-followers the same way. Note the
+direction: privacy reads the **viewer → author** edge (do you follow them?) while
+[post audience](#relationship-categories--post-audience) reads the **author →
+viewer** edge (did they label you?). A non-public post from a private account must
+pass both.
+
+Privacy gates **posts only**. A private account's comments — including on
+someone else's public post — follow each comment's own audience exactly like
+anyone else's, so the commenter decides who sees them per comment. (Comments *on*
+a private account's posts stay out of reach for non-followers anyway, because the
+post itself is.)
+
+On a private profile someone doesn't follow, the **counts are hidden** too: the
+backend zeroes `post_count`, `follower_count` and `following_count`, and the
+clients hide the stats row rather than show zeros. The header — name, photo,
+bio, join number — is still shown, and a 🔒 *This account is private* note stands
+in for the grid. The profile payload carries `is_private` for everyone,
+`follow_request_pending` for the viewer, and (owner only) `follow_request_count`.
+The Follow button reads **Requested** while a request is pending, and tapping it
+cancels the request. The owner reaches the request list from Settings → Follow
+Requests or from the "Follow Requests (n)" link on their own profile.
+
 ## Audience badges (issue #518)
 
 Your **own** posts and comments carry a small badge saying who can see them:

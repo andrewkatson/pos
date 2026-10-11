@@ -120,7 +120,10 @@ data class DisableTotpResponse(
 /** The signed-in account's own contact details, from `GET /me/` (issue #197/#194). */
 data class CurrentUserResponse(
     @SerializedName("username") val username: String,
-    @SerializedName("email") val email: String
+    @SerializedName("email") val email: String,
+    // The private account setting (issue #96), shown as a Settings toggle.
+    // Nullable so a response from an older backend still parses.
+    @SerializedName("is_private") val isPrivate: Boolean? = null
 )
 
 /**
@@ -458,7 +461,26 @@ data class ProfileDetailsResponse(
     // profile from a server that predates the field still deserializes — Gson
     // leaves a missing field null rather than applying a default; callers treat
     // null and "" the same ("no bio set").
-    @SerializedName("bio") val bio: String? = null
+    @SerializedName("bio") val bio: String? = null,
+    // Private account (issue #96): only approved followers see its posts and
+    // counts. The counts above are zeroed for anyone else, so the screen hides
+    // them rather than show zeros. Null on older backends (treated as public).
+    @SerializedName("is_private") val isPrivate: Boolean? = null,
+    // The viewer has asked to follow this private account and is waiting on an
+    // answer (issue #96).
+    @SerializedName("follow_request_pending") val followRequestPending: Boolean? = null,
+    // Owner-only: incoming follow requests awaiting a decision (issue #96).
+    @SerializedName("follow_request_count") val followRequestCount: Int? = null
+)
+
+// --- Private accounts (issue #96) ---
+
+data class SetAccountPrivacyRequest(
+    @SerializedName("is_private") val isPrivate: Boolean
+)
+
+data class SetAccountPrivacyResponse(
+    @SerializedName("is_private") val isPrivate: Boolean
 )
 
 // --- Profile Photo DTOs (issue #7) ---
@@ -648,7 +670,10 @@ data class GenericResponse(
     val message: String?,
     val error: String?,
     // Echoed by the follow / set-category endpoints (issue #392).
-    @SerializedName("follow_category") val followCategory: String? = null
+    @SerializedName("follow_category") val followCategory: String? = null,
+    // Echoed by the follow endpoint (issue #96): true when the target is a
+    // private account, so the call filed a follow request rather than following.
+    @SerializedName("follow_request_pending") val followRequestPending: Boolean? = null
 )
 
 // --- Relationship categories & post audience (issue #392) ---

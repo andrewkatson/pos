@@ -17,7 +17,7 @@ from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.mail import send_mail
 from django.db import transaction, IntegrityError
-from django.db.models import Count, Max, OuterRef, Subquery
+from django.db.models import Count, Max, OuterRef, Q, Subquery
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -59,14 +59,14 @@ from .google_auth import GoogleTokenError, is_google_sign_in_configured, verify_
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
     PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode, \
-    InterestCategory, UserFreeformInterest, DeviceToken, NotificationPreference
+    InterestCategory, UserFreeformInterest, DeviceToken, NotificationPreference, FollowRequest
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_source_bucket_url, \
     strip_query_and_fragment
 from .tags import set_post_tags
-from .visibility import audience_admits, can_view_post, in_same_age_band, searchable_users, \
+from .visibility import audience_admits, can_view_post, in_same_age_band, privacy_admits, searchable_users, \
     visible_comment_threads, visible_comments, visible_posts, PUBLIC_VIEWER
 
 
@@ -2265,7 +2265,8 @@ def report_post(request, post_identifier):
         # A post from a different age band is treated as absent, so an adult
         # cannot interact with an underage account's post (or vice versa) even
         # with a known post id (issue #329).
-        if not in_same_age_band(post.author, request.user):
+        # Likewise a private account's post for a non-follower (issue #96).
+        if not in_same_age_band(post.author, request.user) or not privacy_admits(post.author, request.user):
             logger.warning(f"Report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
             return log_and_return_json("report_post", {'error': "No post with that identifier"}, status=400)
 
@@ -2356,7 +2357,8 @@ def like_post(request, post_identifier):
         # A post from a different age band is treated as absent, so an adult
         # cannot interact with an underage account's post (or vice versa) even
         # with a known post id (issue #329).
-        if not in_same_age_band(post.author, request.user):
+        # Likewise a private account's post for a non-follower (issue #96).
+        if not in_same_age_band(post.author, request.user) or not privacy_admits(post.author, request.user):
             logger.warning(f"Like post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
             return log_and_return_json("like_post", {'error': "No post with that identifier"}, status=400)
 
@@ -3333,9 +3335,11 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
     # interaction cannot be smuggled in via known ids (issue #329). Both the
     # comment's author and its post's author must share the caller's band, so
     # even an inconsistent legacy record (a cross-band comment on a post) stays
-    # unreachable.
+    # unreachable. A comment on a private account's post is equally out of reach
+    # for a non-follower (issue #96), who cannot see the post it sits on.
     if not in_same_age_band(comment.author, request.user) \
             or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+            or not privacy_admits(comment.comment_thread.post.author, request.user) \
             or not audience_admits(comment, request.user):
         logger.warning(f"Like comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
@@ -3518,9 +3522,11 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
     # interaction cannot be smuggled in via known ids (issue #329). Both the
     # comment's author and its post's author must share the caller's band, so
     # even an inconsistent legacy record (a cross-band comment on a post) stays
-    # unreachable.
+    # unreachable. A comment on a private account's post is equally out of reach
+    # for a non-follower (issue #96), who cannot see the post it sits on.
     if not in_same_age_band(comment.author, request.user) \
             or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+            or not privacy_admits(comment.comment_thread.post.author, request.user) \
             or not audience_admits(comment, request.user):
         logger.warning(f"Report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
@@ -4005,10 +4011,19 @@ def get_public_profile_details(request, username):
     post_count = visible_posts(profile_user.post_set.all(), PUBLIC_VIEWER).count()
     follower_count = searchable_users(profile_user.followers.all(), PUBLIC_VIEWER).count()
     following_count = searchable_users(profile_user.following.all(), PUBLIC_VIEWER).count()
+    # A private account (issue #96) still shows its header — name, photo, bio,
+    # join number — on a shared link, but none of its counts, exactly as for a
+    # signed-in non-follower. Its grid is already empty: visible_posts admits no
+    # private account's posts for the anonymous viewer.
+    if profile_user.is_private:
+        post_count = 0
+        follower_count = 0
+        following_count = 0
 
     live_avatar = profile_user.profile_image_url
     data = {
         Fields.username: profile_user.username,
+        Fields.is_private: profile_user.is_private,
         Fields.post_count: post_count,
         Fields.follower_count: follower_count,
         Fields.following_count: following_count,
@@ -4203,6 +4218,12 @@ def follow_user(request, username_to_follow):
     if request.user.following.filter(pk=user_to_follow_obj.pk).exists():
         return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
 
+    # A private account (issue #96) is not followed outright: the call files a
+    # follow request the owner approves or denies, carrying the chosen category
+    # so approval creates exactly the edge the requester asked for.
+    if user_to_follow_obj.is_private:
+        return _request_to_follow(request, user_to_follow_obj, category)
+
     # Create the through row directly so the category is set; .add() cannot pass
     # extra through-model fields. The pre-check above handles the common case, but
     # two concurrent follow requests can still race past it, so the unique
@@ -4214,7 +4235,36 @@ def follow_user(request, username_to_follow):
     except IntegrityError:
         return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
     logger.info(f"Follow user successful: target_user_id: {user_to_follow_obj.id} by user_id: {request.user.id}")
-    return log_and_return_json("follow_user", {'message': 'User followed', Fields.follow_category: category})
+    return log_and_return_json("follow_user", {
+        'message': 'User followed',
+        Fields.follow_category: category,
+        Fields.follow_request_pending: False,
+    })
+
+
+def _request_to_follow(request, target_user, category):
+    """follow_user's private-account branch (issue #96): file a follow request
+    instead of a follow edge.
+
+    A user the target has blocked gets the same "User does not exist" a missing
+    account does, so a blocker never receives requests from someone they blocked
+    and the blocked user cannot tell the account is there. The unique
+    (user_from, user_to) constraint guards against two concurrent requests the
+    same way it does for follows."""
+    if request.user.blocked_by.filter(pk=target_user.pk).exists():
+        return log_and_return_json("follow_user", {'error': "User does not exist"}, status=400)
+
+    try:
+        with transaction.atomic():
+            FollowRequest.objects.create(user_from=request.user, user_to=target_user, category=category)
+    except IntegrityError:
+        return log_and_return_json("follow_user", {'error': "Follow already requested"}, status=400)
+    logger.info(f"Follow request filed: target_user_id: {target_user.id} by user_id: {request.user.id}")
+    return log_and_return_json("follow_user", {
+        'message': 'Follow requested',
+        Fields.follow_category: None,
+        Fields.follow_request_pending: True,
+    })
 
 
 @csrf_exempt
@@ -4315,6 +4365,12 @@ def toggle_block(request, username_to_toggle_block):
             request.user.following.remove(user_to_toggle_obj)
         if user_to_toggle_obj.following.filter(pk=request.user.pk).exists():
             user_to_toggle_obj.following.remove(request.user)
+        # A block also drops any pending follow request in either direction
+        # (issue #96), so neither side is left with a request it cannot act on.
+        FollowRequest.objects.filter(
+            Q(user_from=request.user, user_to=user_to_toggle_obj)
+            | Q(user_from=user_to_toggle_obj, user_to=request.user)
+        ).delete()
 
         logger.info(f"User blocked successful: target_user_id: {user_to_toggle_obj.id} by user_id: {request.user.id}")
         return log_and_return_json("toggle_block", {'message': 'User blocked'})
@@ -4338,6 +4394,161 @@ def get_blocked_users(request):
     ]
     logger.info(f"Get blocked users successful: count: {len(users_data)} for user_id: {request.user.id}")
     return log_and_return_json("get_blocked_users", users_data, safe=False)
+
+
+# --- Private accounts & follow requests (issue #96) --------------------------
+#
+# A private account's posts are visible only to its approved followers (the
+# rule lives in visibility.py), so following one goes through a request:
+# follow_user files a FollowRequest instead of a UserFollow, the owner lists
+# their incoming requests and approves or denies each, and the requester can
+# cancel one they no longer want. Approval creates the follow edge with the
+# category the requester asked for. Comments are untouched — they keep their
+# own per-comment audience.
+
+
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_GET
+def get_follow_requests(request):
+    """The requester's own incoming follow requests, newest first.
+
+    There is no username parameter, so nobody can read another account's
+    requests. Requesters are filtered through searchable_users for the same
+    reasons the follower list is (issue #398): a shadow-banned account stays
+    hidden from everyone but itself, and a cross-age-band account must never be
+    surfaced (follow_user already refuses cross-band follows, but an account can
+    change band by verifying its age after asking)."""
+    logger.info("Endpoint get_follow_requests invoked by IP or User")
+    incoming = FollowRequest.objects.filter(user_to=request.user)
+    # Ordered via a subquery, as _liker_batch does, rather than by the reverse
+    # relation: ordering across follow_requests_sent would join every request
+    # the requester ever sent, not just the one to the caller.
+    requested_at = incoming.filter(user_from=OuterRef('pk')).values('created')[:1]
+    requesters = searchable_users(
+        PositiveOnlySocialUser.objects.filter(pk__in=incoming.values('user_from_id')),
+        request.user,
+    ).annotate(requested_at=Subquery(requested_at)).order_by('-requested_at', 'username')
+
+    users_data = [
+        {
+            Fields.username: user.username,
+            Fields.identity_is_verified: user.identity_is_verified,
+            **_author_avatar_fields(user),
+        }
+        for user in requesters
+    ]
+    logger.info(f"Get follow requests successful: count: {len(users_data)} for user_id: {request.user.id}")
+    return log_and_return_json("get_follow_requests", users_data, safe=False)
+
+
+def _incoming_follow_request(request, endpoint, username):
+    """Resolve the pending request `username` sent the caller, or an error
+    response. A cross-band requester is treated as absent like everywhere else
+    (issue #329), so these endpoints cannot confirm such an account exists."""
+    if not is_valid_pattern(username, Patterns.username):
+        return None, log_and_return_json(endpoint, {'error': "Invalid username"}, status=400)
+    requester = get_user_with_username(username)
+    if requester is None or not in_same_age_band(request.user, requester):
+        return None, log_and_return_json(endpoint, {'error': "User does not exist"}, status=400)
+    follow_request = FollowRequest.objects.filter(user_from=requester, user_to=request.user).first()
+    if follow_request is None:
+        return None, log_and_return_json(endpoint, {'error': "No follow request from user"}, status=400)
+    return follow_request, None
+
+
+def _approve_follow_request(follow_request):
+    """Turn a pending request into the follow edge it asked for. get_or_create
+    so an edge that somehow already exists (e.g. created before the account went
+    private) is kept rather than tripping the unique constraint."""
+    with transaction.atomic():
+        UserFollow.objects.get_or_create(
+            user_from=follow_request.user_from, user_to=follow_request.user_to,
+            defaults={'category': follow_request.category})
+        follow_request.delete()
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_POST
+def approve_follow_request(request, username):
+    """Approve the follow request `username` sent the caller: they become a
+    follower and can see the caller's posts."""
+    logger.info("Endpoint approve_follow_request invoked by IP or User")
+    follow_request, error = _incoming_follow_request(request, "approve_follow_request", username)
+    if error is not None:
+        return error
+    _approve_follow_request(follow_request)
+    logger.info(f"Follow request approved: requester_id: {follow_request.user_from_id} by user_id: {request.user.id}")
+    return log_and_return_json("approve_follow_request", {'message': 'Follow request approved'})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_POST
+def deny_follow_request(request, username):
+    """Deny the follow request `username` sent the caller. The requester is not
+    told; their profile view simply stops showing the request as pending, and
+    they are free to ask again."""
+    logger.info("Endpoint deny_follow_request invoked by IP or User")
+    follow_request, error = _incoming_follow_request(request, "deny_follow_request", username)
+    if error is not None:
+        return error
+    follow_request.delete()
+    logger.info(f"Follow request denied: requester_id: {follow_request.user_from_id} by user_id: {request.user.id}")
+    return log_and_return_json("deny_follow_request", {'message': 'Follow request denied'})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_POST
+def cancel_follow_request(request, username):
+    """Withdraw the caller's own pending request to follow `username`."""
+    logger.info("Endpoint cancel_follow_request invoked by IP or User")
+    if not is_valid_pattern(username, Patterns.username):
+        return log_and_return_json("cancel_follow_request", {'error': "Invalid username"}, status=400)
+    target_user = get_user_with_username(username)
+    if target_user is None or not in_same_age_band(request.user, target_user):
+        return log_and_return_json("cancel_follow_request", {'error': "User does not exist"}, status=400)
+    deleted_count, _ = FollowRequest.objects.filter(user_from=request.user, user_to=target_user).delete()
+    if deleted_count == 0:
+        return log_and_return_json("cancel_follow_request", {'error': "No follow request to cancel"}, status=400)
+    logger.info(f"Follow request cancelled: target_user_id: {target_user.id} by user_id: {request.user.id}")
+    return log_and_return_json("cancel_follow_request", {'message': 'Follow request cancelled'})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_POST
+def set_account_privacy(request):
+    """Turn the caller's private account setting on or off (issue #96).
+
+    Going private keeps every existing follower — they were already approved by
+    virtue of following a public account — and only changes how new followers
+    arrive. Going public approves every pending request, since a public account
+    has nothing left to approve and those people asked to follow."""
+    logger.info("Endpoint set_account_privacy invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("set_account_privacy", {'error': "Invalid JSON data"}, status=400)
+    is_private = data.get(Fields.is_private)
+    if not isinstance(is_private, bool):
+        return log_and_return_json(
+            "set_account_privacy", {'error': f"Invalid fields ['{Fields.is_private}']"}, status=400)
+
+    user = request.user
+    with transaction.atomic():
+        user.is_private = is_private
+        user.save(update_fields=['is_private'])
+        if not is_private:
+            for follow_request in FollowRequest.objects.filter(user_to=user):
+                _approve_follow_request(follow_request)
+    logger.info(f"Account privacy set to {is_private} for user_id: {user.id}")
+    return log_and_return_json("set_account_privacy", {Fields.is_private: is_private})
 
 
 @csrf_exempt
@@ -4974,6 +5185,8 @@ def get_current_user(request):
     data = {
         Fields.username: request.user.username,
         Fields.email: request.user.email,
+        # The private account setting (issue #96), so Settings can show its toggle.
+        Fields.is_private: request.user.is_private,
     }
     logger.info(f"Get current user successful for user_id: {request.user.id}")
     response = log_and_return_json("get_current_user", data, status=200)
@@ -5030,6 +5243,21 @@ def get_profile_details(request, username):
     # Let's hide stats if blocked by them.
     is_blocked_by = request.user.blocked_by.filter(pk=profile_user.pk).exists()
 
+    # Whether the viewer has asked to follow this (private) account and is
+    # waiting on an answer (issue #96).
+    follow_request_pending = FollowRequest.objects.filter(
+        user_from=request.user, user_to=profile_user).exists()
+
+    # A private account shows non-followers none of its counts (issue #96) —
+    # the grid is already empty for them via visible_posts, and the follower /
+    # following numbers are the account's information too. Zeroed rather than
+    # omitted, as for a blocker below, so clients keep a stable shape; the
+    # clients hide the stats row for a locked profile instead of showing zeros.
+    if not privacy_admits(profile_user, request.user):
+        post_count = 0
+        follower_count = 0
+        following_count = 0
+
     if is_blocked_by:
         # Return limited info or error?
         # Usually it looks like the user doesn't exist or empty profile.
@@ -5039,6 +5267,7 @@ def get_profile_details(request, username):
         following_count = 0
         is_following = False
         follow_category = None
+        follow_request_pending = False
 
     # The approved, live profile photo (compressed + full-res fallback, like
     # posts). Hidden along with the stats when the profile has blocked the
@@ -5057,6 +5286,8 @@ def get_profile_details(request, username):
         Fields.following_count: following_count,
         Fields.is_following: is_following,
         Fields.follow_category: follow_category,
+        Fields.is_private: profile_user.is_private,
+        Fields.follow_request_pending: follow_request_pending,
         'is_blocked': is_blocked,
         Fields.identity_is_verified: profile_user.identity_is_verified,
         Fields.is_adult: profile_user.is_adult,
@@ -5087,6 +5318,15 @@ def get_profile_details(request, username):
         # async), so the owner's immediate preview must point at the full-res
         # original or it would 404 to the placeholder.
         data[Fields.pending_profile_image_url] = sign_original_url(pending_avatar)
+        # Incoming follow requests awaiting a decision (issue #96), so the owner's
+        # client can badge its "Follow requests" entry. Counted through the same
+        # searchable_users filter the request list applies, so the badge never
+        # promises a request the list will not show.
+        data[Fields.follow_request_count] = searchable_users(
+            PositiveOnlySocialUser.objects.filter(
+                pk__in=FollowRequest.objects.filter(user_to=profile_user).values('user_from_id')),
+            request.user,
+        ).count()
 
     return log_and_return_json("get_profile_details", data, status=200)
 

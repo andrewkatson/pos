@@ -109,6 +109,26 @@ struct DisableTotpFields: Codable {
 struct CurrentUserFields: Codable {
     let username: String
     let email: String
+    /// The private account setting (issue #96), shown as a Settings toggle.
+    /// Optional so a response from an older backend still decodes.
+    var isPrivate: Bool? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case username
+        case email
+        case isPrivate = "is_private"
+    }
+}
+
+/// The follow endpoint's reply (issue #96). `followRequestPending` is true when
+/// the target is a private account, so the call filed a request instead of
+/// following; nil on older backends, which only ever follow outright.
+struct FollowResponse: Codable {
+    var followRequestPending: Bool? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case followRequestPending = "follow_request_pending"
+    }
 }
 
 // Represents a single post in the user's grid.
@@ -567,6 +587,15 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     /// would still make the synthesized decoder *require* the key. nil and "" are
     /// treated alike ("no bio set"); read it via the view model's `bio` accessor.
     var bio: String? = nil
+    /// Private account (issue #96): only approved followers see its posts and
+    /// counts. The counts above are zeroed for anyone else, so the view hides
+    /// them rather than show zeros. Nil on older backends (treated as public).
+    var isPrivate: Bool? = nil
+    /// The viewer has asked to follow this private account and is waiting on
+    /// an answer (issue #96).
+    var followRequestPending: Bool? = nil
+    /// Owner-only: incoming follow requests awaiting a decision (issue #96).
+    var followRequestCount: Int? = nil
 
     enum CodingKeys: String, CodingKey {
         case username
@@ -586,6 +615,9 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
         case profileImageReasonCode = "profile_image_reason_code"
         case pendingProfileImageUrl = "pending_profile_image_url"
         case bio
+        case isPrivate = "is_private"
+        case followRequestPending = "follow_request_pending"
+        case followRequestCount = "follow_request_count"
     }
 }
 

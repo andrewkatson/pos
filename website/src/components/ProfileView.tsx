@@ -89,6 +89,9 @@ function ProfileView({
   const [profile, setProfile] = useState<LoadedProfile | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [isFollowing, setIsFollowing] = useState(false)
+  // The viewer asked to follow this private account and is awaiting an answer
+  // (issue #96); the Follow button reads "Requested" and tapping it cancels.
+  const [followRequestPending, setFollowRequestPending] = useState(false)
   const [followCategory, setFollowCategory] = useState<FollowCategory>('following')
   const [isBlocked, setIsBlocked] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
@@ -153,6 +156,7 @@ function ProfileView({
   // carries none, and a visitor with no account follows and blocks nobody.
   const applyRelationship = useCallback((details: LoadedProfile) => {
     setIsFollowing(details.is_following ?? false)
+    setFollowRequestPending(details.follow_request_pending ?? false)
     setFollowCategory(details.follow_category ?? 'following')
     setIsBlocked(details.is_blocked ?? false)
   }, [])
@@ -373,9 +377,17 @@ function ProfileView({
     setIsBusy(true)
     const wasFollowing = isFollowing
     try {
-      if (wasFollowing) {
+      if (followRequestPending) {
+        // "Requested" → withdraw the pending request (issue #96).
+        await apiClient.cancelFollowRequest(username)
+        setFollowRequestPending(false)
+      } else if (wasFollowing) {
         await apiClient.unfollowUser(username)
         setIsFollowing(false)
+        // Unfollowing a private account locks it again: its posts are no
+        // longer the viewer's to see, so drop them rather than wait for a
+        // refresh to do it.
+        if (profile?.is_private) setPosts([])
         // Clear the relationship category so in-memory state matches the API
         // contract (follow_category is null when not following) and doesn't go
         // stale for any later UI that reads it.
@@ -384,10 +396,16 @@ function ProfileView({
           p ? { ...p, follow_category: null, follower_count: Math.max(0, p.follower_count - 1) } : p,
         )
       } else {
-        await apiClient.followUser(username)
-        setIsFollowing(true)
-        setFollowCategory('following')
-        setProfile(p => (p ? { ...p, follow_category: 'following', follower_count: p.follower_count + 1 } : p))
+        const response = await apiClient.followUser(username)
+        if (response.follow_request_pending) {
+          // A private account: the call filed a request, nothing changes until
+          // the owner approves it (issue #96).
+          setFollowRequestPending(true)
+        } else {
+          setIsFollowing(true)
+          setFollowCategory('following')
+          setProfile(p => (p ? { ...p, follow_category: 'following', follower_count: p.follower_count + 1 } : p))
+        }
       }
     } catch {
       /* state is only updated after a successful call, so nothing to revert */
@@ -422,6 +440,8 @@ function ProfileView({
       setIsBlocked(nowBlocked)
       // Blocking severs the follow relationship on the backend; reflect that in
       // the follow button and the follower count so the stats stay consistent.
+      // A block also drops any pending follow request (issue #96).
+      if (nowBlocked) setFollowRequestPending(false)
       if (nowBlocked && wasFollowing) {
         setIsFollowing(false)
         // Blocking severs the follow, so clear the category too (matches the
@@ -437,6 +457,11 @@ function ProfileView({
       setIsBusy(false)
     }
   }
+
+  // A private account someone other than its owner does not follow (issue
+  // #96): the backend serves it no posts and zeroed counts, so the view hides
+  // the stats and shows a "this account is private" note in place of the grid.
+  const isLocked = !isOwnProfile && !!profile?.is_private && !isFollowing
 
   if (loadFailed) {
     return (
@@ -508,7 +533,14 @@ function ProfileView({
             size="lg"
           />
           <div className="profile-identity__details">
-            <div className="profile-identity__name">{username}</div>
+            <div className="profile-identity__name">
+              {username}
+              {profile?.is_private && (
+                <span className="profile-private-badge" role="img" aria-label="Private account">
+                  🔒
+                </span>
+              )}
+            </div>
             {isOwnProfile && (
               <div className="profile-photo-actions">
                 <button
@@ -567,45 +599,58 @@ function ProfileView({
           </button>
         </div>
 
-        <div className="profile-stats">
-          <div>
-            <span className="profile-stat__count">{profile?.post_count ?? posts.length}</span>
-            <span className="profile-stat__label">Posts</span>
+        {isOwnProfile && (profile?.is_private || (profile?.follow_request_count ?? 0) > 0) && (
+          <button
+            type="button"
+            className="btn btn-outline profile-follow-requests"
+            onClick={() => navigate('/follow-requests')}
+          >
+            Follow requests
+            {(profile?.follow_request_count ?? 0) > 0 && ` (${profile?.follow_request_count})`}
+          </button>
+        )}
+
+        {!isLocked && (
+          <div className="profile-stats">
+            <div>
+              <span className="profile-stat__count">{profile?.post_count ?? posts.length}</span>
+              <span className="profile-stat__label">Posts</span>
+            </div>
+            {/* Only your own follow lists are viewable, so the counts are a
+                tap-through on your own profile and plain stats on anyone else's
+                (issue #8). */}
+            {isOwnProfile ? (
+              <button
+                type="button"
+                className="profile-stat profile-stat--action"
+                onClick={() => navigate('/followers')}
+              >
+                <span className="profile-stat__count">{profile?.follower_count ?? 0}</span>
+                <span className="profile-stat__label">Followers</span>
+              </button>
+            ) : (
+              <div>
+                <span className="profile-stat__count">{profile?.follower_count ?? 0}</span>
+                <span className="profile-stat__label">Followers</span>
+              </div>
+            )}
+            {isOwnProfile ? (
+              <button
+                type="button"
+                className="profile-stat profile-stat--action"
+                onClick={() => navigate('/following')}
+              >
+                <span className="profile-stat__count">{profile?.following_count ?? 0}</span>
+                <span className="profile-stat__label">Following</span>
+              </button>
+            ) : (
+              <div>
+                <span className="profile-stat__count">{profile?.following_count ?? 0}</span>
+                <span className="profile-stat__label">Following</span>
+              </div>
+            )}
           </div>
-          {/* Only your own follow lists are viewable, so the counts are a
-              tap-through on your own profile and plain stats on anyone else's
-              (issue #8). */}
-          {isOwnProfile ? (
-            <button
-              type="button"
-              className="profile-stat profile-stat--action"
-              onClick={() => navigate('/followers')}
-            >
-              <span className="profile-stat__count">{profile?.follower_count ?? 0}</span>
-              <span className="profile-stat__label">Followers</span>
-            </button>
-          ) : (
-            <div>
-              <span className="profile-stat__count">{profile?.follower_count ?? 0}</span>
-              <span className="profile-stat__label">Followers</span>
-            </div>
-          )}
-          {isOwnProfile ? (
-            <button
-              type="button"
-              className="profile-stat profile-stat--action"
-              onClick={() => navigate('/following')}
-            >
-              <span className="profile-stat__count">{profile?.following_count ?? 0}</span>
-              <span className="profile-stat__label">Following</span>
-            </button>
-          ) : (
-            <div>
-              <span className="profile-stat__count">{profile?.following_count ?? 0}</span>
-              <span className="profile-stat__label">Following</span>
-            </div>
-          )}
-        </div>
+        )}
 
         {profile?.membership_number != null && (
           <p className="profile-membership" title="Join number — position in line since launch">
@@ -685,11 +730,11 @@ function ProfileView({
           <div className="profile-actions">
             <button
               type="button"
-              className={`btn ${isFollowing ? 'btn-outline' : 'btn-primary'}`}
+              className={`btn ${isFollowing || followRequestPending ? 'btn-outline' : 'btn-primary'}`}
               disabled={isBusy}
               onClick={toggleFollow}
             >
-              {isFollowing ? 'Following' : 'Follow'}
+              {isFollowing ? 'Following' : followRequestPending ? 'Requested' : 'Follow'}
             </button>
             {isFollowing && (
               <label className="profile-category">
@@ -745,7 +790,20 @@ function ProfileView({
         </div>
       )}
 
-      {posts.length === 0 && !isLoadingPosts ? (
+      {isLocked && !isLoadingPosts ? (
+        <div className="profile-locked">
+          <p className="profile-locked__title">
+            <span aria-hidden="true">🔒</span> This account is private
+          </p>
+          <p className="muted">
+            {isSignedIn
+              ? followRequestPending
+                ? `Once ${username} approves your request, you'll see their posts.`
+                : `Follow ${username} to see their posts.`
+              : `Only people ${username} approves can see their posts.`}
+          </p>
+        </div>
+      ) : posts.length === 0 && !isLoadingPosts ? (
         <p className="muted">
           {isOwnProfile ? "You haven't posted anything yet." : `${username} hasn't posted anything yet.`}
         </p>

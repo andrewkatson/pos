@@ -138,6 +138,11 @@ interface UserMock {
    * follow, keyed by that person's id. Absent entries default to 'following'. */
   followCategories: Map<string, FollowCategory>
   followers: Set<string>
+  /** Private account (issue #96): only approved followers see its posts. */
+  isPrivate: boolean
+  /** Incoming follow requests awaiting a decision, keyed by the requester's id
+   * to the category they asked for, in arrival order. */
+  followRequests: Map<string, FollowCategory>
   isVerified: boolean
   isAdult: boolean
   blocked: Set<string>
@@ -394,6 +399,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       following: new Set(),
       followCategories: new Map(),
       followers: new Set(),
+      isPrivate: false,
+      followRequests: new Map(),
       isVerified: Boolean(body.date_of_birth),
       isAdult: age !== null && age >= 18,
       blocked: new Set(),
@@ -553,6 +560,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         following: new Set(),
         followCategories: new Map(),
         followers: new Set(),
+        isPrivate: false,
+        followRequests: new Map(),
         isVerified: false,
         isAdult: false,
         blocked: new Set(),
@@ -780,7 +789,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async getCurrentUser(): Promise<CurrentUser> {
     const user = this.requireUser()
-    return { username: user.username, email: user.email }
+    return { username: user.username, email: user.email, is_private: user.isPrivate }
   }
 
   // ---------------------------------------------------------------------------
@@ -1206,7 +1215,17 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (post.hiddenReason === 'classifier_final') return false
     if (post.authorId === viewer.id) return true
     if (post.hidden) return false
+    if (!this.privacyAdmits(post.authorId, viewer)) return false
     return !viewer.blocked.has(post.authorId) && !viewer.blockedBy.has(post.authorId)
+  }
+
+  /** Mirrors backend privacy_admits (issue #96): a private account's posts reach
+   * only the account itself and the people who follow it. A null viewer is a
+   * signed-out visitor, who follows nobody. */
+  private privacyAdmits(authorId: string, viewer: UserMock | null): boolean {
+    const author = this.users.find((u) => u.id === authorId)
+    if (!author?.isPrivate || viewer?.id === authorId) return true
+    return viewer !== null && viewer.following.has(authorId)
   }
 
   async getFeed(batch: number): Promise<FeedPost[]> {
@@ -1217,6 +1236,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
           !p.hidden &&
           !user.blocked.has(p.authorId) &&
           !user.blockedBy.has(p.authorId) &&
+          this.privacyAdmits(p.authorId, user) &&
           this.audienceAdmits(p, user.id),
       )
       .sort((a, b) => b.creationTime - a.creationTime)
@@ -1257,6 +1277,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       .filter((p) => p.authorId === target.id)
       .filter((p) => p.hiddenReason !== 'classifier_final')
       .filter((p) => (user.id === target.id ? true : !p.hidden))
+      .filter((p) => this.privacyAdmits(p.authorId, user))
       .filter((p) => this.audienceAdmits(p, user.id))
       .sort((a, b) => b.creationTime - a.creationTime)
     return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
@@ -1345,6 +1366,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (post.hiddenReason === 'classifier_final') return false
     if (post.hidden) return false
     if (post.audience !== 'public') return false
+    if (!this.privacyAdmits(post.authorId, null)) return false
     return !this.isVerifiedMinor(post.authorId)
   }
 
@@ -1429,11 +1451,13 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     ).length
     // No is_following / follow_category / is_blocked (no viewer to have them)
     // and none of the owner-only photo-review fields.
+    // A private account shows its header but no counts (issue #96).
     return {
       username: target.username,
       post_count: postCount,
-      follower_count: target.followers.size,
-      following_count: target.following.size,
+      follower_count: target.isPrivate ? 0 : target.followers.size,
+      following_count: target.isPrivate ? 0 : target.following.size,
+      is_private: target.isPrivate,
       identity_is_verified: target.isVerified,
       profile_image_url: target.profileImageUrl,
       profile_image_original_url: target.profileImageUrl,
@@ -1814,10 +1838,96 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       throw new ApiError(400, 'Already following user')
     }
     const followCategory = category ?? 'following'
+    // A private account (issue #96) gets a request, not a follow.
+    if (target.isPrivate) {
+      if (target.blocked.has(user.id)) {
+        throw new ApiError(400, 'User does not exist')
+      }
+      if (target.followRequests.has(user.id)) {
+        throw new ApiError(400, 'Follow already requested')
+      }
+      target.followRequests.set(user.id, followCategory)
+      return { message: 'Follow requested', follow_category: null, follow_request_pending: true }
+    }
     user.following.add(target.id)
     user.followCategories.set(target.id, followCategory)
     target.followers.add(user.id)
-    return { message: 'User followed', follow_category: followCategory }
+    return { message: 'User followed', follow_category: followCategory, follow_request_pending: false }
+  }
+
+  /** Approve one pending request: the requester becomes a follower with the
+   * category they asked for. */
+  private approveRequest(owner: UserMock, requester: UserMock): void {
+    const category = owner.followRequests.get(requester.id) ?? 'following'
+    owner.followRequests.delete(requester.id)
+    requester.following.add(owner.id)
+    requester.followCategories.set(owner.id, category)
+    owner.followers.add(requester.id)
+  }
+
+  /** The requester behind an incoming request, or the backend's 400s. */
+  private requireIncomingRequest(owner: UserMock, username: string): UserMock {
+    const requester = this.findUserByName(username)
+    if (!requester) {
+      throw new ApiError(400, 'User does not exist')
+    }
+    if (!owner.followRequests.has(requester.id)) {
+      throw new ApiError(400, 'No follow request from user')
+    }
+    return requester
+  }
+
+  async getFollowRequests(): Promise<UserSearchResult[]> {
+    const user = this.requireUser()
+    // Newest first, like the backend.
+    return [...user.followRequests.keys()]
+      .reverse()
+      .map((id) => this.users.find((u) => u.id === id))
+      .filter((u): u is UserMock => u !== undefined)
+      .map((u) => ({
+        username: u.username,
+        identity_is_verified: u.isVerified,
+        ...this.authorAvatarFields(u.id),
+      }))
+  }
+
+  async approveFollowRequest(username: string): Promise<MessageResponse> {
+    const user = this.requireUser()
+    this.approveRequest(user, this.requireIncomingRequest(user, username))
+    return { message: 'Follow request approved' }
+  }
+
+  async denyFollowRequest(username: string): Promise<MessageResponse> {
+    const user = this.requireUser()
+    const requester = this.requireIncomingRequest(user, username)
+    user.followRequests.delete(requester.id)
+    return { message: 'Follow request denied' }
+  }
+
+  async cancelFollowRequest(username: string): Promise<MessageResponse> {
+    const user = this.requireUser()
+    const target = this.findUserByName(username)
+    if (!target) {
+      throw new ApiError(400, 'User does not exist')
+    }
+    if (!target.followRequests.delete(user.id)) {
+      throw new ApiError(400, 'No follow request to cancel')
+    }
+    return { message: 'Follow request cancelled' }
+  }
+
+  async setAccountPrivacy(isPrivate: boolean): Promise<{ is_private: boolean }> {
+    const user = this.requireUser()
+    user.isPrivate = isPrivate
+    // Going public approves everyone still waiting, like the backend.
+    if (!isPrivate) {
+      for (const requesterId of [...user.followRequests.keys()]) {
+        const requester = this.users.find((u) => u.id === requesterId)
+        if (requester) this.approveRequest(user, requester)
+        else user.followRequests.delete(requesterId)
+      }
+    }
+    return { is_private: isPrivate }
   }
 
   async unfollowUser(username: string): Promise<MessageResponse> {
@@ -1874,6 +1984,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     target.following.delete(user.id)
     target.followCategories.delete(user.id)
     user.followers.delete(target.id)
+    // ...and drops pending follow requests both ways (issue #96).
+    user.followRequests.delete(target.id)
+    target.followRequests.delete(user.id)
     return { message: 'User blocked' }
   }
 
@@ -1920,16 +2033,21 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       throw new ApiError(400, 'User not found')
     }
     const isBlockedBy = user.blockedBy.has(target.id)
-    const postCount = isBlockedBy ? 0 : this.posts.filter((p) => p.authorId === target.id).length
+    // A private account shows a non-follower no counts (issue #96); zeroed
+    // exactly like a blocker's.
+    const hideCounts = isBlockedBy || !this.privacyAdmits(target.id, user)
+    const postCount = hideCounts ? 0 : this.posts.filter((p) => p.authorId === target.id).length
     const isFollowing = isBlockedBy ? false : user.following.has(target.id)
     const liveAvatar = isBlockedBy ? null : target.profileImageUrl
     const details: ProfileDetails = {
       username: target.username,
       post_count: postCount,
-      follower_count: isBlockedBy ? 0 : target.followers.size,
-      following_count: isBlockedBy ? 0 : target.following.size,
+      follower_count: hideCounts ? 0 : target.followers.size,
+      following_count: hideCounts ? 0 : target.following.size,
       is_following: isFollowing,
       follow_category: isFollowing ? (user.followCategories.get(target.id) ?? 'following') : null,
+      is_private: target.isPrivate,
+      follow_request_pending: !isBlockedBy && target.followRequests.has(user.id),
       is_blocked: user.blocked.has(target.id),
       identity_is_verified: target.isVerified,
       is_adult: target.isAdult,
@@ -1944,6 +2062,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       details.profile_image_status = target.profileImageStatus
       details.profile_image_reason_code = target.profileImageReasonCode
       details.pending_profile_image_url = target.pendingProfileImageUrl
+      details.follow_request_count = target.followRequests.size
     }
     return details
   }

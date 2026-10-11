@@ -30,6 +30,12 @@ final class SettingsViewModel: ObservableObject {
     @Published var currentUsername: String?
     @Published var currentEmail: String?
 
+    // The private account setting (issue #96), loaded with the contact info.
+    // Nil until it loads (the toggle is disabled until then) or on an older
+    // backend that doesn't report it.
+    @Published var isPrivate: Bool?
+    @Published var isSavingPrivacy = false
+
     // Push notification preferences (issues #342/#343): the per-type Settings
     // toggles, loaded on mount. Empty until the fetch resolves (or if it fails,
     // in which case the section simply doesn't render).
@@ -172,9 +178,34 @@ final class SettingsViewModel: ObservableObject {
                 let fields = try JSONDecoder().decode(CurrentUserFields.self, from: data)
                 currentUsername = fields.username
                 currentEmail = fields.email
+                isPrivate = fields.isPrivate
             } catch {
                 // Non-fatal: leave the placeholder in place.
                 NSLog("%@", "🔴 Could not load current user: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    // MARK: - Private account (issue #96)
+
+    /// Turns the private account setting on or off. Optimistic: the toggle
+    /// flips immediately and reverts (with an error) if the save fails.
+    func setAccountPrivacy(_ newValue: Bool) {
+        guard !isSavingPrivacy, let previous = isPrivate, previous != newValue else { return }
+        isPrivate = newValue
+        isSavingPrivacy = true
+        Task {
+            defer { isSavingPrivacy = false }
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    isPrivate = previous
+                    return
+                }
+                _ = try await api.setAccountPrivacy(sessionManagementToken: userSession.sessionToken, isPrivate: newValue)
+            } catch {
+                isPrivate = previous
+                errorMessage = "Could not update your privacy setting: \(error.userFacingMessage)"
+                showingErrorAlert = true
             }
         }
     }

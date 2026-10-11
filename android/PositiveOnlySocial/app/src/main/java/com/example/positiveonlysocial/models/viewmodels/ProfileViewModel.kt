@@ -533,21 +533,33 @@ class ProfileViewModel(
 
     fun toggleFollow(username: String) {
         val currentProfile = _profileDetails.value ?: return
+        // "Requested" → withdraw the pending request (issue #96).
+        if (currentProfile.followRequestPending == true) {
+            cancelFollowRequest(username, currentProfile)
+            return
+        }
         val isFollowing = currentProfile.isFollowing
+        // Following a private account files a request instead (issue #96), so it
+        // shows "Requested" rather than "Following" and leaves the counts alone.
+        val expectsRequest = !isFollowing && currentProfile.isPrivate == true
 
-        // Optimistic Update. Keep _isFollowing in sync with the profile so the
-        // follow button and the follower count never drift apart.
-        _profileDetails.value = currentProfile.copy(
-            isFollowing = !isFollowing,
-            // A fresh follow starts in the default "following" bucket; unfollowing
-            // clears the category to null to match the API contract (#392).
-            followCategory = if (isFollowing) null else FollowCategory.FOLLOWING.value,
-            followerCount = if (isFollowing) currentProfile.followerCount - 1 else currentProfile.followerCount + 1
-        )
-        _isFollowing.value = !isFollowing
-        // Reset the category state either way: it's the default for a fresh
-        // follow and meaningless (null on the wire) once unfollowed.
-        _followCategory.value = FollowCategory.FOLLOWING
+        if (expectsRequest) {
+            _profileDetails.value = currentProfile.copy(followRequestPending = true)
+        } else {
+            // Optimistic Update. Keep _isFollowing in sync with the profile so the
+            // follow button and the follower count never drift apart.
+            _profileDetails.value = currentProfile.copy(
+                isFollowing = !isFollowing,
+                // A fresh follow starts in the default "following" bucket; unfollowing
+                // clears the category to null to match the API contract (#392).
+                followCategory = if (isFollowing) null else FollowCategory.FOLLOWING.value,
+                followerCount = if (isFollowing) currentProfile.followerCount - 1 else currentProfile.followerCount + 1
+            )
+            _isFollowing.value = !isFollowing
+            // Reset the category state either way: it's the default for a fresh
+            // follow and meaningless (null on the wire) once unfollowed.
+            _followCategory.value = FollowCategory.FOLLOWING
+        }
 
         viewModelScope.launch {
             try {
@@ -570,12 +582,60 @@ class ProfileViewModel(
                     _isFollowing.value = isFollowing
                     _followCategory.value = FollowCategory.from(currentProfile.followCategory)
                     _errorMessage.value = "Failed to update follow status"
+                } else if (isFollowing) {
+                    // Unfollowing a private account locks it again: its posts are
+                    // no longer the viewer's to see.
+                    if (currentProfile.isPrivate == true) _userPosts.value = emptyList()
+                } else {
+                    // The server has the final word on whether the account is
+                    // private (it may have changed since the profile loaded).
+                    val filedRequest = response.body()?.followRequestPending == true
+                    if (filedRequest != expectsRequest) {
+                        _profileDetails.value = if (filedRequest) {
+                            currentProfile.copy(followRequestPending = true)
+                        } else {
+                            currentProfile.copy(
+                                isFollowing = true,
+                                followCategory = FollowCategory.FOLLOWING.value,
+                                followerCount = currentProfile.followerCount + 1
+                            )
+                        }
+                        _isFollowing.value = !filedRequest
+                        _followCategory.value = FollowCategory.FOLLOWING
+                    }
                 }
             } catch (e: Exception) {
                 // Revert on error
                 _profileDetails.value = currentProfile
                 _isFollowing.value = isFollowing
                 _followCategory.value = FollowCategory.from(currentProfile.followCategory)
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            }
+        }
+    }
+
+    /**
+     * Withdraws the viewer's pending request to follow this private account
+     * (issue #96). Optimistic: flips back to "Follow" and restores "Requested"
+     * if the call fails.
+     */
+    private fun cancelFollowRequest(username: String, currentProfile: ProfileDetailsResponse) {
+        _profileDetails.value = currentProfile.copy(followRequestPending = false)
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _profileDetails.value = currentProfile
+                    _errorMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.cancelFollowRequest(userSession.sessionToken, username)
+                if (!response.isSuccessful) {
+                    _profileDetails.value = currentProfile
+                    _errorMessage.value = "Failed to cancel follow request"
+                }
+            } catch (e: Exception) {
+                _profileDetails.value = currentProfile
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
@@ -637,9 +697,13 @@ class ProfileViewModel(
         if (!currentBlockedStatus && currentProfile != null && currentProfile.isFollowing) {
             _profileDetails.value = currentProfile.copy(
                 isFollowing = false,
-                followerCount = currentProfile.followerCount - 1
+                followerCount = currentProfile.followerCount - 1,
+                followRequestPending = false
             )
             _isFollowing.value = false
+        } else if (!currentBlockedStatus && currentProfile?.followRequestPending == true) {
+            // A block also drops any pending follow request (issue #96).
+            _profileDetails.value = currentProfile.copy(followRequestPending = false)
         }
 
         viewModelScope.launch {
@@ -672,5 +736,16 @@ class ProfileViewModel(
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
+    }
+
+    companion object {
+        /**
+         * Whether a profile is a private account the viewer can't see into
+         * (issue #96): not their own, private, and not followed. The backend
+         * then serves no posts and zeroed counts, so the screen hides the stats
+         * and shows a "this account is private" note instead of a grid.
+         */
+        fun isLocked(profile: ProfileDetailsResponse?, isOwnProfile: Boolean, isFollowing: Boolean): Boolean =
+            !isOwnProfile && profile?.isPrivate == true && !isFollowing
     }
 }

@@ -232,6 +232,16 @@ export interface PositiveOnlySocialAPI {
   getBlockedUsers(): Promise<UserSearchResult[]>
   getFollowers(): Promise<UserSearchResult[]>
   getFollowing(): Promise<UserSearchResult[]>
+  /** Private accounts (issue #96). Following a private account files a
+   * request (see followUser's follow_request_pending); its owner lists, approves
+   * and denies them, and the requester can cancel. */
+  getFollowRequests(): Promise<UserSearchResult[]>
+  approveFollowRequest(username: string): Promise<MessageResponse>
+  denyFollowRequest(username: string): Promise<MessageResponse>
+  cancelFollowRequest(username: string): Promise<MessageResponse>
+  /** Turn the signed-in account's private setting on or off. Going public
+   * approves every pending request. */
+  setAccountPrivacy(isPrivate: boolean): Promise<{ is_private: boolean }>
   getProfile(username: string): Promise<ProfileDetails>
   /** Set the signed-in user's profile photo to an already-uploaded image
    * (issue #7). The photo is classified asynchronously and shown to others only

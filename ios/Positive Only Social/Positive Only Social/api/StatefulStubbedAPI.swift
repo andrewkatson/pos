@@ -44,6 +44,8 @@ struct MockUser {
     var profileImageReasonCode: String? = nil
     // Free-text bio (issue #380); "" when unset.
     var bio: String = ""
+    // Private account (issue #96): only approved followers see its posts.
+    var isPrivate: Bool = false
     // Positive interest tags (issues #446/#35): weighting buckets (picks ∪
     // mapped freeform) and the freeform terms the user typed.
     var interestCategories: [String] = []
@@ -66,6 +68,14 @@ fileprivate struct MockTwoFactorChallenge {
     let userId: UUID
     let rememberMe: Bool
     let ip: String
+}
+
+// A pending request to follow a private account (issue #96), carrying the
+// category the requester asked for so approval creates exactly that edge.
+fileprivate struct MockFollowRequest {
+    let userFromId: UUID
+    let userToId: UUID
+    var category: String = FollowCategory.following.rawValue
 }
 
 fileprivate struct MockUserFollow {
@@ -207,6 +217,8 @@ final class StatefulStubbedAPI: Networking {
     private var comments: [MockComment] = []
     private var appeals: [MockAppeal] = []
     private var userFollows: [MockUserFollow] = []
+    // Pending follow requests (issue #96), oldest first.
+    private var followRequests: [MockFollowRequest] = []
 
     // Monotonic source for membership numbers (issue #198). A dedicated counter
     // rather than users.count so a delete + re-register never reuses a number,
@@ -295,6 +307,13 @@ final class StatefulStubbedAPI: Networking {
     private func findComment(byIdentifier id: String) -> MockComment? { comments.first { $0.commentIdentifier == id } }
     private func isUserFollowing(from: UUID, to: UUID) -> Bool {
             userFollows.contains { $0.userFromId == from && $0.userToId == to }
+    }
+
+    /// Mirrors visibility.privacy_admits (issue #96): a private account's posts
+    /// reach only the account itself and the people who follow it.
+    private func privacyAdmits(authorId: UUID, viewer: MockUser) -> Bool {
+        guard let author = users.first(where: { $0.id == authorId }), author.isPrivate else { return true }
+        return authorId == viewer.id || isUserFollowing(from: viewer.id, to: authorId)
     }
 
     // MARK: - Private Helpers
@@ -964,8 +983,12 @@ final class StatefulStubbedAPI: Networking {
     func getCurrentUser(sessionManagementToken: String) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
-        struct Fields: Codable { let username, email: String }
-        return try createSerializedResponse(fields: Fields(username: user.username, email: user.email))
+        struct Fields: Codable {
+            let username, email: String
+            let is_private: Bool
+        }
+        return try createSerializedResponse(fields: Fields(
+            username: user.username, email: user.email, is_private: user.isPrivate))
     }
 
     func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data {
@@ -1314,6 +1337,7 @@ final class StatefulStubbedAPI: Networking {
                 !post.isHidden &&
                 !user.blocked.contains(post.authorId) &&
                 !user.blockedBy.contains(post.authorId) &&
+                privacyAdmits(authorId: post.authorId, viewer: user) &&
                 audienceAdmits(post, viewer: user)
             }
             .sorted { $0.createdDate > $1.createdDate }
@@ -1403,6 +1427,7 @@ final class StatefulStubbedAPI: Networking {
         let relevantPosts = posts
             .filter { $0.authorId == targetUser.id && $0.hiddenReason != "classifier_final" }
             .filter { isOwnGrid || !$0.isHidden }
+            .filter { isOwnGrid || privacyAdmits(authorId: $0.authorId, viewer: user) }
             .filter { isOwnGrid || audienceAdmits($0, viewer: user) }
             .sorted { $0.createdDate > $1.createdDate } // Sort newest first
 
@@ -1430,7 +1455,9 @@ final class StatefulStubbedAPI: Networking {
         guard let post = findPost(byIdentifier: postIdentifier) else { throw APIError.badServerResponse(statusCode: 400) }
         // Mirror can_view_post: a restricted post the viewer isn't in the
         // audience for reads exactly like a missing one (issue #392).
-        if post.authorId != user.id && !audienceAdmits(post, viewer: user) {
+        // A private account's post reads as missing to a non-follower (issue #96).
+        if post.authorId != user.id
+            && (!audienceAdmits(post, viewer: user) || !privacyAdmits(authorId: post.authorId, viewer: user)) {
             throw APIError.badServerResponse(statusCode: 400)
         }
         struct Fields: Codable {
@@ -1851,14 +1878,128 @@ final class StatefulStubbedAPI: Networking {
         }
 
         let followCategory = category ?? FollowCategory.following.rawValue
-        userFollows.append(MockUserFollow(
-            userFromId: currentUser.id, userToId: userToFollow.id, category: followCategory))
 
         struct Fields: Codable {
             let message: String
-            let follow_category: String
+            let follow_category: String?
+            let follow_request_pending: Bool
         }
-        return try createSerializedResponse(fields: Fields(message: "User followed", follow_category: followCategory))
+
+        // A private account (issue #96) gets a request, not a follow.
+        if userToFollow.isPrivate {
+            if userToFollow.blocked.contains(currentUser.id) {
+                throw APIError.serverError(statusCode: 400, serverMessage: "User does not exist")
+            }
+            if followRequests.contains(where: { $0.userFromId == currentUser.id && $0.userToId == userToFollow.id }) {
+                throw APIError.serverError(statusCode: 400, serverMessage: "Follow already requested")
+            }
+            followRequests.append(MockFollowRequest(
+                userFromId: currentUser.id, userToId: userToFollow.id, category: followCategory))
+            return try createSerializedResponse(fields: Fields(
+                message: "Follow requested", follow_category: nil, follow_request_pending: true))
+        }
+
+        userFollows.append(MockUserFollow(
+            userFromId: currentUser.id, userToId: userToFollow.id, category: followCategory))
+        return try createSerializedResponse(fields: Fields(
+            message: "User followed", follow_category: followCategory, follow_request_pending: false))
+    }
+
+    // MARK: - Private accounts & follow requests (issue #96)
+
+    /// Turns a pending request into the follow edge it asked for.
+    private func approve(_ request: MockFollowRequest) {
+        followRequests.removeAll { $0.userFromId == request.userFromId && $0.userToId == request.userToId }
+        if !isUserFollowing(from: request.userFromId, to: request.userToId) {
+            userFollows.append(MockUserFollow(
+                userFromId: request.userFromId, userToId: request.userToId, category: request.category))
+        }
+    }
+
+    /// The pending request `username` sent `owner`, or the backend's 400s.
+    private func incomingRequest(to owner: MockUser, from username: String) throws -> MockFollowRequest {
+        guard let requester = findUser(byUsername: username) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "User does not exist")
+        }
+        guard let request = followRequests.first(where: { $0.userFromId == requester.id && $0.userToId == owner.id }) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "No follow request from user")
+        }
+        return request
+    }
+
+    func getFollowRequests(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        // Newest first, like the backend.
+        let requesters = followRequests
+            .filter { $0.userToId == currentUser.id }
+            .reversed()
+            .compactMap { request in users.first(where: { $0.id == request.userFromId }) }
+
+        struct Fields: Codable {
+            let username: String
+            let identity_is_verified: Bool
+            let author_profile_image_url: String?
+            let author_profile_image_original_url: String?
+        }
+        let fieldObjects = requesters.map { user -> Fields in
+            let avatar = user.profileImageStatus == "approved" ? user.profileImageUrl : nil
+            return Fields(username: user.username, identity_is_verified: user.identityIsVerified,
+                          author_profile_image_url: avatar, author_profile_image_original_url: avatar)
+        }
+        return try createSerializedListResponse(fieldsList: fieldObjects)
+    }
+
+    func approveFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        approve(try incomingRequest(to: currentUser, from: username))
+        return try createEmptySuccessResponse()
+    }
+
+    func denyFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        let request = try incomingRequest(to: currentUser, from: username)
+        followRequests.removeAll { $0.userFromId == request.userFromId && $0.userToId == request.userToId }
+        return try createEmptySuccessResponse()
+    }
+
+    func cancelFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        guard let target = findUser(byUsername: username) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "User does not exist")
+        }
+        let before = followRequests.count
+        followRequests.removeAll { $0.userFromId == currentUser.id && $0.userToId == target.id }
+        if followRequests.count == before {
+            throw APIError.serverError(statusCode: 400, serverMessage: "No follow request to cancel")
+        }
+        return try createEmptySuccessResponse()
+    }
+
+    func setAccountPrivacy(sessionManagementToken: String, isPrivate: Bool) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken),
+              let index = users.firstIndex(where: { $0.id == currentUser.id }) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        users[index].isPrivate = isPrivate
+        // Going public approves everyone still waiting, like the backend.
+        if !isPrivate {
+            followRequests.filter { $0.userToId == currentUser.id }.forEach(approve)
+        }
+        struct Fields: Codable { let is_private: Bool }
+        return try createSerializedResponse(fields: Fields(is_private: isPrivate))
     }
 
     func setFollowCategory(sessionManagementToken: String, username: String, category: String) async throws -> Data {
@@ -1943,6 +2084,11 @@ final class StatefulStubbedAPI: Networking {
             if isUserFollowing(from: userToBlock.id, to: currentUser.id) {
                  userFollows.removeAll { $0.userFromId == userToBlock.id && $0.userToId == currentUser.id }
             }
+            // ...and drops pending follow requests both ways (issue #96).
+            followRequests.removeAll {
+                ($0.userFromId == currentUser.id && $0.userToId == userToBlock.id)
+                    || ($0.userFromId == userToBlock.id && $0.userToId == currentUser.id)
+            }
         }
         
         return try createEmptySuccessResponse()
@@ -1980,6 +2126,12 @@ final class StatefulStubbedAPI: Networking {
         let isFollowing = followEdge != nil
         let isBlocked = requestingUser.blocked.contains(profileUser.id)
         let isBlockedBy = requestingUser.blockedBy.contains(profileUser.id)
+        // Private accounts (issue #96): a non-follower sees no counts, and the
+        // viewer may have a request pending.
+        let hideCounts = !privacyAdmits(authorId: profileUser.id, viewer: requestingUser)
+        let followRequestPending = followRequests.contains {
+            $0.userFromId == requestingUser.id && $0.userToId == profileUser.id
+        }
 
         // 5. Build the response data (matching the Swift struct). The owner-only
         // photo moderation fields (issue #7) are present only when viewing your
@@ -2009,6 +2161,10 @@ final class StatefulStubbedAPI: Networking {
             let pending_profile_image_url: String?
             // Public bio (issue #380).
             let bio: String
+            // Private accounts (issue #96); the count is owner-only.
+            let is_private: Bool
+            let follow_request_pending: Bool
+            let follow_request_count: Int?
         }
 
         if isBlockedBy {
@@ -2029,16 +2185,19 @@ final class StatefulStubbedAPI: Networking {
                 profile_image_reason_code: nil,
                 pending_profile_image_url: nil,
                 // Redacted for a blocked requester, like the stats/avatar above.
-                bio: ""
+                bio: "",
+                is_private: profileUser.isPrivate,
+                follow_request_pending: false,
+                follow_request_count: nil
             )
             return try createSerializedResponse(fields: fields)
         }
 
         let fields = Fields(
             username: profileUser.username,
-            post_count: postCount,
-            follower_count: followerCount,
-            following_count: followingCount,
+            post_count: hideCounts ? 0 : postCount,
+            follower_count: hideCounts ? 0 : followerCount,
+            following_count: hideCounts ? 0 : followingCount,
             is_following: isFollowing,
             follow_category: followEdge?.category,
             is_blocked: isBlocked,
@@ -2050,7 +2209,11 @@ final class StatefulStubbedAPI: Networking {
             profile_image_status: isOwnProfile ? profileUser.profileImageStatus : nil,
             profile_image_reason_code: isOwnProfile ? profileUser.profileImageReasonCode : nil,
             pending_profile_image_url: isOwnProfile ? profileUser.pendingProfileImageUrl : nil,
-            bio: profileUser.bio
+            bio: profileUser.bio,
+            is_private: profileUser.isPrivate,
+            follow_request_pending: followRequestPending,
+            follow_request_count: isOwnProfile
+                ? followRequests.filter { $0.userToId == profileUser.id }.count : nil
         )
 
         // 6. Return the data using your existing helper

@@ -18,6 +18,8 @@ from .models import Comment, UserBan, UserFollow
 #     and pending/hidden/report-hidden content stays invisible;
 #   - `_audience_q` / `_audience_allows` fall through to public-audience only,
 #     since an anonymous visitor is on nobody's follow list;
+#   - `_privacy_q` / `privacy_admits` likewise admit only public accounts, since
+#     an anonymous visitor follows nobody (issue #96);
 #   - `_same_age_band_q` / `in_same_age_band` treat an unknown age as the adult
 #     band, so a verified minor's post is never served to the open internet.
 # Passed explicitly (rather than defaulting to `request.user`) so a signed-in
@@ -60,6 +62,36 @@ def _audience_q(viewer):
     return admits
 
 
+def _privacy_q(viewer):
+    """
+    A Q over Post matching those whose author's privacy setting admits `viewer`
+    (issue #96), ignoring the author-owns-it rule (handled separately). A public
+    account's posts admit everyone; a private account's posts admit only its
+    approved followers — viewers with a follow edge *to* the author. Note the
+    direction: this is the viewer following the author, the reverse of the
+    author-labels-viewer edge `_audience_q` reads, and a post from a private
+    author has to pass both.
+
+    The follower set is a subquery rather than a join so it adds no fan-out on
+    top of `_audience_q`'s (issue #397). Pending follow requests live in their
+    own table, so they never satisfy this.
+    """
+    admits = Q(author__is_private=False)
+    if viewer is not None and getattr(viewer, 'is_authenticated', False):
+        admits |= Q(author__in=UserFollow.objects.filter(user_from=viewer).values('user_to_id'))
+    return admits
+
+
+def privacy_admits(author, viewer):
+    """Single-object mirror of _privacy_q: whether `author`'s privacy setting lets
+    `viewer` see their posts (issue #96). The author always sees their own."""
+    if not author.is_private or author == viewer:
+        return True
+    if viewer is None or not getattr(viewer, 'is_authenticated', False):
+        return False
+    return UserFollow.objects.filter(user_from=viewer, user_to=author).exists()
+
+
 def is_minor(user):
     """Whether an account is a verified minor (16 or 17).
 
@@ -99,7 +131,8 @@ def visible_posts(posts, viewer):
     Posts the viewer is allowed to see. A viewer always sees their own posts,
     so a shadow ban (and report-hiding) stays invisible to the author;
     everyone else only sees posts that are not hidden, whose author is not
-    shadow banned, whose audience admits them (issue #392), and whose author is
+    shadow banned, whose audience admits them (issue #392), whose author is
+    either public or followed by the viewer (issue #96), and whose author is
     in the viewer's age band (so adults and underage accounts never see each
     other's posts). The author rule covers posts pending classification (hidden,
     author-only) without extra wiring. Final-rejection tombstones are excluded
@@ -111,6 +144,7 @@ def visible_posts(posts, viewer):
             Q(hidden=False)
             & ~Q(author__in=_shadow_banned_user_ids())
             & _audience_q(viewer)
+            & _privacy_q(viewer)
             & _same_age_band_q(viewer, 'author')
         )
     # .distinct() collapses the audience-join fan-out from _audience_q: on the
@@ -139,6 +173,12 @@ def visible_comments(comments, viewer, category=None):
     viewer always sees their own comments, and otherwise only comments that are
     not hidden, whose author is not shadow banned, whose audience admits them,
     and whose author is in the viewer's age band.
+
+    Account privacy (issue #96) is deliberately *not* applied here: a private
+    account's comment on someone else's post follows that comment's own
+    audience, exactly like anyone else's. Comments on a private account's posts
+    are still unreachable to non-followers, because every comment listing first
+    checks the post itself with can_view_post.
 
     An optional `category` narrows the result to comments whose author the viewer
     labeled with exactly that relationship category — the followed-feed toggle
@@ -222,6 +262,9 @@ def can_view_post(post, viewer):
         return False
     # Adults and underage accounts never see each other's posts (issue #329).
     if not in_same_age_band(post.author, viewer):
+        return False
+    # A private account's posts reach only its approved followers (issue #96).
+    if not privacy_admits(post.author, viewer):
         return False
     return _audience_allows(post, viewer)
 

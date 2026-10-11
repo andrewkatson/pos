@@ -387,6 +387,12 @@ class Fields:
     # The viewer's relationship category for a profile user (null when not
     # following), and the group/audience selectors introduced in issue #392.
     follow_category = "follow_category"
+    # Private accounts (issue #96): whether a profile is private, whether the
+    # viewer has a follow request pending on it, and (owner-only) how many
+    # incoming requests are waiting for a decision.
+    is_private = "is_private"
+    follow_request_pending = "follow_request_pending"
+    follow_request_count = "follow_request_count"
     category = "category"
     audience = "audience"
     # Whether the post's author has turned off commenting (issue #492) — set at

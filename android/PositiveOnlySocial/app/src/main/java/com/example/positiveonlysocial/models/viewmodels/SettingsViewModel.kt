@@ -19,6 +19,7 @@ import com.example.positiveonlysocial.data.model.RejectedInterest
 import com.example.positiveonlysocial.data.model.SetInterestsRequest
 import com.example.positiveonlysocial.data.model.NotificationPreference
 import com.example.positiveonlysocial.data.model.SetNotificationPreferenceRequest
+import com.example.positiveonlysocial.data.model.SetAccountPrivacyRequest
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -84,6 +85,11 @@ class SettingsViewModel(
     // concurrent saves for one type can't race.
     private val _savingPreferences = MutableStateFlow<Set<String>>(emptySet())
     val savingPreferences: StateFlow<Set<String>> = _savingPreferences.asStateFlow()
+
+    // The private account setting (issue #96) lives on currentUser.isPrivate;
+    // this flags a save in flight so the switch is disabled meanwhile.
+    private val _isSavingPrivacy = MutableStateFlow(false)
+    val isSavingPrivacy: StateFlow<Boolean> = _isSavingPrivacy.asStateFlow()
 
     // Change-password state (issue #197). `passwordChangeMessage` drives the
     // one-shot confirmation dialog, mirroring `twoFactorStatusMessage`.
@@ -430,6 +436,41 @@ class SettingsViewModel(
                 _showingErrorAlert.value = true
             } finally {
                 _savingPreferences.value = _savingPreferences.value - type
+            }
+        }
+    }
+
+    /**
+     * Turns the private account setting on or off (issue #96). Optimistic: the
+     * switch flips immediately and reverts (with an error) if the save fails.
+     * Ignored until the current user has loaded, since there is no known
+     * setting to flip yet.
+     */
+    fun setAccountPrivacy(isPrivate: Boolean) {
+        val previous = _currentUser.value ?: return
+        if (_isSavingPrivacy.value || previous.isPrivate == isPrivate) return
+        _currentUser.value = previous.copy(isPrivate = isPrivate)
+        _isSavingPrivacy.value = true
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _currentUser.value = previous
+                    return@launch
+                }
+                val response = api.setAccountPrivacy(userSession.sessionToken, SetAccountPrivacyRequest(isPrivate))
+                if (!response.isSuccessful) {
+                    _currentUser.value = previous
+                    _errorMessage.value = ApiErrors.messageFor(
+                        response, fallback = "Could not update your privacy setting.")
+                    _showingErrorAlert.value = true
+                }
+            } catch (e: Exception) {
+                _currentUser.value = previous
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not update your privacy setting.")
+                _showingErrorAlert.value = true
+            } finally {
+                _isSavingPrivacy.value = false
             }
         }
     }

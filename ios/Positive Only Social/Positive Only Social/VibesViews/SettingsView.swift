@@ -129,6 +129,25 @@ struct SettingsView: View {
                     }.accessibilityIdentifier("AppealsButton")
                 }
 
+                // MARK: - Privacy Section (issue #96)
+                Section(
+                    header: Text("Privacy"),
+                    footer: Text("Only people you approve can see your posts. Your comments keep the audience you pick for each one.")
+                ) {
+                    Toggle("Private Account", isOn: Binding(
+                        get: { viewModel.isPrivate ?? false },
+                        set: { viewModel.setAccountPrivacy($0) }
+                    ))
+                    .disabled(viewModel.isPrivate == nil || viewModel.isSavingPrivacy)
+                    .accessibilityIdentifier("PrivateAccountToggle")
+
+                    NavigationLink {
+                        FollowRequestsView(api: api, keychainHelper: keychainHelper)
+                    } label: {
+                        Text("Follow Requests")
+                    }.accessibilityIdentifier("FollowRequestsButton")
+                }
+
                 // MARK: - Blocked Users Section
                 Section {
                     NavigationLink {

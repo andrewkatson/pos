@@ -44,6 +44,8 @@ function SettingsTab() {
   // Types with a save in flight (#342/#343): their row is disabled and a
   // re-click is ignored, so concurrent saves for one type can't race.
   const [savingTypes, setSavingTypes] = useState<string[]>([])
+  // The private account setting (issue #96), saved as soon as it is toggled.
+  const [savingPrivacy, setSavingPrivacy] = useState(false)
 
   // Load the signed-in account's own username + email for the Contact
   // Information section (load-on-mount, matching the rest of the app).
@@ -98,6 +100,23 @@ function SettingsTab() {
       setErrorMessage('Could not update notification settings. Please try again.')
     } finally {
       setSavingTypes(prev => prev.filter(t => t !== pref.type))
+    }
+  }
+
+  async function togglePrivacy() {
+    if (!currentUser || savingPrivacy) return
+    const next = !(currentUser.is_private ?? false)
+    setErrorMessage(null)
+    // Optimistic: flip immediately, revert on failure (like the notification rows).
+    setCurrentUser({ ...currentUser, is_private: next })
+    setSavingPrivacy(true)
+    try {
+      await apiClient.setAccountPrivacy(next)
+    } catch {
+      setCurrentUser(user => (user ? { ...user, is_private: !next } : user))
+      setErrorMessage('Could not update your privacy setting. Please try again.')
+    } finally {
+      setSavingPrivacy(false)
     }
   }
 
@@ -164,6 +183,31 @@ function SettingsTab() {
         <div className="settings-row settings-row--static">
           {currentUser ? currentUser.email : '…'}
         </div>
+      </div>
+
+      <div className="settings-group">
+        <span className="settings-group__header">Privacy</span>
+        <button
+          type="button"
+          className="settings-row settings-row--toggle"
+          aria-pressed={currentUser?.is_private ?? false}
+          disabled={!currentUser || savingPrivacy}
+          onClick={() => void togglePrivacy()}
+        >
+          <span>Private account</span>
+          <span className="settings-row__value">{currentUser?.is_private ? 'On' : 'Off'}</span>
+        </button>
+        <p className="settings-row__hint muted">
+          Only people you approve can see your posts. Your comments keep the audience you pick for
+          each one.
+        </p>
+        <button
+          type="button"
+          className="settings-row"
+          onClick={() => navigate('/follow-requests')}
+        >
+          Follow Requests
+        </button>
       </div>
 
       <div className="settings-group">

@@ -40,6 +40,8 @@ sealed class Screen(val route: String) {
     object Settings : Screen("settings")
     object Appeals : Screen("appeals")
     object BlockedUsers : Screen("blocked_users")
+    // Incoming follow requests for a private account (issue #96).
+    object FollowRequests : Screen("follow_requests")
 
     // The signed-in user's own followers/following list — mode is "followers"
     // or "following". Only your own lists are viewable (issue #8).

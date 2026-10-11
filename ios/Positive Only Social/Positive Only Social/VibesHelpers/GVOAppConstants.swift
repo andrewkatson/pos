@@ -84,6 +84,14 @@ import Foundation
     static let pathSegmentDevices = "devices"
     static let pathSegmentDetails = "details"
     static let pathSegmentFollow = "follow"
+    // Private accounts & follow requests (issue #96): users/follow-requests/,
+    // users/<name>/follow-request/{approve,deny,cancel}/ and profile/private/.
+    static let pathSegmentFollowRequests = "follow-requests"
+    static let pathSegmentFollowRequest = "follow-request"
+    static let pathSegmentApprove = "approve"
+    static let pathSegmentDeny = "deny"
+    static let pathSegmentCancel = "cancel"
+    static let pathSegmentPrivate = "private"
     static let pathSegmentFollowed = "followed"
     // Relationship-category endpoint and query key (issue #392).
     static let pathSegmentCategory = "category"

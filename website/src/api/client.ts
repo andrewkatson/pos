@@ -853,6 +853,35 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<UserSearchResult[]>('GET', '/users/following/', { auth: true })
   }
 
+  getFollowRequests(): Promise<UserSearchResult[]> {
+    return this.request<UserSearchResult[]>('GET', '/users/follow-requests/', { auth: true })
+  }
+
+  approveFollowRequest(username: string): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/users/${username}/follow-request/approve/`, {
+      auth: true,
+    })
+  }
+
+  denyFollowRequest(username: string): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/users/${username}/follow-request/deny/`, {
+      auth: true,
+    })
+  }
+
+  cancelFollowRequest(username: string): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/users/${username}/follow-request/cancel/`, {
+      auth: true,
+    })
+  }
+
+  setAccountPrivacy(isPrivate: boolean): Promise<{ is_private: boolean }> {
+    return this.request<{ is_private: boolean }>('POST', '/profile/private/', {
+      auth: true,
+      body: { is_private: isPrivate },
+    })
+  }
+
   getProfile(username: string): Promise<ProfileDetails> {
     return this.request<ProfileDetails>('GET', `/users/${username}/profile/`, { auth: true })
   }

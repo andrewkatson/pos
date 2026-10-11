@@ -23,6 +23,21 @@ class ProfileViewModel: ObservableObject {
     // meaningful while `isFollowing`.
     @Published var followCategory: FollowCategory = .following
     @Published var isBlocked = false
+    /// The viewer asked to follow this private account and is waiting on an
+    /// answer (issue #96); the Follow button reads "Requested" and tapping it
+    /// cancels the request.
+    @Published var followRequestPending = false
+
+    /// A private account someone other than its owner does not follow (issue
+    /// #96): the backend serves no posts and zeroed counts, so the view hides
+    /// the stats and shows a "this account is private" note instead of a grid.
+    var isLocked: Bool {
+        !isOwnProfile && (profileDetails?.isPrivate ?? false) && !isFollowing
+    }
+
+    /// Owner-only count of incoming follow requests, for the profile's
+    /// "Follow Requests" entry (issue #96).
+    var followRequestCount: Int { profileDetails?.followRequestCount ?? 0 }
 
     // Own profile-photo controls (issue #7). Uploading reuses the post-image
     // presigned flow (createUploadUrl + S3Uploader), then calls setProfilePhoto;
@@ -349,6 +364,7 @@ class ProfileViewModel: ObservableObject {
             self.isFollowing = details.isFollowing
             self.followCategory = details.followCategory.flatMap(FollowCategory.init(rawValue:)) ?? .following
             self.isBlocked = details.isBlocked
+            self.followRequestPending = details.followRequestPending ?? false
         } catch {
             NSLog("%@", "Error refreshing profile details for \(user.username): \(error)")
         }
@@ -374,6 +390,7 @@ class ProfileViewModel: ObservableObject {
                 self.isFollowing = details.isFollowing // Set initial follow state
                 self.followCategory = details.followCategory.flatMap(FollowCategory.init(rawValue:)) ?? .following
                 self.isBlocked = details.isBlocked // Set initial block state
+                self.followRequestPending = details.followRequestPending ?? false
             } catch {
                 NSLog("%@", "Error fetching profile details: \(error)")
                 // Handle error (e.g., show alert)
@@ -406,20 +423,32 @@ class ProfileViewModel: ObservableObject {
 
     func toggleFollow() {
         guard !isBusy else { return }
+        // "Requested" → withdraw the pending request (issue #96).
+        if followRequestPending {
+            cancelFollowRequest()
+            return
+        }
         isBusy = true
 
-        // Optimistic update: change UI immediately, revert on error.
+        // Optimistic update: change UI immediately, revert on error. Following a
+        // private account files a request instead (issue #96), so it shows
+        // "Requested" rather than "Following" and leaves the counts alone.
         let wasFollowing = isFollowing
-        isFollowing = !wasFollowing
-        // A fresh follow starts in the default "following" bucket (issue #392).
-        if !wasFollowing { followCategory = .following }
-        adjustFollowerCount(by: wasFollowing ? -1 : 1)
+        let expectsRequest = !wasFollowing && (profileDetails?.isPrivate ?? false)
+        if expectsRequest {
+            followRequestPending = true
+        } else {
+            isFollowing = !wasFollowing
+            // A fresh follow starts in the default "following" bucket (issue #392).
+            if !wasFollowing { followCategory = .following }
+            adjustFollowerCount(by: wasFollowing ? -1 : 1)
+        }
 
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session — cannot toggle follow")
-                    revertFollow(wasFollowing: wasFollowing)
+                    revertFollow(wasFollowing: wasFollowing, expectedRequest: expectsRequest)
                     isBusy = false
                     return
                 }
@@ -427,20 +456,63 @@ class ProfileViewModel: ObservableObject {
 
                 if wasFollowing {
                     let _ = try await api.unfollowUser(sessionManagementToken: token, username: user.username)
+                    // Unfollowing a private account locks it again: its posts
+                    // are no longer the viewer's to see.
+                    if profileDetails?.isPrivate == true { userPosts = [] }
                 } else {
-                    let _ = try await api.followUser(sessionManagementToken: token, username: user.username, category: nil)
+                    let data = try await api.followUser(sessionManagementToken: token, username: user.username, category: nil)
+                    let filedRequest = (try? JSONDecoder().decode(FollowResponse.self, from: data))?.followRequestPending ?? false
+                    // The server has the final word on whether the account is
+                    // private (it may have changed since the profile loaded).
+                    if filedRequest != expectsRequest {
+                        revertFollow(wasFollowing: false, expectedRequest: expectsRequest)
+                        if filedRequest {
+                            followRequestPending = true
+                        } else {
+                            isFollowing = true
+                            followCategory = .following
+                            adjustFollowerCount(by: 1)
+                        }
+                    }
                 }
             } catch {
                 NSLog("%@", "Error toggling follow: \(error)")
-                revertFollow(wasFollowing: wasFollowing)
+                revertFollow(wasFollowing: wasFollowing, expectedRequest: expectsRequest)
             }
             isBusy = false
         }
     }
 
-    private func revertFollow(wasFollowing: Bool) {
+    private func revertFollow(wasFollowing: Bool, expectedRequest: Bool = false) {
+        if expectedRequest {
+            followRequestPending = false
+            return
+        }
         isFollowing = wasFollowing
         adjustFollowerCount(by: wasFollowing ? 1 : -1)
+    }
+
+    /// Withdraws the viewer's pending request to follow this private account
+    /// (issue #96). Optimistic: flips back to "Follow" and restores
+    /// "Requested" if the call fails.
+    private func cancelFollowRequest() {
+        isBusy = true
+        followRequestPending = false
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot cancel follow request")
+                    followRequestPending = true
+                    isBusy = false
+                    return
+                }
+                _ = try await api.cancelFollowRequest(sessionManagementToken: userSession.sessionToken, username: user.username)
+            } catch {
+                NSLog("%@", "Error cancelling follow request: \(error)")
+                followRequestPending = true
+            }
+            isBusy = false
+        }
     }
 
     /// Re-categorizes the relationship (issue #392). Optimistic: updates the
@@ -478,7 +550,11 @@ class ProfileViewModel: ObservableObject {
         let previousBlockState = isBlocked
         let previousFollowState = isFollowing
 
+        let previousRequestPending = followRequestPending
+
         isBlocked.toggle()
+        // A block also drops any pending follow request (issue #96).
+        if isBlocked { followRequestPending = false }
         // Blocking also unfollows on the backend; mirror that locally.
         if isBlocked && isFollowing {
             isFollowing = false
@@ -490,6 +566,7 @@ class ProfileViewModel: ObservableObject {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session — cannot toggle block")
                     revertBlock(previousBlockState: previousBlockState, previousFollowState: previousFollowState)
+                    followRequestPending = previousRequestPending
                     isBusy = false
                     return
                 }
@@ -499,6 +576,7 @@ class ProfileViewModel: ObservableObject {
             } catch {
                 NSLog("%@", "Error toggling block: \(error)")
                 revertBlock(previousBlockState: previousBlockState, previousFollowState: previousFollowState)
+                followRequestPending = previousRequestPending
             }
             isBusy = false
         }

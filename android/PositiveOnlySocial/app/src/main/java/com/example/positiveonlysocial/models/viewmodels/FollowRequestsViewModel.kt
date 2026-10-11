@@ -1,0 +1,111 @@
+package com.example.positiveonlysocial.models.viewmodels
+
+import android.util.Log
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.positiveonlysocial.api.ApiErrors
+import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.GenericResponse
+import com.example.positiveonlysocial.data.model.User
+import com.example.positiveonlysocial.data.model.UserSession
+import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import retrofit2.Response
+
+private const val TAG = "FollowRequestsViewModel"
+
+/**
+ * Loads the signed-in private account's incoming follow requests and approves
+ * or denies them (issue #96). Reached from Settings and the owner's profile.
+ */
+class FollowRequestsViewModel(
+    private val api: PositiveOnlySocialAPI,
+    private val keychainHelper: KeychainHelperProtocol,
+    private val account: String = "userSessionToken"
+) : ViewModel() {
+
+    private val _requests = MutableStateFlow<List<User>>(emptyList())
+    val requests: StateFlow<List<User>> = _requests.asStateFlow()
+
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    /**
+     * Usernames with an approve/deny in flight, so each row's buttons disable
+     * independently (several decisions may overlap).
+     */
+    private val _decidingUsernames = MutableStateFlow<Set<String>>(emptySet())
+    val decidingUsernames: StateFlow<Set<String>> = _decidingUsernames.asStateFlow()
+
+    private val service = "positive-only-social.Positive-Only-Social"
+
+    fun clearError() {
+        _errorMessage.value = null
+    }
+
+    private fun session(): UserSession? =
+        keychainHelper.load(UserSession::class.java, service, account)
+
+    /** Loads (or reloads) the incoming requests, newest first. */
+    fun load() {
+        _isLoading.value = true
+        _errorMessage.value = null
+        viewModelScope.launch {
+            try {
+                val userSession = session()
+                if (userSession == null) {
+                    Log.e(TAG, "No active session found — cannot load follow requests")
+                    return@launch
+                }
+                val response = api.getFollowRequests(userSession.sessionToken)
+                if (response.isSuccessful) {
+                    _requests.value = response.body() ?: emptyList()
+                } else {
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Request failed. Please try again.")
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Request failed. Please try again.")
+                Log.e(TAG, "Error loading follow requests", e)
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /** Approves [username]'s request — they become a follower — and drops the row. */
+    fun approve(username: String) = decide(username) { token -> api.approveFollowRequest(token, username) }
+
+    /** Denies [username]'s request and drops the row. The requester isn't told. */
+    fun deny(username: String) = decide(username) { token -> api.denyFollowRequest(token, username) }
+
+    private fun decide(username: String, call: suspend (String) -> Response<GenericResponse>) {
+        _decidingUsernames.value = _decidingUsernames.value + username
+        _errorMessage.value = null
+        viewModelScope.launch {
+            try {
+                val userSession = session()
+                if (userSession == null) {
+                    _errorMessage.value = "You must be logged in to answer a follow request."
+                    return@launch
+                }
+                val response = call(userSession.sessionToken)
+                if (response.isSuccessful) {
+                    _requests.value = _requests.value.filterNot { it.username == username }
+                } else {
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Request failed. Please try again.")
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Request failed. Please try again.")
+                Log.e(TAG, "Error answering follow request", e)
+            } finally {
+                _decidingUsernames.value = _decidingUsernames.value - username
+            }
+        }
+    }
+}

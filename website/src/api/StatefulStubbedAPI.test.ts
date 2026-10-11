@@ -295,7 +295,11 @@ test('getCurrentUser returns the signed-in account’s own username and email', 
   const api = new StatefulStubbedAPI()
   await register(api, 'ada')
 
-  expect(await api.getCurrentUser()).toEqual({ username: 'ada', email: 'ada@example.com' })
+  expect(await api.getCurrentUser()).toEqual({
+    username: 'ada',
+    email: 'ada@example.com',
+    is_private: false,
+  })
 })
 
 test('changePassword enforces the current password and strength, then updates it', async () => {
@@ -1144,4 +1148,83 @@ test('searchUsers hides anyone who blocked the searcher, but not those they bloc
 
   // Blocking someone doesn't hide them from you; being blocked does.
   expect(results.map((u) => u.username)).toEqual(['bobvictim'])
+})
+
+// --- Private accounts (issue #96) -------------------------------------------
+
+async function privateAuthorWithPost(api: StatefulStubbedAPI) {
+  await register(api, 'author')
+  await api.setAccountPrivacy(true)
+  const post = await api.createPost({ image_url: 'https://example.com/a.jpg', caption: 'hi' })
+  await register(api, 'viewer')
+  return post
+}
+
+test('following a private account files a request and hides its posts until approved', async () => {
+  const api = new StatefulStubbedAPI()
+  const post = await privateAuthorWithPost(api)
+
+  const response = await api.followUser('author', 'friend')
+  expect(response.follow_request_pending).toBe(true)
+  expect(await api.getPostsForUser('author', 0)).toEqual([])
+  const locked = await api.getProfile('author')
+  expect(locked.is_private).toBe(true)
+  expect(locked.follow_request_pending).toBe(true)
+  expect(locked.post_count).toBe(0)
+  await expect(api.followUser('author')).rejects.toThrow('Follow already requested')
+
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  expect((await api.getFollowRequests()).map((u) => u.username)).toEqual(['viewer'])
+  expect((await api.getProfile('author')).follow_request_count).toBe(1)
+  await api.approveFollowRequest('viewer')
+  expect(await api.getFollowRequests()).toEqual([])
+
+  await api.login({ username_or_email: 'viewer', password: 'password123' })
+  const unlocked = await api.getProfile('author')
+  expect(unlocked.is_following).toBe(true)
+  expect(unlocked.follow_category).toBe('friend')
+  expect((await api.getPostsForUser('author', 0)).map((p) => p.post_identifier)).toEqual([
+    post.post_identifier,
+  ])
+})
+
+test('a denied or cancelled request leaves the account locked', async () => {
+  const api = new StatefulStubbedAPI()
+  await privateAuthorWithPost(api)
+
+  await api.followUser('author')
+  await api.cancelFollowRequest('author')
+  expect((await api.getProfile('author')).follow_request_pending).toBe(false)
+  await expect(api.cancelFollowRequest('author')).rejects.toThrow('No follow request to cancel')
+
+  await api.followUser('author')
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  await api.denyFollowRequest('viewer')
+  await api.login({ username_or_email: 'viewer', password: 'password123' })
+  const profile = await api.getProfile('author')
+  expect(profile.is_following).toBe(false)
+  expect(profile.follow_request_pending).toBe(false)
+})
+
+test('going public approves pending requests', async () => {
+  const api = new StatefulStubbedAPI()
+  await privateAuthorWithPost(api)
+  await api.followUser('author')
+
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  await api.setAccountPrivacy(false)
+  expect((await api.getCurrentUser()).is_private).toBe(false)
+
+  await api.login({ username_or_email: 'viewer', password: 'password123' })
+  expect((await api.getProfile('author')).is_following).toBe(true)
+})
+
+test('a private account shares its header but no counts or posts', async () => {
+  const api = new StatefulStubbedAPI()
+  await privateAuthorWithPost(api)
+
+  const profile = await api.getPublicProfile('author')
+  expect(profile.is_private).toBe(true)
+  expect(profile.post_count).toBe(0)
+  expect(await api.getPublicPostsForUser('author', 0)).toEqual([])
 })

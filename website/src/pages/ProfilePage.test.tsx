@@ -14,6 +14,7 @@ vi.mock('../api/client', () => ({
     getPublicPostsForUser: vi.fn(),
     followUser: vi.fn(),
     unfollowUser: vi.fn(),
+    cancelFollowRequest: vi.fn(),
     setFollowCategory: vi.fn(),
     toggleBlock: vi.fn(),
     likePost: vi.fn(),
@@ -40,6 +41,7 @@ const mockGetPublicProfile = vi.mocked(apiClient.getPublicProfile)
 const mockGetPublicPosts = vi.mocked(apiClient.getPublicPostsForUser)
 const mockFollow = vi.mocked(apiClient.followUser)
 const mockUnfollow = vi.mocked(apiClient.unfollowUser)
+const mockCancelRequest = vi.mocked(apiClient.cancelFollowRequest)
 const mockSetCategory = vi.mocked(apiClient.setFollowCategory)
 const mockLikePost = vi.mocked(apiClient.likePost)
 const mockUnlikePost = vi.mocked(apiClient.unlikePost)
@@ -78,6 +80,7 @@ beforeEach(() => {
   mockGetPublicPosts.mockReset()
   mockFollow.mockReset().mockResolvedValue({ message: 'ok' })
   mockUnfollow.mockReset().mockResolvedValue({ message: 'ok' })
+  mockCancelRequest.mockReset().mockResolvedValue({ message: 'ok' })
   mockSetCategory.mockReset().mockResolvedValue({ message: 'ok' })
   mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockUnlikePost.mockReset().mockResolvedValue({ message: 'ok' })
@@ -449,4 +452,81 @@ test('Back on a cold-opened shared link goes to the landing page rather than now
   await userEvent.click(screen.getByRole('button', { name: '← Back' }))
 
   expect(screen.getByText('Landing page')).toBeInTheDocument()
+})
+
+// --- Private accounts (issue #96) ------------------------------------------
+
+const privateProfile: ProfileDetails = {
+  ...baseProfile,
+  is_private: true,
+  // The backend zeroes a private account's counts for a non-follower.
+  post_count: 0,
+  follower_count: 0,
+  following_count: 0,
+}
+
+test('a private profile you do not follow hides its stats and grid', async () => {
+  mockGetProfile.mockResolvedValue(privateProfile)
+  renderProfile()
+
+  expect(await screen.findByText('This account is private')).toBeInTheDocument()
+  expect(screen.getByText('Follow bob to see their posts.')).toBeInTheDocument()
+  expect(screen.getByRole('img', { name: 'Private account' })).toBeInTheDocument()
+  expect(screen.queryByText('Followers')).not.toBeInTheDocument()
+  expect(screen.queryByText("bob hasn't posted anything yet.")).not.toBeInTheDocument()
+})
+
+test('following a private account files a request and shows Requested', async () => {
+  mockGetProfile.mockResolvedValue(privateProfile)
+  mockFollow.mockResolvedValue({
+    message: 'Follow requested',
+    follow_category: null,
+    follow_request_pending: true,
+  })
+  renderProfile()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Follow' }))
+
+  await waitFor(() => expect(mockFollow).toHaveBeenCalledWith('bob'))
+  expect(await screen.findByRole('button', { name: 'Requested' })).toBeInTheDocument()
+  // Still locked, and no category control: a request is not a follow.
+  expect(screen.getByText("Once bob approves your request, you'll see their posts.")).toBeInTheDocument()
+  expect(screen.queryByLabelText('Relationship with bob')).not.toBeInTheDocument()
+})
+
+test('tapping Requested cancels the pending request', async () => {
+  mockGetProfile.mockResolvedValue({ ...privateProfile, follow_request_pending: true })
+  renderProfile()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Requested' }))
+
+  await waitFor(() => expect(mockCancelRequest).toHaveBeenCalledWith('bob'))
+  expect(mockUnfollow).not.toHaveBeenCalled()
+  expect(await screen.findByRole('button', { name: 'Follow' })).toBeInTheDocument()
+})
+
+test('an approved follower sees a private profile normally', async () => {
+  mockGetProfile.mockResolvedValue({ ...baseProfile, is_private: true, is_following: true })
+  renderProfile()
+
+  expect(await screen.findByText('10')).toBeInTheDocument()
+  expect(screen.getByRole('img', { name: 'Private account' })).toBeInTheDocument()
+  expect(screen.queryByText('This account is private')).not.toBeInTheDocument()
+})
+
+test('a signed-out visitor sees a private profile header but not its posts', async () => {
+  mockGetPublicProfile.mockResolvedValue({
+    ...publicProfile,
+    is_private: true,
+    post_count: 0,
+    follower_count: 0,
+    following_count: 0,
+  })
+  mockGetPublicPosts.mockResolvedValue([])
+  renderSignedOut()
+
+  expect(await screen.findByText('This account is private')).toBeInTheDocument()
+  expect(screen.getByText('Explorer of small joys.')).toBeInTheDocument()
+  expect(screen.getByText('Only people bob approves can see their posts.')).toBeInTheDocument()
+  expect(screen.queryByText('Followers')).not.toBeInTheDocument()
 })
