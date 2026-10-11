@@ -1109,7 +1109,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async retractReportPost(postIdentifier: string): Promise<MessageResponse> {
     const user = this.requireUser()
-    const post = this.findPost(postIdentifier)
+    const post = this.findReachablePost(postIdentifier, user)
     if (!post.reports.has(user.id)) {
       throw new ApiError(400, 'Post not reported yet')
     }
@@ -1134,7 +1134,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async unlikePost(postIdentifier: string): Promise<MessageResponse> {
     const user = this.requireUser()
-    const post = this.findPost(postIdentifier)
+    const post = this.findReachablePost(postIdentifier, user)
     if (!post.likes.has(user.id)) {
       throw new ApiError(400, 'Post not liked yet')
     }
@@ -1765,7 +1765,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     commentIdentifier: string,
   ): Promise<MessageResponse> {
     const user = this.requireUser()
-    const comment = this.findComment(postIdentifier, commentThreadIdentifier, commentIdentifier)
+    const comment = this.findReachableComment(
+      postIdentifier,
+      commentThreadIdentifier,
+      commentIdentifier,
+      user,
+    )
     if (!comment.likes.has(user.id)) {
       throw new ApiError(400, 'Comment not liked yet')
     }
@@ -1842,7 +1847,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     commentIdentifier: string,
   ): Promise<MessageResponse> {
     const user = this.requireUser()
-    const comment = this.findComment(postIdentifier, commentThreadIdentifier, commentIdentifier)
+    const comment = this.findReachableComment(
+      postIdentifier,
+      commentThreadIdentifier,
+      commentIdentifier,
+      user,
+    )
     if (!comment.reports.has(user.id)) {
       throw new ApiError(400, 'Comment not reported yet')
     }

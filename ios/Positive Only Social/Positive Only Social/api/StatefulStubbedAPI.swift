@@ -1267,7 +1267,10 @@ final class StatefulStubbedAPI: Networking {
     func retractReportPost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let retractor = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // Undo actions treat a private account's post as missing to a
+        // non-follower too (issue #96).
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }),
+              privacyAdmits(authorId: posts[postIndex].authorId, viewer: retractor) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let reportIndex = posts[postIndex].reports.firstIndex(where: { $0.username == retractor.username }) else { throw APIError.badServerResponse(statusCode: 400) }
 
         // Retracting never un-hides: hiding is a moderation decision, not a
@@ -1292,7 +1295,10 @@ final class StatefulStubbedAPI: Networking {
     func unlikePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let unliker = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // Undo actions treat a private account's post as missing to a
+        // non-follower too (issue #96).
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }),
+              privacyAdmits(authorId: posts[postIndex].authorId, viewer: unliker) else { throw APIError.badServerResponse(statusCode: 400) }
         if posts[postIndex].authorId == unliker.id { throw APIError.badServerResponse(statusCode: 400) }
         guard let likeIndex = posts[postIndex].likes.firstIndex(of: unliker.username) else { throw APIError.badServerResponse(statusCode: 400) }
         
@@ -1619,7 +1625,11 @@ final class StatefulStubbedAPI: Networking {
     func unlikeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let unliker = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // Undo actions treat a comment on a private account's post as missing
+        // to a non-follower too (issue #96).
+        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }),
+              let parentPost = findPost(byIdentifier: postIdentifier),
+              privacyAdmits(authorId: parentPost.authorId, viewer: unliker) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let likeIndex = comments[commentIndex].likes.firstIndex(of: unliker.username) else { throw APIError.badServerResponse(statusCode: 400) }
         
         comments[commentIndex].likes.remove(at: likeIndex)
@@ -1711,7 +1721,11 @@ final class StatefulStubbedAPI: Networking {
     func retractReportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let retractor = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // Undo actions treat a comment on a private account's post as missing
+        // to a non-follower too (issue #96).
+        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }),
+              let parentPost = findPost(byIdentifier: postIdentifier),
+              privacyAdmits(authorId: parentPost.authorId, viewer: retractor) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let reportIndex = comments[commentIndex].reports.firstIndex(where: { $0.username == retractor.username }) else { throw APIError.badServerResponse(statusCode: 400) }
 
         comments[commentIndex].reports.remove(at: reportIndex)

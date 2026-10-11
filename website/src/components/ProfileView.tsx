@@ -379,8 +379,16 @@ function ProfileView({
     try {
       if (followRequestPending) {
         // "Requested" → withdraw the pending request (issue #96).
-        await apiClient.cancelFollowRequest(username)
-        setFollowRequestPending(false)
+        try {
+          await apiClient.cancelFollowRequest(username)
+          setFollowRequestPending(false)
+        } catch {
+          // Most likely the owner already answered the request (or went public
+          // and approved it) while this page was open, so the cached
+          // "Requested" state is stale: reload the profile and posts rather
+          // than keep showing it — the viewer may now be an approved follower.
+          refresh()
+        }
       } else if (wasFollowing) {
         await apiClient.unfollowUser(username)
         setIsFollowing(false)

@@ -2316,8 +2316,10 @@ def retract_report_post(request, post_identifier):
         return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
 
     # Treat a cross-band post as absent (issue #329) so the "not reported yet"
-    # vs "no such post" responses cannot be used as an existence oracle.
-    if not in_same_age_band(post.author, request.user):
+    # vs "no such post" responses cannot be used as an existence oracle — and a
+    # private account's post for a non-follower likewise (issue #96), including
+    # someone who reported it before the account went private.
+    if not in_same_age_band(post.author, request.user) or not privacy_admits(post.author, request.user):
         logger.warning(f"Retract report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
 
@@ -2393,8 +2395,10 @@ def unlike_post(request, post_identifier):
     post = get_post_with_identifier(post_identifier)
     if post is not None:
         # Treat a cross-band post as absent (issue #329) so the "not liked yet"
-        # vs "no such post" responses cannot be used as an existence oracle.
-        if not in_same_age_band(post.author, request.user):
+        # vs "no such post" responses cannot be used as an existence oracle — and
+        # a private account's post for a non-follower likewise (issue #96),
+        # including someone who liked it before the account went private.
+        if not in_same_age_band(post.author, request.user) or not privacy_admits(post.author, request.user):
             logger.warning(f"Unlike post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
             return log_and_return_json("unlike_post", {'error': "No post with that identifier"}, status=400)
 
@@ -3386,8 +3390,11 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
 
     # Treat a cross-band comment as absent (issue #329) so the "not liked yet"
     # vs "no such comment" responses cannot be used as an existence oracle.
+    # A comment on a private account's post is equally absent for a non-follower
+    # (issue #96), even one who interacted before the account went private.
     if not in_same_age_band(comment.author, request.user) \
             or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+            or not privacy_admits(comment.comment_thread.post.author, request.user) \
             or not audience_admits(comment, request.user):
         logger.warning(f"Unlike comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("unlike_comment", {'error': "Comment not found"}, status=400)
@@ -3582,8 +3589,11 @@ def retract_report_comment(request, post_identifier, comment_thread_identifier, 
 
     # Treat a cross-band comment as absent (issue #329) so the "not reported
     # yet" vs "no such comment" responses cannot be used as an existence oracle.
+    # A comment on a private account's post is equally absent for a non-follower
+    # (issue #96), even one who interacted before the account went private.
     if not in_same_age_band(comment.author, request.user) \
             or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+            or not privacy_admits(comment.comment_thread.post.author, request.user) \
             or not audience_admits(comment, request.user):
         logger.warning(f"Retract report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
         return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)

@@ -103,10 +103,14 @@ final class SettingsViewModel: ObservableObject {
         self.init(api: api, keychainHelper: keychainHelper, account: "userSessionToken")
     }
     
-    init(api: Networking, keychainHelper: KeychainHelperProtocol, account: String) {
+    private let notificationCenter: NotificationCenter
+
+    init(api: Networking, keychainHelper: KeychainHelperProtocol, account: String,
+         notificationCenter: NotificationCenter = .default) {
         self.api = api
         self.keychainHelper = keychainHelper
         self.account = account
+        self.notificationCenter = notificationCenter
     }
     
     /// Coordinates the full logout process.
@@ -202,6 +206,10 @@ final class SettingsViewModel: ObservableObject {
                     return
                 }
                 _ = try await api.setAccountPrivacy(sessionManagementToken: userSession.sessionToken, isPrivate: newValue)
+                // The Profile tab keeps its view model alive; have it reload the
+                // lock badge, request count and (after going public, which
+                // approves pending requests) follower count.
+                notificationCenter.post(name: .followRequestsChanged, object: nil)
             } catch {
                 isPrivate = previous
                 errorMessage = "Could not update your privacy setting: \(error.userFacingMessage)"

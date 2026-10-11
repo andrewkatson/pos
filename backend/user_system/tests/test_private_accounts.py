@@ -410,6 +410,58 @@ class PrivatePostVisibilityTests(PrivateAccountTestBase):
         self.assertFalse(comment.commentlike_set.exists())
 
 
+class PrivateTransitionInteractionTests(PrivateAccountTestBase):
+    """Someone who liked or reported a post or comment while the account was
+    public loses access when it goes private: undoing those interactions treats
+    the content as absent too, so prior ids can't mutate it or confirm it."""
+
+    def setUp(self):
+        super().setUp()
+        self.author.is_private = False
+        self.author.save(update_fields=['is_private'])
+        self.post = self._make_visible_post(self.author)
+        self.post_id = str(self.post.post_identifier)
+        self.thread = self.post.commentthread_set.create()
+        self.comment = self.thread.comment_set.create(
+            author=self.author, body=POSITIVE_CAPTION, hidden=False, audience=POST_AUDIENCE_PUBLIC)
+        self.comment_kwargs = {
+            'post_identifier': self.post_id,
+            'comment_thread_identifier': str(self.thread.comment_thread_identifier),
+            'comment_identifier': str(self.comment.comment_identifier),
+        }
+        report_body = json.dumps({Fields.reason: 'not positive'})
+        for name, kwargs in (('like_post', {'post_identifier': self.post_id}),
+                             ('report_post', {'post_identifier': self.post_id}),
+                             ('like_comment', self.comment_kwargs),
+                             ('report_comment', self.comment_kwargs)):
+            response = self.client.post(reverse(name, kwargs=kwargs), data=report_body,
+                                        content_type='application/json', **self.viewer_header)
+            self.assertEqual(response.status_code, 200, name)
+        self._set_private(True, self.author_header)
+
+    def test_undo_endpoints_treat_the_content_as_absent(self):
+        cases = (
+            ('unlike_post', {'post_identifier': self.post_id}, "No post with that identifier"),
+            ('retract_report_post', {'post_identifier': self.post_id}, "No post with that identifier"),
+            ('unlike_comment', self.comment_kwargs, "Comment not found"),
+            ('retract_report_comment', self.comment_kwargs, "Comment not found"),
+        )
+        for name, kwargs, error in cases:
+            response = self.client.post(reverse(name, kwargs=kwargs), **self.viewer_header)
+            self.assertEqual(response.status_code, 400, name)
+            self.assertEqual(response.json()['error'], error, name)
+        self.assertTrue(self.post.postlike_set.filter(user=self.viewer).exists())
+        self.assertTrue(self.comment.commentlike_set.filter(user=self.viewer).exists())
+
+    def test_approved_follower_can_undo_again(self):
+        self._label(self.viewer, self.author, FOLLOW_CATEGORY_FOLLOWING)
+
+        response = self.client.post(
+            reverse('unlike_post', kwargs={'post_identifier': self.post_id}), **self.viewer_header)
+
+        self.assertEqual(response.status_code, 200)
+
+
 class PrivateAuthorCommentTests(PrivateAccountTestBase):
     """Privacy gates posts only. A private account's comment on someone else's
     public post follows that comment's own audience, like anyone's."""

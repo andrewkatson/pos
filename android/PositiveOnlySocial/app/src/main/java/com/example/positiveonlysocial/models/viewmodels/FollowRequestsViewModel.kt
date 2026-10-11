@@ -20,10 +20,11 @@ import retrofit2.Response
 private const val TAG = "FollowRequestsViewModel"
 
 /**
- * Fires after the signed-in user approves or denies a follow request (issue
- * #96). Their own profile listens so its "Follow Requests (n)" badge and
- * follower count refresh when they come back from the list — the profile's view
- * model outlives the trip, so it would not reload on its own.
+ * Fires after the signed-in user approves or denies a follow request, or changes
+ * their private account setting (going public approves every pending request) —
+ * issue #96. Their own profile listens so its lock badge, "Follow Requests (n)"
+ * badge and follower count refresh when they come back to it — the profile's
+ * view model outlives the trip, so it would not reload on its own.
  */
 object FollowRequestEvents {
     private val _decisions = MutableSharedFlow<Unit>(extraBufferCapacity = 1)

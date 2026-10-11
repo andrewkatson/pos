@@ -459,7 +459,11 @@ class SettingsViewModel(
                     return@launch
                 }
                 val response = api.setAccountPrivacy(userSession.sessionToken, SetAccountPrivacyRequest(isPrivate))
-                if (!response.isSuccessful) {
+                if (response.isSuccessful) {
+                    // The retained Profile destination reloads its privacy, request
+                    // count and follower count.
+                    FollowRequestEvents.notifyDecision()
+                } else {
                     _currentUser.value = previous
                     _errorMessage.value = ApiErrors.messageFor(
                         response, fallback = "Could not update your privacy setting.")

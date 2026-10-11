@@ -1270,3 +1270,21 @@ test('a private follow request is refused when either side blocked the other', a
 
   await expect(api.followUser('author')).rejects.toThrow('User does not exist')
 })
+
+test('undoing a like or report is refused once the account goes private', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({ image_url: 'https://example.com/a.jpg', caption: 'hello' })
+  await register(api, 'viewer')
+  await api.likePost(post.post_identifier)
+  await api.reportPost(post.post_identifier, 'x')
+
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  await api.setAccountPrivacy(true)
+  await api.login({ username_or_email: 'viewer', password: 'password123' })
+
+  await expect(api.unlikePost(post.post_identifier)).rejects.toThrow('No post with that identifier')
+  await expect(api.retractReportPost(post.post_identifier)).rejects.toThrow(
+    'No post with that identifier',
+  )
+})

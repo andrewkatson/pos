@@ -520,8 +520,13 @@ class ProfileViewModel: ObservableObject {
                 }
                 _ = try await api.cancelFollowRequest(sessionManagementToken: userSession.sessionToken, username: user.username)
             } catch {
+                // Most likely the owner already answered the request (or went
+                // public and approved it) while this profile was open, so the
+                // cached "Requested" state is stale. Reload the profile and grid
+                // rather than restore it — the viewer may now be a follower.
                 NSLog("%@", "Error cancelling follow request: \(error)")
-                followRequestPending = true
+                await refreshProfileDetails()
+                await refreshUserPosts()
             }
             isBusy = false
         }

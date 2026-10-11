@@ -550,3 +550,19 @@ test('a follow answered with a request on a profile loaded as public reloads it'
   expect(await screen.findByRole('button', { name: 'Requested' })).toBeInTheDocument()
   expect(screen.getByText('This account is private')).toBeInTheDocument()
 })
+
+test('a cancel that finds the request already answered reloads the profile', async () => {
+  // The owner approved the request while this page was open: cancelling fails,
+  // and the reload shows the viewer as an approved follower.
+  mockGetProfile
+    .mockResolvedValueOnce({ ...privateProfile, follow_request_pending: true })
+    .mockResolvedValue({ ...baseProfile, is_private: true, is_following: true })
+  mockCancelRequest.mockRejectedValue(new Error('No follow request to cancel'))
+  renderProfile()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Requested' }))
+
+  expect(await screen.findByRole('button', { name: 'Following' })).toBeInTheDocument()
+  expect(mockGetPosts).toHaveBeenCalledTimes(2)
+  expect(screen.queryByText('This account is private')).not.toBeInTheDocument()
+})

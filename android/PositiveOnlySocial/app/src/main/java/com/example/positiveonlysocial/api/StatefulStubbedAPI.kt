@@ -963,7 +963,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun retractReportPost(token: String, postId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val post = posts.find { it.postIdentifier == postId }
+        // Undo actions treat a private account's post as missing to a
+        // non-follower too (issue #96).
+        val post = posts.find { it.postIdentifier == postId }?.takeIf { privacyAdmits(it.authorId, user) }
             ?: return error(404, "No post with that identifier")
 
         if (!post.reports.contains(user.id)) return error(400, "Post not reported yet")
@@ -989,7 +991,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun unlikePost(token: String, postId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val post = posts.find { it.postIdentifier == postId } ?: return error(404, "No post")
+        // Undo actions treat a private account's post as missing to a
+        // non-follower too (issue #96).
+        val post = posts.find { it.postIdentifier == postId }?.takeIf { privacyAdmits(it.authorId, user) }
+            ?: return error(404, "No post")
 
         if (post.likes.contains(user.id)) {
             post.likes.remove(user.id)
@@ -1299,7 +1304,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun unlikeComment(token: String, postId: String, threadId: String, commentId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
+        val comment = findComment(postId, threadId, commentId)?.takeIf { postPrivacyAdmits(postId, user) }
+            ?: return error(404, "Comment not found")
 
         if (comment.likes.contains(user.id)) {
             comment.likes.remove(user.id)
@@ -1356,7 +1362,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun retractReportComment(token: String, postId: String, threadId: String, commentId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
+        val comment = findComment(postId, threadId, commentId)?.takeIf { postPrivacyAdmits(postId, user) }
+            ?: return error(404, "Comment not found")
 
         if (!comment.reports.contains(user.id)) return error(400, "Comment not reported yet")
 

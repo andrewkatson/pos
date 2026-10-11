@@ -652,8 +652,11 @@ class ProfileViewModel(
                 }
                 val response = api.cancelFollowRequest(userSession.sessionToken, username)
                 if (!response.isSuccessful) {
-                    _profileDetails.value = currentProfile
-                    _errorMessage.value = "Failed to cancel follow request"
+                    // Most likely the owner already answered the request (or went
+                    // public and approved it) while this profile was open, so the
+                    // cached "Requested" state is stale. Reload the profile and
+                    // grid rather than restore it — the viewer may now follow.
+                    refreshProfile(username)
                 }
             } catch (e: Exception) {
                 _profileDetails.value = currentProfile

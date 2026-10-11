@@ -184,6 +184,40 @@ class PrivateAccountViewModelTest {
         assertEquals(true, viewModel.profileDetails.value!!.followRequestPending)
     }
 
+    @Test
+    fun `a cancel after the owner approved reloads as a follower`() = runTest {
+        val api = StatefulStubbedAPI()
+        val (authorToken, viewerToken) = privateAuthorAndViewer(api)
+        api.followUser(viewerToken, "author")
+        val viewModel = ProfileViewModel(api, keychainFor(viewerToken, "viewer"))
+        viewModel.fetchProfile("author")
+        assertEquals(true, viewModel.profileDetails.value!!.followRequestPending)
+
+        // Approved while the profile is open; tapping Requested finds nothing to cancel.
+        api.approveFollowRequest(authorToken, "viewer")
+        viewModel.toggleFollow("author")
+
+        assertTrue(viewModel.isFollowing.value)
+        assertEquals(false, viewModel.profileDetails.value!!.followRequestPending)
+        assertEquals(1, viewModel.userPosts.value.size)
+    }
+
+    @Test
+    fun `a privacy change refreshes the owner's profile`() = runTest {
+        val api = StatefulStubbedAPI()
+        val token = register(api, "owner")
+        val keychain = keychainFor(token, "owner")
+        val profile = ProfileViewModel(api, keychain)
+        profile.fetchProfile("owner")
+        assertEquals(false, profile.profileDetails.value!!.isPrivate)
+        val settings = SettingsViewModel(api, mock<AuthenticationManager>(), keychain)
+        settings.loadCurrentUser()
+
+        settings.setAccountPrivacy(true)
+
+        assertEquals(true, profile.profileDetails.value!!.isPrivate)
+    }
+
     // --- FollowRequestsViewModel ---
 
     private val requesters = listOf(User("alice", true), User("bob", false))

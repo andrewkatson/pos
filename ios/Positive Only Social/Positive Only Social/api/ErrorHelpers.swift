@@ -35,9 +35,11 @@ extension Notification.Name {
     /// without waiting for a manual pull-to-refresh (issue #347).
     static let postCreated = Notification.Name("postCreated")
 
-    /// Posted after the signed-in user approves or denies a follow request
-    /// (issue #96). Their own profile listens so its "Follow Requests (n)"
-    /// badge and follower count refresh when they come back from the list.
+    /// Posted after the signed-in user approves or denies a follow request, or
+    /// changes their private account setting (going public approves every
+    /// pending request) — issue #96. Their own profile listens so its lock
+    /// badge, "Follow Requests (n)" badge and follower count refresh when they
+    /// come back to it.
     static let followRequestsChanged = Notification.Name("followRequestsChanged")
 }
 

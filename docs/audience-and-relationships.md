@@ -106,8 +106,11 @@ in either direction, alongside the follow edges.
 The privacy rule lives in `visibility.py` (`privacy_admits`, and `_privacy_q` in
 `visible_posts` / `can_view_post`), so it applies everywhere posts are served —
 discovery, following and tag feeds, profile grids, saved posts, post details and
-the public share pages. Liking, reporting, and liking or reporting a comment on a
-private account's post are refused to non-followers the same way. Note the
+the public share pages. Liking, reporting, commenting, and liking or reporting a
+comment on a private account's post are refused to non-followers the same way —
+and so are the undo actions (unlike, retract a report), so someone who interacted
+while the account was public can't keep mutating or probing it by id afterward.
+Note the
 direction: privacy reads the **viewer → author** edge (do you follow them?) while
 [post audience](#relationship-categories--post-audience) reads the **author →
 viewer** edge (did they label you?). A non-public post from a private account must

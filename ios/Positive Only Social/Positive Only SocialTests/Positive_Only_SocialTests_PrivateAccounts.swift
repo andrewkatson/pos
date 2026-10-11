@@ -275,6 +275,46 @@ struct Positive_Only_SocialTests_PrivateAccounts {
         #expect(profile.profileDetails?.followerCount == 1)
     }
 
+    @Test func cancelAfterTheOwnerApprovedReloadsAsFollower() async throws {
+        let (authorToken, author, viewerToken, viewer) = try await privateAuthorAndViewer()
+        _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "privateAuthor")
+        let account = try signIn(viewer, token: viewerToken)
+        let sut = ProfileViewModel(user: author, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.fetchProfileDetails()
+        await yield()
+        #expect(sut.followRequestPending == true, "Pre-condition: Requested")
+
+        // The owner approves while this profile is open; tapping Requested then
+        // finds nothing to cancel.
+        _ = try await stubAPI.approveFollowRequest(sessionManagementToken: authorToken, username: "curiousViewer")
+        sut.toggleFollow()
+        await yield()
+
+        #expect(sut.followRequestPending == false)
+        #expect(sut.isFollowing == true)
+        #expect(sut.isLocked == false)
+        #expect(sut.userPosts.count == 1)
+    }
+
+    @Test func privacyChangeRefreshesTheOwnersProfile() async throws {
+        let (token, user) = try await registerUser(username: "togglingOwner")
+        let account = try signIn(user, token: token)
+        let center = NotificationCenter()
+        let profile = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper,
+                                       account: account, notificationCenter: center)
+        profile.fetchProfileDetails()
+        let settings = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper,
+                                         account: account, notificationCenter: center)
+        settings.loadCurrentUser()
+        await yield()
+        #expect(profile.profileDetails?.isPrivate == false, "Pre-condition: public")
+
+        settings.setAccountPrivacy(true)
+        await yield()
+
+        #expect(profile.profileDetails?.isPrivate == true)
+    }
+
     // MARK: - FollowRequestsViewModel
 
     @Test func followRequestsApproveAndDenyDropRows() async throws {
