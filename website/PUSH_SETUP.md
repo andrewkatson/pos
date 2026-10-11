@@ -37,7 +37,7 @@ outcomes via in-app reconciliation, #282).
    ```
 
 4. The backend must have the **same** Firebase project's service-account JSON in
-   `FCM_CREDENTIALS` (see the root README "Push notifications" section) so its
+   `FCM_CREDENTIALS` (see [docs/push-notifications.md](../docs/push-notifications.md)) so its
    sends reach these tokens.
 
 ## Notes

@@ -10,7 +10,7 @@
 ## Workflow
 
 - Every PR must be opened against the `dev` branch, and work must be done in a worktree (not directly on a checkout of a shared branch).
-- The root `README.md` is the product spec — it documents domain behavior in detail (content guidelines, banning/shadow-ban semantics, S3 image cleanup, new-device login emails). Consult it before changing domain logic, and update it when behavior changes.
+- `docs/` is the product spec — one page per system or topic (classification, reporting, bans/appeals, visibility, images, deployment, …), indexed by `docs/README.md`. Consult the relevant page before changing domain logic, and update it when behavior changes. The root `README.md` only explains what the project is (plus the content guidelines); don't add feature detail there.
 - Backend model changes need a Django migration in `backend/user_system/migrations/`.
 
 ## Building and testing

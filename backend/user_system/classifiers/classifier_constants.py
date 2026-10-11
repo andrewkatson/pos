@@ -181,7 +181,7 @@ IMAGE_CLASSIFIER_PROMPT = (
 # later stages toward the middle and defeat the point of asking again — each
 # stage judges the content, not its predecessor. Stage position is the *only*
 # per-call context any model ever receives; in particular the report re-review
-# path (README, "Reporting and user moderation") adds nothing about the report,
+# path (docs/reporting.md) adds nothing about the report,
 # so no report can steer a verdict.
 _STAGE_CONTEXT = {
     1: (

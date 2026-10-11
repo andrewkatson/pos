@@ -1459,6 +1459,12 @@
   cursor: pointer;
 }
 
+/* A comment with no replies has nothing to collapse, so its header band is not
+   a click target. */
+.comment-row__header--static {
+  cursor: default;
+}
+
 .comment-row__author {
   font-weight: 700;
   font-size: 0.9rem;
