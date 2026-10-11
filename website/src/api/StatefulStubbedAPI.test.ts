@@ -1288,3 +1288,16 @@ test('undoing a like or report is refused once the account goes private', async 
     'No post with that identifier',
   )
 })
+
+test('deleting a requester drops their pending follow request', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  await api.setAccountPrivacy(true)
+  await register(api, 'viewer')
+  await api.followUser('author')
+  await api.deleteAccount()
+
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  expect(await api.getFollowRequests()).toEqual([])
+  expect((await api.getProfile('author')).follow_request_count).toBe(0)
+})

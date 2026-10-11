@@ -171,6 +171,17 @@ struct Positive_Only_SocialTests_PrivateAccounts {
         }
     }
 
+    @Test func deletingARequesterDropsTheirRequest() async throws {
+        let (authorToken, _, viewerToken, _) = try await privateAuthorAndViewer()
+        _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "privateAuthor")
+
+        _ = try await stubAPI.deleteUser(sessionManagementToken: viewerToken)
+
+        let requests = try await stubAPI.getFollowRequests(sessionManagementToken: authorToken)
+        #expect(try JSONDecoder().decode([User].self, from: requests).isEmpty)
+        #expect(try await profile(authorToken, of: "privateAuthor").followRequestCount == 0)
+    }
+
     @Test func goingPublicApprovesPendingRequests() async throws {
         let (authorToken, _, viewerToken, _) = try await privateAuthorAndViewer()
         _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "privateAuthor")

@@ -1061,6 +1061,10 @@ final class StatefulStubbedAPI: Networking {
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         sessions.removeAll { $0.userId == user.id }
         posts.removeAll { $0.authorId == user.id }
+        // Pending follow requests both ways (issue #96), like the backend's
+        // CASCADE foreign keys — otherwise an owner's request count keeps
+        // counting a requester who no longer exists.
+        followRequests.removeAll { $0.userFromId == user.id || $0.userToId == user.id }
         users.removeAll { $0.id == user.id }
         return try createEmptySuccessResponse()
     }

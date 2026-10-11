@@ -597,6 +597,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         posts.removeIf { it.authorId == user.id }
         sessions.removeIf { it.userId == user.id }
         loginCookies.removeIf { it.userId == user.id }
+        // Pending follow requests both ways (issue #96), like the backend's
+        // CASCADE foreign keys — otherwise an owner's request count keeps
+        // counting a requester who no longer exists.
+        users.forEach { it.followRequests.remove(user.id) }
         users.remove(user)
 
         return Response.success(GenericResponse("User deleted successfully", null))

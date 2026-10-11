@@ -146,4 +146,16 @@ class StatefulStubbedApiPrivateAccountTest {
 
         assertFalse(api.followUser(viewerToken, "author").isSuccessful)
     }
+
+    @Test
+    fun `deleting a requester drops their pending follow request`() = runTest {
+        val api = StatefulStubbedAPI()
+        val (authorToken, viewerToken) = privateAuthorAndViewer(api)
+        api.followUser(viewerToken, "author")
+
+        api.deleteUser(viewerToken)
+
+        assertTrue(api.getFollowRequests(authorToken).body()!!.isEmpty())
+        assertEquals(0, api.getProfileDetails(authorToken, "author").body()!!.followRequestCount)
+    }
 }

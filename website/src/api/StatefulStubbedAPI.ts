@@ -814,6 +814,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     this.posts = this.posts.filter((p) => p.authorId !== user.id)
     this.sessions = this.sessions.filter((s) => s.userId !== user.id)
     this.loginCookies = this.loginCookies.filter((c) => c.userId !== user.id)
+    // Pending follow requests both ways (issue #96), like the backend's CASCADE
+    // foreign keys — otherwise an owner's request count keeps counting a
+    // requester who no longer exists.
+    this.users.forEach((u) => u.followRequests.delete(user.id))
     this.users = this.users.filter((u) => u.id !== user.id)
     this.setToken(null)
     return { message: 'User deleted successfully' }

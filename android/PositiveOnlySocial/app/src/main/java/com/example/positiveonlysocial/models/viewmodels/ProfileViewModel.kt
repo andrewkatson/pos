@@ -161,6 +161,17 @@ class ProfileViewModel(
     // (follow request decisions, issue #96) knows which profile to reload.
     private var loadedUsername: String? = null
 
+    // A refresh asked for while another load was in flight; it runs as soon as
+    // that load finishes. Several requests in the meantime coalesce into one,
+    // which reads after all of them.
+    private var queuedRefreshUsername: String? = null
+
+    private fun runQueuedRefresh() {
+        val username = queuedRefreshUsername ?: return
+        queuedRefreshUsername = null
+        refreshProfile(username)
+    }
+
     init {
         // Approving or denying follow requests changes the owner's request badge
         // and follower count; refresh their own profile when it happens.
@@ -230,6 +241,7 @@ class ProfileViewModel(
                 Log.e(TAG, "Error fetching profile", e)
             } finally {
                 _isLoading.value = false
+                runQueuedRefresh()
             }
         }
     }
@@ -241,8 +253,14 @@ class ProfileViewModel(
      */
     fun refreshProfile(username: String) {
         // Don't refresh while a paginated fetch is in flight; they share
-        // _userPosts/currentPage/canLoadMore and would otherwise race.
-        if (_isRefreshing.value || _isLoading.value) return
+        // _userPosts/currentPage/canLoadMore and would otherwise race. Queue it
+        // instead of dropping it: an event-driven refresh (a follow request
+        // answered while another reload is running, issue #96) must still
+        // happen, or the badge and counts stay one decision behind.
+        if (_isRefreshing.value || _isLoading.value) {
+            queuedRefreshUsername = username
+            return
+        }
 
         _isRefreshing.value = true
         _errorMessage.value = null
@@ -285,6 +303,7 @@ class ProfileViewModel(
                 Log.e(TAG, "Error refreshing profile", e)
             } finally {
                 _isRefreshing.value = false
+                runQueuedRefresh()
             }
         }
     }
@@ -324,6 +343,7 @@ class ProfileViewModel(
                 Log.e(TAG, "Error fetching more posts", e)
             } finally {
                 _isLoading.value = false
+                runQueuedRefresh()
             }
         }
     }

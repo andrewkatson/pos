@@ -246,6 +246,25 @@ class PrivateAccountViewModelTest {
         assertFalse(viewModel.isFollowing.value)
     }
 
+    @Test
+    fun `a refresh asked for during a load is queued, not dropped`() = runTest {
+        val api: PositiveOnlySocialAPI = mock()
+        val profile = ProfileDetailsResponse("owner", 0, 0, 0, isFollowing = false)
+        whenever(api.getProfileDetails("token123", "owner")).thenReturn(Response.success(profile))
+        val postsReply = CompletableDeferred<Response<List<com.example.positiveonlysocial.data.model.Post>>>()
+        api.stub {
+            onBlocking { getPostsForUser("token123", "owner", 0) } doSuspendableAnswer { postsReply.await() }
+        }
+        val viewModel = ProfileViewModel(api, keychainFor("token123", "owner"))
+        viewModel.fetchProfile("owner") // suspends awaiting the first posts page
+
+        viewModel.refreshProfile("owner") // e.g. a follow request answered meanwhile
+        verify(api, org.mockito.kotlin.times(1)).getProfileDetails("token123", "owner")
+        postsReply.complete(Response.success(emptyList()))
+
+        verify(api, org.mockito.kotlin.times(2)).getProfileDetails("token123", "owner")
+    }
+
     // --- FollowRequestsViewModel ---
 
     private val requesters = listOf(User("alice", true), User("bob", false))

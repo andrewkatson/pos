@@ -360,10 +360,18 @@ class ProfileViewModel: ObservableObject {
         }
     }
 
+    /// Bumped by each `refreshProfileDetails()` call; see there.
+    private var detailsRefreshGeneration = 0
+
     /// Pull-to-refresh companion to `refreshUserPosts()`: reloads the profile
     /// stats and follow/block status so they don't go stale on refresh. `async`
     /// so `.refreshable` keeps the spinner up until both posts and details load.
     func refreshProfileDetails() async {
+        // Reloads can overlap (follow requests answered concurrently, issue #96)
+        // and return out of order; only the newest one's response is applied, so
+        // an older read can't overwrite the counts from a newer decision.
+        detailsRefreshGeneration += 1
+        let generation = detailsRefreshGeneration
         do {
             guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                 NSLog("%@", "No active session — cannot refresh profile details")
@@ -372,6 +380,7 @@ class ProfileViewModel: ObservableObject {
 
             let responseData = try await api.getProfileDetails(sessionManagementToken: userSession.sessionToken, username: user.username)
             let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: responseData)
+            guard generation == detailsRefreshGeneration else { return }
 
             self.profileDetails = details
             self.isFollowing = details.isFollowing
