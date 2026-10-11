@@ -103,6 +103,15 @@ class FollowPrivateAccountTests(PrivateAccountTestBase):
         self.assertFalse(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
         self.assertTrue(FollowRequest.objects.filter(user_from=self.viewer, user_to=self.author).exists())
 
+    def test_request_to_an_account_you_blocked_is_refused(self):
+        self.viewer.blocked.add(self.author)
+
+        response = self._follow(self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "User does not exist")
+        self.assertFalse(FollowRequest.objects.exists())
+
     def test_existing_follower_is_already_following(self):
         self._label(self.viewer, self.author, FOLLOW_CATEGORY_FOLLOWING)
 
@@ -124,6 +133,18 @@ class FollowRequestDecisionTests(PrivateAccountTestBase):
         edge = UserFollow.objects.get(user_from=self.viewer, user_to=self.author)
         self.assertEqual(edge.category, FOLLOW_CATEGORY_FAMILY)
         self.assertFalse(FollowRequest.objects.exists())
+
+    def test_block_before_approval_leaves_nothing_to_approve(self):
+        self._follow(self.local_username, self.viewer_header)
+        self.client.post(
+            reverse('toggle_block', kwargs={'username_to_toggle_block': self.viewer_username}),
+            **self.author_header)
+
+        response = self._request_action('approve', self.viewer_username, self.author_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "No follow request from user")
+        self.assertFalse(UserFollow.objects.exists())
 
     def test_approve_without_request_fails(self):
         response = self._request_action('approve', self.viewer_username, self.author_header)

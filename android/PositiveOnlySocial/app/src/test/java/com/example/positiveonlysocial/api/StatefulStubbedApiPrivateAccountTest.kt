@@ -1,6 +1,8 @@
 package com.example.positiveonlysocial.api
 
+import com.example.positiveonlysocial.data.model.CommentRequest
 import com.example.positiveonlysocial.data.model.CreatePostRequest
+import com.example.positiveonlysocial.data.model.ReportRequest
 import com.example.positiveonlysocial.data.model.RegisterRequest
 import com.example.positiveonlysocial.data.model.SetAccountPrivacyRequest
 import kotlinx.coroutines.test.runTest
@@ -101,5 +103,32 @@ class StatefulStubbedApiPrivateAccountTest {
         api.toggleBlock(authorToken, "viewer")
 
         assertTrue(api.getFollowRequests(authorToken).body()!!.isEmpty())
+    }
+
+    @Test
+    fun `a non-follower can't find or interact with a private post`() = runTest {
+        val api = StatefulStubbedAPI()
+        val authorToken = register(api, "author")
+        api.setAccountPrivacy(authorToken, SetAccountPrivacyRequest(true))
+        val postId = api.makePost(authorToken, CreatePostRequest(imageUrl = "a.jpg", caption = "sunny #beach"))
+            .body()!!.postIdentifier
+        val comment = api.commentOnPost(authorToken, postId, CommentRequest("lovely")).body()!!
+        val viewerToken = register(api, "viewer")
+
+        assertTrue(api.getPostsByTag(viewerToken, "beach", 0).body()!!.isEmpty())
+        assertFalse(api.likePost(viewerToken, postId).isSuccessful)
+        assertFalse(api.reportPost(viewerToken, postId, ReportRequest("not positive")).isSuccessful)
+        assertFalse(api.commentOnPost(viewerToken, postId, CommentRequest("hi")).isSuccessful)
+        assertFalse(api.likeComment(viewerToken, postId, comment.threadIdentifier!!, comment.commentIdentifier).isSuccessful)
+        assertFalse(
+            api.reportComment(
+                viewerToken, postId, comment.threadIdentifier!!, comment.commentIdentifier, ReportRequest("x")
+            ).isSuccessful
+        )
+
+        api.followUser(viewerToken, "author")
+        api.approveFollowRequest(authorToken, "viewer")
+        assertEquals(1, api.getPostsByTag(viewerToken, "beach", 0).body()!!.size)
+        assertTrue(api.likePost(viewerToken, postId).isSuccessful)
     }
 }

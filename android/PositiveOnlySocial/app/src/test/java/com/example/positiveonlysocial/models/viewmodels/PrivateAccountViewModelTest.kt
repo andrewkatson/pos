@@ -14,6 +14,7 @@ import com.example.positiveonlysocial.data.model.SetAccountPrivacyResponse
 import com.example.positiveonlysocial.data.model.User
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -26,6 +27,10 @@ import org.junit.Rule
 import org.junit.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.doSuspendableAnswer
+import org.mockito.kotlin.never
+import org.mockito.kotlin.stub
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import retrofit2.Response
 
@@ -154,6 +159,29 @@ class PrivateAccountViewModelTest {
 
         assertEquals(0, profile.profileDetails.value!!.followRequestCount)
         assertEquals(1, profile.profileDetails.value!!.followerCount)
+    }
+
+    @Test
+    fun `a second tap while a follow is in flight is ignored`() = runTest {
+        // Without the guard the second tap would read "Requested" and send a
+        // cancel before the follow it cancels had reached the server.
+        val api: PositiveOnlySocialAPI = mock()
+        val private = ProfileDetailsResponse("author", 0, 0, 0, isFollowing = false, isPrivate = true)
+        whenever(api.getProfileDetails("token123", "author")).thenReturn(Response.success(private))
+        whenever(api.getPostsForUser("token123", "author", 0)).thenReturn(Response.success(emptyList()))
+        val followReply = CompletableDeferred<Response<GenericResponse>>()
+        api.stub { onBlocking { followUser("token123", "author") } doSuspendableAnswer { followReply.await() } }
+        val viewModel = ProfileViewModel(api, keychainFor("token123", "viewer"))
+        viewModel.fetchProfile("author")
+
+        viewModel.toggleFollow("author") // suspends awaiting followReply
+        assertTrue(viewModel.isFollowBusy.value)
+        viewModel.toggleFollow("author") // the quick second tap
+        followReply.complete(Response.success(GenericResponse("Follow requested", null, null, followRequestPending = true)))
+
+        assertFalse(viewModel.isFollowBusy.value)
+        verify(api, never()).cancelFollowRequest(any(), any())
+        assertEquals(true, viewModel.profileDetails.value!!.followRequestPending)
     }
 
     // --- FollowRequestsViewModel ---

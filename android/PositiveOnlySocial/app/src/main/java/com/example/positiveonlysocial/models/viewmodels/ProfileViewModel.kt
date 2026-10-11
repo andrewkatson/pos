@@ -59,6 +59,13 @@ class ProfileViewModel(
     private val _isBlocked = MutableStateFlow(false)
     val isBlocked: StateFlow<Boolean> = _isBlocked.asStateFlow()
 
+    // A follow / unfollow / cancel-request call is in flight (issue #96). The
+    // Follow button is disabled meanwhile, and toggleFollow ignores taps, so a
+    // quick second tap can't send "cancel" before the "follow" it would cancel
+    // has reached the server.
+    private val _isFollowBusy = MutableStateFlow(false)
+    val isFollowBusy: StateFlow<Boolean> = _isFollowBusy.asStateFlow()
+
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
@@ -549,6 +556,8 @@ class ProfileViewModel(
 
     fun toggleFollow(username: String) {
         val currentProfile = _profileDetails.value ?: return
+        if (_isFollowBusy.value) return
+        _isFollowBusy.value = true
         // "Requested" → withdraw the pending request (issue #96).
         if (currentProfile.followRequestPending == true) {
             cancelFollowRequest(username, currentProfile)
@@ -620,6 +629,8 @@ class ProfileViewModel(
                 _isFollowing.value = isFollowing
                 _followCategory.value = FollowCategory.from(currentProfile.followCategory)
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            } finally {
+                _isFollowBusy.value = false
             }
         }
     }
@@ -647,6 +658,8 @@ class ProfileViewModel(
             } catch (e: Exception) {
                 _profileDetails.value = currentProfile
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            } finally {
+                _isFollowBusy.value = false
             }
         }
     }

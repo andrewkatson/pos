@@ -4251,16 +4251,36 @@ def follow_user(request, username_to_follow):
     })
 
 
+def _lock_users(*users):
+    """Row-lock the given accounts for the rest of the current transaction, in
+    primary-key order so two transactions locking the same pair can never
+    deadlock. Serializes follow requests, approvals and blocks between the same
+    two people (issue #96)."""
+    pks = sorted(user.pk for user in users)
+    list(get_user_model().objects.select_for_update().filter(pk__in=pks).order_by('pk'))
+
+
+def _blocked_either_way(user_a, user_b):
+    """Whether either account has blocked the other."""
+    return UserBlock.objects.filter(
+        Q(user_blocker=user_a, user_blocked=user_b) | Q(user_blocker=user_b, user_blocked=user_a)
+    ).exists()
+
+
 def _request_to_follow(request, target_user, category):
     """follow_user's private-account branch (issue #96): file a follow request
     instead of a follow edge.
 
-    A user the target has blocked gets the same "User does not exist" a missing
-    account does, so a blocker never receives requests from someone they blocked
-    and the blocked user cannot tell the account is there. The unique
-    (user_from, user_to) constraint guards against two concurrent requests the
-    same way it does for follows."""
-    if request.user.blocked_by.filter(pk=target_user.pk).exists():
+    Called inside follow_user's transaction with the target's row locked, which
+    toggle_block also locks, so a block cannot land between the check below and
+    the insert and leave a pending request from a blocked user behind.
+
+    A block in either direction refuses the request with the same "User does not
+    exist" a missing account gets, so a blocker never receives requests from
+    someone they blocked and the blocked user cannot tell the account is there.
+    The unique (user_from, user_to) constraint guards against two concurrent
+    requests the same way it does for follows."""
+    if _blocked_either_way(request.user, target_user):
         return log_and_return_json("follow_user", {'error': "User does not exist"}, status=400)
 
     try:
@@ -4362,11 +4382,19 @@ def toggle_block(request, username_to_toggle_block):
     if request.user == user_to_toggle_obj:
         return log_and_return_json("toggle_block", {'error': "Cannot block self"}, status=400)
 
-    if request.user.blocked.filter(pk=user_to_toggle_obj.pk).exists():
-        # Unblock
-        request.user.blocked.remove(user_to_toggle_obj)
-        return log_and_return_json("toggle_block", {'message': 'User unblocked'})
-    else:
+    with transaction.atomic():
+        # Lock both accounts (issue #96): follow_user locks the target of a
+        # follow request and approve_follow_request locks its owner, so a block
+        # between these two people is serialized with any request being filed or
+        # approved — the requests deleted below cannot be recreated or turned
+        # into a follow edge behind the block.
+        _lock_users(request.user, user_to_toggle_obj)
+
+        if request.user.blocked.filter(pk=user_to_toggle_obj.pk).exists():
+            # Unblock
+            request.user.blocked.remove(user_to_toggle_obj)
+            return log_and_return_json("toggle_block", {'message': 'User unblocked'})
+
         # Block
         request.user.blocked.add(user_to_toggle_obj)
         # Also force unfollow? Typically blocking unfollows.
@@ -4381,8 +4409,8 @@ def toggle_block(request, username_to_toggle_block):
             | Q(user_from=user_to_toggle_obj, user_to=request.user)
         ).delete()
 
-        logger.info(f"User blocked successful: target_user_id: {user_to_toggle_obj.id} by user_id: {request.user.id}")
-        return log_and_return_json("toggle_block", {'message': 'User blocked'})
+    logger.info(f"User blocked successful: target_user_id: {user_to_toggle_obj.id} by user_id: {request.user.id}")
+    return log_and_return_json("toggle_block", {'message': 'User blocked'})
 
 
 @api_login_required
@@ -4485,10 +4513,17 @@ def approve_follow_request(request, username):
     """Approve the follow request `username` sent the caller: they become a
     follower and can see the caller's posts."""
     logger.info("Endpoint approve_follow_request invoked by IP or User")
-    follow_request, error = _incoming_follow_request(request, "approve_follow_request", username)
-    if error is not None:
-        return error
-    _approve_follow_request(follow_request)
+    with transaction.atomic():
+        # Lock the owner's row, which toggle_block also locks, then read the
+        # request under that lock: a block between the two people either
+        # deleted it already (nothing to approve) or waits until the follow edge
+        # exists and then removes it. Approval can never resurrect a request a
+        # block dropped.
+        _lock_users(request.user)
+        follow_request, error = _incoming_follow_request(request, "approve_follow_request", username)
+        if error is not None:
+            return error
+        _approve_follow_request(follow_request)
     logger.info(f"Follow request approved: requester_id: {follow_request.user_from_id} by user_id: {request.user.id}")
     return log_and_return_json("approve_follow_request", {'message': 'Follow request approved'})
 

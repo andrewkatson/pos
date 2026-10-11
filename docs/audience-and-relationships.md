@@ -74,8 +74,10 @@ Following a private account takes a **follow request**:
 - `follow_user` on a private account files a request instead of following, and
   answers `follow_request_pending: true` (with `follow_category: null`). A
   `category` sent with the call is kept on the request and applied when it is
-  approved. Asking twice is refused ("Follow already requested"), and a user the
-  account has blocked gets "User does not exist", the same as a missing account.
+  approved. Asking twice is refused ("Follow already requested"), and when either
+  side has blocked the other the request gets "User does not exist", the same as
+  a missing account. Filing, approving and blocking take row locks on the two
+  accounts, so a block can't race a request into existence or into a follow.
 - The owner lists incoming requests, newest first, with
   `GET /users/follow-requests/` (their own only — there is no username
   parameter; shadow-banned and cross-age-band requesters are left out, as in the

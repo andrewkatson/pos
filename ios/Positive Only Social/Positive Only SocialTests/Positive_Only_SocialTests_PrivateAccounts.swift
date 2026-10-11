@@ -90,6 +90,48 @@ struct Positive_Only_SocialTests_PrivateAccounts {
         #expect(unlocked.postCount == 1)
     }
 
+    @Test func nonFollowerCannotFindOrInteractWithPrivatePost() async throws {
+        let (authorToken, _) = try await registerUser(username: "beachAuthor")
+        _ = try await stubAPI.setAccountPrivacy(sessionManagementToken: authorToken, isPrivate: true)
+        let postData = try await stubAPI.makePost(
+            sessionManagementToken: authorToken, imageURL: "img/1", caption: "sunny #beach")
+        let postId = try JSONDecoder().decode(MakePostResponse.self, from: postData).postIdentifier
+        struct CommentIds: Decodable { let comment_thread_identifier, comment_identifier: String }
+        let commentData = try await stubAPI.commentOnPost(
+            sessionManagementToken: authorToken, postIdentifier: postId, commentText: "lovely")
+        let ids = try JSONDecoder().decode(CommentIds.self, from: commentData)
+        let (viewerToken, _) = try await registerUser(username: "beachViewer")
+
+        let tagData = try await stubAPI.getPostsForTag(sessionManagementToken: viewerToken, tag: "beach", batch: 0)
+        #expect(try JSONDecoder().decode([Post].self, from: tagData).isEmpty)
+        await #expect(throws: (any Error).self) {
+            _ = try await stubAPI.likePost(sessionManagementToken: viewerToken, postIdentifier: postId)
+        }
+        await #expect(throws: (any Error).self) {
+            _ = try await stubAPI.reportPost(sessionManagementToken: viewerToken, postIdentifier: postId, reason: "x")
+        }
+        await #expect(throws: (any Error).self) {
+            _ = try await stubAPI.commentOnPost(sessionManagementToken: viewerToken, postIdentifier: postId, commentText: "hi")
+        }
+        await #expect(throws: (any Error).self) {
+            _ = try await stubAPI.likeComment(
+                sessionManagementToken: viewerToken, postIdentifier: postId,
+                commentThreadIdentifier: ids.comment_thread_identifier, commentIdentifier: ids.comment_identifier)
+        }
+        await #expect(throws: (any Error).self) {
+            _ = try await stubAPI.reportComment(
+                sessionManagementToken: viewerToken, postIdentifier: postId,
+                commentThreadIdentifier: ids.comment_thread_identifier, commentIdentifier: ids.comment_identifier,
+                reason: "x")
+        }
+
+        _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "beachAuthor")
+        _ = try await stubAPI.approveFollowRequest(sessionManagementToken: authorToken, username: "beachViewer")
+        let unlockedTag = try await stubAPI.getPostsForTag(sessionManagementToken: viewerToken, tag: "beach", batch: 0)
+        #expect(try JSONDecoder().decode([Post].self, from: unlockedTag).count == 1)
+        _ = try await stubAPI.likePost(sessionManagementToken: viewerToken, postIdentifier: postId)
+    }
+
     @Test func goingPublicApprovesPendingRequests() async throws {
         let (authorToken, _, viewerToken, _) = try await privateAuthorAndViewer()
         _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "privateAuthor")

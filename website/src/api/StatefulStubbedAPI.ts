@@ -353,6 +353,32 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return post
   }
 
+  /** findPost for an interaction (like, report, comment): a private account's
+   * post reads as missing to a non-follower, like the backend (issue #96). */
+  private findReachablePost(postId: string, viewer: UserMock): PostMock {
+    const post = this.findPost(postId)
+    if (!this.privacyAdmits(post.authorId, viewer)) {
+      throw new ApiError(404, 'No post with that identifier')
+    }
+    return post
+  }
+
+  /** findComment for an interaction: a comment on a private account's post is
+   * out of reach for a non-follower (issue #96). */
+  private findReachableComment(
+    postId: string,
+    threadId: string,
+    commentId: string,
+    viewer: UserMock,
+  ): CommentMock {
+    const comment = this.findComment(postId, threadId, commentId)
+    const post = this.posts.find((p) => p.postIdentifier === postId)
+    if (!post || !this.privacyAdmits(post.authorId, viewer)) {
+      throw new ApiError(404, 'Comment not found')
+    }
+    return comment
+  }
+
   private findComment(postId: string, threadId: string, commentId: string): CommentMock {
     const thread = this.commentThreads.find(
       (t) => t.threadIdentifier === threadId && t.postId === postId,
@@ -1063,7 +1089,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async reportPost(postIdentifier: string, reason: string): Promise<MessageResponse> {
     const user = this.requireUser()
-    const post = this.findPost(postIdentifier)
+    const post = this.findReachablePost(postIdentifier, user)
     if (post.authorId === user.id) {
       throw new ApiError(400, 'Cannot report own post')
     }
@@ -1089,7 +1115,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async likePost(postIdentifier: string): Promise<MessageResponse> {
     const user = this.requireUser()
-    const post = this.findPost(postIdentifier)
+    const post = this.findReachablePost(postIdentifier, user)
     if (post.authorId === user.id) {
       throw new ApiError(400, 'Cannot like own post')
     }
@@ -1304,6 +1330,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       .filter((p) => p.hiddenReason !== 'classifier_final')
       .filter((p) => (p.authorId === user.id ? true : !p.hidden))
       .filter((p) => !user.blocked.has(p.authorId) && !user.blockedBy.has(p.authorId))
+      .filter((p) => this.privacyAdmits(p.authorId, user))
       .sort((a, b) => b.creationTime - a.creationTime)
     return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }
@@ -1565,7 +1592,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     audience?: PostAudience,
   ): Promise<CommentOnPostResponse> {
     const user = this.requireUser()
-    const post = this.findPost(postIdentifier)
+    const post = this.findReachablePost(postIdentifier, user)
     if (post.commentsDisabled) {
       throw new ApiError(403, 'Comments are disabled for this post')
     }
@@ -1703,7 +1730,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     commentIdentifier: string,
   ): Promise<MessageResponse> {
     const user = this.requireUser()
-    const comment = this.findComment(postIdentifier, commentThreadIdentifier, commentIdentifier)
+    const comment = this.findReachableComment(
+      postIdentifier,
+      commentThreadIdentifier,
+      commentIdentifier,
+      user,
+    )
     if (comment.authorId === user.id) {
       throw new ApiError(400, 'Cannot like own comment')
     }
@@ -1774,7 +1806,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     reason: string,
   ): Promise<MessageResponse> {
     const user = this.requireUser()
-    const comment = this.findComment(postIdentifier, commentThreadIdentifier, commentIdentifier)
+    const comment = this.findReachableComment(
+      postIdentifier,
+      commentThreadIdentifier,
+      commentIdentifier,
+      user,
+    )
     if (comment.authorId === user.id) {
       throw new ApiError(400, 'Cannot report own comment')
     }

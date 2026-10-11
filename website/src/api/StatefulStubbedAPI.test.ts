@@ -1228,3 +1228,30 @@ test('a private account shares its header but no counts or posts', async () => {
   expect(profile.post_count).toBe(0)
   expect(await api.getPublicPostsForUser('author', 0)).toEqual([])
 })
+
+test('a non-follower cannot find or interact with a private post', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  await api.setAccountPrivacy(true)
+  const post = await api.createPost({ image_url: 'https://example.com/a.jpg', caption: 'sunny #beach' })
+  const comment = await api.commentOnPost(post.post_identifier, 'lovely')
+  await register(api, 'viewer')
+
+  expect(await api.getPostsByTag('beach', 0)).toEqual([])
+  await expect(api.likePost(post.post_identifier)).rejects.toThrow('No post with that identifier')
+  await expect(api.reportPost(post.post_identifier, 'x')).rejects.toThrow('No post with that identifier')
+  await expect(api.commentOnPost(post.post_identifier, 'hi')).rejects.toThrow('No post with that identifier')
+  await expect(
+    api.likeComment(post.post_identifier, comment.comment_thread_identifier, comment.comment_identifier),
+  ).rejects.toThrow('Comment not found')
+  await expect(
+    api.reportComment(post.post_identifier, comment.comment_thread_identifier, comment.comment_identifier, 'x'),
+  ).rejects.toThrow('Comment not found')
+
+  await api.followUser('author')
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  await api.approveFollowRequest('viewer')
+  await api.login({ username_or_email: 'viewer', password: 'password123' })
+  expect(await api.getPostsByTag('beach', 0)).toHaveLength(1)
+  await api.likePost(post.post_identifier)
+})

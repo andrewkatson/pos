@@ -1239,7 +1239,9 @@ final class StatefulStubbedAPI: Networking {
     func reportPost(sessionManagementToken: String, postIdentifier: String, reason: String) async throws -> Data {
         await simulateNetwork()
         guard let reporter = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // A private account's post reads as missing to a non-follower (issue #96).
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }),
+              privacyAdmits(authorId: posts[postIndex].authorId, viewer: reporter) else { throw APIError.badServerResponse(statusCode: 400) }
         if posts[postIndex].authorId == reporter.id { throw APIError.badServerResponse(statusCode: 400) }
         if posts[postIndex].reports.contains(where: { $0.username == reporter.username }) { throw APIError.badServerResponse(statusCode: 400) }
         
@@ -1269,7 +1271,9 @@ final class StatefulStubbedAPI: Networking {
     func likePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let liker = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // A private account's post reads as missing to a non-follower (issue #96).
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }),
+              privacyAdmits(authorId: posts[postIndex].authorId, viewer: liker) else { throw APIError.badServerResponse(statusCode: 400) }
         if posts[postIndex].authorId == liker.id { throw APIError.badServerResponse(statusCode: 400) }
         if posts[postIndex].likes.contains(liker.username) { throw APIError.badServerResponse(statusCode: 400) }
         
@@ -1525,6 +1529,7 @@ final class StatefulStubbedAPI: Networking {
             .filter { $0.hiddenReason != "classifier_final" }
             .filter { $0.authorId == user.id || !$0.isHidden }
             .filter { !user.blocked.contains($0.authorId) && !user.blockedBy.contains($0.authorId) }
+            .filter { privacyAdmits(authorId: $0.authorId, viewer: user) }
             .sorted { $0.createdDate > $1.createdDate }
 
         let startIndex = batch * pageSize
@@ -1542,7 +1547,9 @@ final class StatefulStubbedAPI: Networking {
     func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let post = findPost(byIdentifier: postIdentifier) else { throw APIError.badServerResponse(statusCode: 400) }
+        // A private account's post reads as missing to a non-follower (issue #96).
+        guard let post = findPost(byIdentifier: postIdentifier),
+              privacyAdmits(authorId: post.authorId, viewer: user) else { throw APIError.badServerResponse(statusCode: 400) }
         // The author may disable commenting at creation or lock it afterward
         // (issue #492). Existing comments stay visible; only new ones blocked.
         if post.commentsDisabled {
@@ -1586,7 +1593,11 @@ final class StatefulStubbedAPI: Networking {
     func likeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let liker = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // A comment on a private account's post is out of reach for a
+        // non-follower (issue #96), judged by the post it sits on.
+        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }),
+              let parentPost = findPost(byIdentifier: postIdentifier),
+              privacyAdmits(authorId: parentPost.authorId, viewer: liker) else { throw APIError.badServerResponse(statusCode: 400) }
         if comments[commentIndex].authorUsername == liker.username { throw APIError.badServerResponse(statusCode: 400) }
         if comments[commentIndex].likes.contains(liker.username) { throw APIError.badServerResponse(statusCode: 400) }
 
@@ -1668,7 +1679,11 @@ final class StatefulStubbedAPI: Networking {
     func reportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, reason: String) async throws -> Data {
         await simulateNetwork()
         guard let reporter = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // A comment on a private account's post is out of reach for a
+        // non-follower (issue #96), judged by the post it sits on.
+        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }),
+              let parentPost = findPost(byIdentifier: postIdentifier),
+              privacyAdmits(authorId: parentPost.authorId, viewer: reporter) else { throw APIError.badServerResponse(statusCode: 400) }
         if comments[commentIndex].authorUsername == reporter.username { throw APIError.badServerResponse(statusCode: 400) }
         if comments[commentIndex].reports.contains(where: { $0.username == reporter.username }) { throw APIError.badServerResponse(statusCode: 400) }
         

@@ -500,8 +500,11 @@ fun ProfileBody(
             Spacer(modifier = Modifier.height(16.dp))
 
             if (!isOwnProfile) {
+                val isFollowBusy by viewModel.isFollowBusy.collectAsState()
                 Button(
                     onClick = { viewModel.toggleFollow(username) },
+                    // Disabled while a follow / cancel call is in flight (issue #96).
+                    enabled = !isFollowBusy,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isFollowing || followRequestPending) MaterialTheme.colorScheme.secondary
                             else MaterialTheme.colorScheme.primary

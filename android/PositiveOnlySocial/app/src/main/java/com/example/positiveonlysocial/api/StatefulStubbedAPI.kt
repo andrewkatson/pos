@@ -790,6 +790,13 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return !author.isPrivate || authorId == viewer.id || viewer.following.contains(authorId)
     }
 
+    /** [privacyAdmits] for the post a comment sits on: a comment on a private
+     * account's post is out of reach for a non-follower (issue #96). */
+    private fun postPrivacyAdmits(postId: String, viewer: UserMock): Boolean {
+        val post = posts.find { it.postIdentifier == postId } ?: return false
+        return privacyAdmits(post.authorId, viewer)
+    }
+
     private fun audienceAdmits(post: PostMock, viewerId: String): Boolean {
         if (post.audience == PostAudience.PUBLIC.value || post.authorId == viewerId) return true
         val author = users.find { it.id == post.authorId } ?: return false
@@ -934,7 +941,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun reportPost(token: String, postId: String, request: ReportRequest): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val post = posts.find { it.postIdentifier == postId }
+        // A private account's post reads as missing to a non-follower (issue #96).
+        val post = posts.find { it.postIdentifier == postId }?.takeIf { privacyAdmits(it.authorId, user) }
             ?: return error(404, "No post with that identifier")
 
         if (post.authorId == user.id) return error(400, "Cannot report own post")
@@ -968,7 +976,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun likePost(token: String, postId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val post = posts.find { it.postIdentifier == postId }
+        // A private account's post reads as missing to a non-follower (issue #96).
+        val post = posts.find { it.postIdentifier == postId }?.takeIf { privacyAdmits(it.authorId, user) }
             ?: return error(404, "No post with that identifier")
 
         if (post.authorId == user.id) return error(404, "Cannot like own post")
@@ -1199,6 +1208,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             .filter { it.hiddenReason != "classifier_final" }
             .filter { it.authorId == user.id || !it.hidden }
             .filter { !user.blocked.contains(it.authorId) && !user.blockedBy.contains(it.authorId) }
+            .filter { privacyAdmits(it.authorId, user) }
             .sortedByDescending { it.creationTime }
 
         val batched = getBatch(taggedPosts, batch, POST_BATCH_SIZE)
@@ -1235,7 +1245,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun commentOnPost(token: String, postId: String, request: CommentRequest): Response<CommentResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
-        val post = posts.find { it.postIdentifier == postId } ?: return errorGeneric(404, "Post not found")
+        // A private account's post reads as missing to a non-follower (issue #96).
+        val post = posts.find { it.postIdentifier == postId }?.takeIf { privacyAdmits(it.authorId, user) }
+            ?: return errorGeneric(404, "Post not found")
         // The author may disable commenting at creation or lock it afterward
         // (issue #492). Existing comments stay visible; only new ones blocked.
         if (post.commentsDisabled) return errorGeneric(403, "Comments are disabled for this post")
@@ -1272,7 +1284,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun likeComment(token: String, postId: String, threadId: String, commentId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
+        val comment = findComment(postId, threadId, commentId)?.takeIf { postPrivacyAdmits(postId, user) }
+            ?: return error(404, "Comment not found")
 
         if (comment.authorId == user.id) return error(404, "Cannot like own comment")
         if (comment.likes.contains(user.id)) return error(404, "Already liked comment")
@@ -1321,7 +1334,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun reportComment(token: String, postId: String, threadId: String, commentId: String, request: ReportRequest): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
+        val comment = findComment(postId, threadId, commentId)?.takeIf { postPrivacyAdmits(postId, user) }
+            ?: return error(404, "Comment not found")
 
         if (comment.authorId == user.id) return error(400, "Cannot report own comment")
         if (comment.reports.contains(user.id)) return error(400, "Cannot report comment twice")
