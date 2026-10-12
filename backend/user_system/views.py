@@ -2267,23 +2267,27 @@ def report_post(request, post_identifier):
         # cannot interact with an underage account's post (or vice versa) even
         # with a known post id (issue #329).
         # Likewise a private account's post for a non-follower (issue #96).
-        if not in_same_age_band(post.author, request.user) or not privacy_admits(post.author, request.user):
-            logger.warning(f"Report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
-            return log_and_return_json("report_post", {'error': "No post with that identifier"}, status=400)
+        # Check and write in one transaction under the post author's row
+        # lock, which set_account_privacy also takes: an owner going private
+        # is either seen here or waits until this commits (issue #96).
+        with transaction.atomic():
+            if not in_same_age_band(post.author, request.user) or not _post_author_still_admits(post, request.user):
+                logger.warning(f"Report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+                return log_and_return_json("report_post", {'error': "No post with that identifier"}, status=400)
 
-        if post.author == request.user:
-            logger.warning(f"Report post failed: Cannot report own post for user_id: {request.user.id}")
-            return log_and_return_json("report_post", {'error': "Cannot report own post"}, status=400)
+            if post.author == request.user:
+                logger.warning(f"Report post failed: Cannot report own post for user_id: {request.user.id}")
+                return log_and_return_json("report_post", {'error': "Cannot report own post"}, status=400)
 
-        if post.postreport_set.active().filter(user=request.user).exists():
-            logger.warning(f"Report post failed: Post already reported by user_id: {request.user.id}")
-            return log_and_return_json("report_post", {'error': "Cannot report post twice"}, status=400)
+            if post.postreport_set.active().filter(user=request.user).exists():
+                logger.warning(f"Report post failed: Post already reported by user_id: {request.user.id}")
+                return log_and_return_json("report_post", {'error': "Cannot report post twice"}, status=400)
 
-        if moderation.daily_report_limit_reached(request.user):
-            logger.warning(f"Report post failed: Daily report limit reached by user_id: {request.user.id}")
-            return log_and_return_json("report_post", {'error': "Daily report limit reached"}, status=400)
+            if moderation.daily_report_limit_reached(request.user):
+                logger.warning(f"Report post failed: Daily report limit reached by user_id: {request.user.id}")
+                return log_and_return_json("report_post", {'error': "Daily report limit reached"}, status=400)
 
-        post.postreport_set.create(user=request.user, reason=reason)
+            post.postreport_set.create(user=request.user, reason=reason)
         logger.info(f"Post reported successful: post_id: {post_identifier} by user_id: {request.user.id}")
 
         # A report never hides anything (issue #467): it opens a moderation
@@ -2320,16 +2324,20 @@ def retract_report_post(request, post_identifier):
     # vs "no such post" responses cannot be used as an existence oracle — and a
     # private account's post for a non-follower likewise (issue #96), including
     # someone who reported it before the account went private.
-    if not in_same_age_band(post.author, request.user) or not privacy_admits(post.author, request.user):
-        logger.warning(f"Retract report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
-        return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
+    # Check and write in one transaction under the post author's row
+    # lock, which set_account_privacy also takes: an owner going private
+    # is either seen here or waits until this commits (issue #96).
+    with transaction.atomic():
+        if not in_same_age_band(post.author, request.user) or not _post_author_still_admits(post, request.user):
+            logger.warning(f"Retract report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
 
-    # Stamped, not deleted (issue #467): the row stays as a record that this
-    # account filed a report, so the daily budget counts it and report-then-
-    # retract cycling cannot refund budget. active() makes it stop counting as a
-    # report of the post everywhere else.
-    retracted_count = post.postreport_set.active().filter(user=request.user).update(
-        retracted_time=timezone.now())
+        # Stamped, not deleted (issue #467): the row stays as a record that this
+        # account filed a report, so the daily budget counts it and report-then-
+        # retract cycling cannot refund budget. active() makes it stop counting as a
+        # report of the post everywhere else.
+        retracted_count = post.postreport_set.active().filter(user=request.user).update(
+            retracted_time=timezone.now())
     if retracted_count == 0:
         logger.warning(f"Retract report post failed: Post not reported by user_id: {request.user.id}")
         return log_and_return_json("retract_report_post", {'error': "Post not reported yet"}, status=400)
@@ -2361,16 +2369,20 @@ def like_post(request, post_identifier):
         # cannot interact with an underage account's post (or vice versa) even
         # with a known post id (issue #329).
         # Likewise a private account's post for a non-follower (issue #96).
-        if not in_same_age_band(post.author, request.user) or not privacy_admits(post.author, request.user):
-            logger.warning(f"Like post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
-            return log_and_return_json("like_post", {'error': "No post with that identifier"}, status=400)
+        # Check and write in one transaction under the post author's row
+        # lock, which set_account_privacy also takes: an owner going private
+        # is either seen here or waits until this commits (issue #96).
+        with transaction.atomic():
+            if not in_same_age_band(post.author, request.user) or not _post_author_still_admits(post, request.user):
+                logger.warning(f"Like post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+                return log_and_return_json("like_post", {'error': "No post with that identifier"}, status=400)
 
-        if post.author == request.user:
-            logger.warning(f"Like post failed: Cannot like own post for user_id: {request.user.id}")
-            return log_and_return_json("like_post", {'error': "Cannot like own post"}, status=400)
+            if post.author == request.user:
+                logger.warning(f"Like post failed: Cannot like own post for user_id: {request.user.id}")
+                return log_and_return_json("like_post", {'error': "Cannot like own post"}, status=400)
 
-        # get_or_create handles the check and creation in one step
-        like, created = post.postlike_set.get_or_create(user=request.user)
+            # get_or_create handles the check and creation in one step
+            like, created = post.postlike_set.get_or_create(user=request.user)
 
         if not created:
             logger.warning(f"Like post failed: Already liked for user_id: {request.user.id} on post: {post_identifier}")
@@ -2399,15 +2411,19 @@ def unlike_post(request, post_identifier):
         # vs "no such post" responses cannot be used as an existence oracle — and
         # a private account's post for a non-follower likewise (issue #96),
         # including someone who liked it before the account went private.
-        if not in_same_age_band(post.author, request.user) or not privacy_admits(post.author, request.user):
-            logger.warning(f"Unlike post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
-            return log_and_return_json("unlike_post", {'error': "No post with that identifier"}, status=400)
+        # Check and write in one transaction under the post author's row
+        # lock, which set_account_privacy also takes: an owner going private
+        # is either seen here or waits until this commits (issue #96).
+        with transaction.atomic():
+            if not in_same_age_band(post.author, request.user) or not _post_author_still_admits(post, request.user):
+                logger.warning(f"Unlike post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+                return log_and_return_json("unlike_post", {'error': "No post with that identifier"}, status=400)
 
-        if post.author == request.user:
-            logger.warning(f"Unlike post failed: Cannot unlike own post for user_id: {request.user.id}")
-            return log_and_return_json("unlike_post", {'error': "Cannot unlike own post"}, status=400)
+            if post.author == request.user:
+                logger.warning(f"Unlike post failed: Cannot unlike own post for user_id: {request.user.id}")
+                return log_and_return_json("unlike_post", {'error': "Cannot unlike own post"}, status=400)
 
-        deleted_count, _ = post.postlike_set.filter(user=request.user).delete()
+            deleted_count, _ = post.postlike_set.filter(user=request.user).delete()
 
         if deleted_count > 0:
             logger.info(f"Post unliked successful: post_id: {post_identifier} by user_id: {request.user.id}")
@@ -2505,11 +2521,16 @@ def save_post(request, post_identifier):
         # and the saved-posts listing filter, so saving across a block is refused.
         blocked = (request.user.blocked.filter(pk=post.author_id).exists()
                    or request.user.blocked_by.filter(pk=post.author_id).exists())
-        if blocked or not can_view_post(post, request.user):
-            logger.warning(f"Save post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
-            return log_and_return_json("save_post", {'error': "No post with that identifier"}, status=400)
+        # Check and write in one transaction under the post author's row
+        # lock, which set_account_privacy also takes: an owner going private
+        # is either seen here or waits until this commits (issue #96).
+        with transaction.atomic():
+            if blocked or not _post_author_still_admits(post, request.user) \
+                    or not can_view_post(post, request.user):
+                logger.warning(f"Save post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+                return log_and_return_json("save_post", {'error': "No post with that identifier"}, status=400)
 
-        saved, created = post.savedpost_set.get_or_create(user=request.user)
+            saved, created = post.savedpost_set.get_or_create(user=request.user)
 
         if not created:
             logger.warning(f"Save post failed: Already saved for user_id: {request.user.id} on post: {post_identifier}")
@@ -3103,11 +3124,12 @@ def _comments_locked_for_update(post):
 
 def _post_author_still_admits(post, viewer):
     """Re-check the post author's privacy for `viewer` under the author's row
-    lock (issue #96). Call inside the same transaction as
-    _comments_locked_for_update, just before creating a comment/reply:
-    set_account_privacy takes this lock, so an owner going private while the
-    classifier ran is either seen here or waits until the comment is committed.
-    The lock is only held for the insert, never across classification."""
+    lock (issue #96). Call inside the transaction that then writes the
+    interaction — a comment or reply (alongside _comments_locked_for_update), a
+    like, report, save, or their undo: set_account_privacy takes this lock, so
+    an owner going private is either seen here or waits until the write is
+    committed. The lock is only held for the check and the write, never across
+    classification or moderation follow-up."""
     author = get_user_model().objects.select_for_update(no_key=True).get(pk=post.author_id)
     return privacy_admits(author, viewer)
 
@@ -3359,18 +3381,22 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
     # even an inconsistent legacy record (a cross-band comment on a post) stays
     # unreachable. A comment on a private account's post is equally out of reach
     # for a non-follower (issue #96), who cannot see the post it sits on.
-    if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
-            or not privacy_admits(comment.comment_thread.post.author, request.user) \
-            or not audience_admits(comment, request.user):
-        logger.warning(f"Like comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
-        return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
+    # Check and write in one transaction under the post author's row
+    # lock, which set_account_privacy also takes: an owner going private
+    # is either seen here or waits until this commits (issue #96).
+    with transaction.atomic():
+        if not in_same_age_band(comment.author, request.user) \
+                or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+                or not _post_author_still_admits(comment.comment_thread.post, request.user) \
+                or not audience_admits(comment, request.user):
+            logger.warning(f"Like comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
 
-    if comment.author == request.user:
-        logger.warning(f"Like comment failed: Cannot like own comment for user_id: {request.user.id}")
-        return log_and_return_json("like_comment", {'error': "Cannot like own comment"}, status=400)
+        if comment.author == request.user:
+            logger.warning(f"Like comment failed: Cannot like own comment for user_id: {request.user.id}")
+            return log_and_return_json("like_comment", {'error': "Cannot like own comment"}, status=400)
 
-    like, created = comment.commentlike_set.get_or_create(user=request.user)
+        like, created = comment.commentlike_set.get_or_create(user=request.user)
     if not created:
         logger.warning(f"Like comment failed: Already liked for user_id: {request.user.id} on comment: {comment_identifier}")
         return log_and_return_json("like_comment", {'error': "Already liked comment"}, status=400)
@@ -3410,18 +3436,22 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
     # vs "no such comment" responses cannot be used as an existence oracle.
     # A comment on a private account's post is equally absent for a non-follower
     # (issue #96), even one who interacted before the account went private.
-    if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
-            or not privacy_admits(comment.comment_thread.post.author, request.user) \
-            or not audience_admits(comment, request.user):
-        logger.warning(f"Unlike comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
-        return log_and_return_json("unlike_comment", {'error': "Comment not found"}, status=400)
+    # Check and write in one transaction under the post author's row
+    # lock, which set_account_privacy also takes: an owner going private
+    # is either seen here or waits until this commits (issue #96).
+    with transaction.atomic():
+        if not in_same_age_band(comment.author, request.user) \
+                or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+                or not _post_author_still_admits(comment.comment_thread.post, request.user) \
+                or not audience_admits(comment, request.user):
+            logger.warning(f"Unlike comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("unlike_comment", {'error': "Comment not found"}, status=400)
 
-    if comment.author == request.user:
-        logger.warning(f"Unlike comment failed: Cannot unlike own comment for user_id: {request.user.id}")
-        return log_and_return_json("unlike_comment", {'error': "Cannot unlike own comment"}, status=400)
+        if comment.author == request.user:
+            logger.warning(f"Unlike comment failed: Cannot unlike own comment for user_id: {request.user.id}")
+            return log_and_return_json("unlike_comment", {'error': "Cannot unlike own comment"}, status=400)
 
-    deleted_count, _ = comment.commentlike_set.filter(user=request.user).delete()
+        deleted_count, _ = comment.commentlike_set.filter(user=request.user).delete()
     if deleted_count == 0:
         logger.warning(f"Unlike comment failed: Comment not liked yet for user_id: {request.user.id} on comment: {comment_identifier}")
         return log_and_return_json("unlike_comment", {'error': "Comment not liked yet"}, status=400)
@@ -3549,26 +3579,30 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
     # even an inconsistent legacy record (a cross-band comment on a post) stays
     # unreachable. A comment on a private account's post is equally out of reach
     # for a non-follower (issue #96), who cannot see the post it sits on.
-    if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
-            or not privacy_admits(comment.comment_thread.post.author, request.user) \
-            or not audience_admits(comment, request.user):
-        logger.warning(f"Report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
-        return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
+    # Check and write in one transaction under the post author's row
+    # lock, which set_account_privacy also takes: an owner going private
+    # is either seen here or waits until this commits (issue #96).
+    with transaction.atomic():
+        if not in_same_age_band(comment.author, request.user) \
+                or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+                or not _post_author_still_admits(comment.comment_thread.post, request.user) \
+                or not audience_admits(comment, request.user):
+            logger.warning(f"Report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
 
-    if comment.author == request.user:
-        logger.warning(f"Report comment failed: Cannot report own comment for user_id: {request.user.id}")
-        return log_and_return_json("report_comment", {'error': "Cannot report own comment"}, status=400)
+        if comment.author == request.user:
+            logger.warning(f"Report comment failed: Cannot report own comment for user_id: {request.user.id}")
+            return log_and_return_json("report_comment", {'error': "Cannot report own comment"}, status=400)
 
-    if comment.commentreport_set.active().filter(user=request.user).exists():
-        logger.warning(f"Report comment failed: Already reported by user_id: {request.user.id}")
-        return log_and_return_json("report_comment", {'error': "Cannot report comment twice"}, status=400)
+        if comment.commentreport_set.active().filter(user=request.user).exists():
+            logger.warning(f"Report comment failed: Already reported by user_id: {request.user.id}")
+            return log_and_return_json("report_comment", {'error': "Cannot report comment twice"}, status=400)
 
-    if moderation.daily_report_limit_reached(request.user):
-        logger.warning(f"Report comment failed: Daily report limit reached by user_id: {request.user.id}")
-        return log_and_return_json("report_comment", {'error': "Daily report limit reached"}, status=400)
+        if moderation.daily_report_limit_reached(request.user):
+            logger.warning(f"Report comment failed: Daily report limit reached by user_id: {request.user.id}")
+            return log_and_return_json("report_comment", {'error': "Daily report limit reached"}, status=400)
 
-    comment.commentreport_set.create(user=request.user, reason=reason)
+        comment.commentreport_set.create(user=request.user, reason=reason)
     logger.info(f"Report comment successful: comment_id: {comment_identifier} by user_id: {request.user.id}")
 
     # As for posts, a report never hides a comment (issue #467) — it opens a
@@ -3609,16 +3643,20 @@ def retract_report_comment(request, post_identifier, comment_thread_identifier, 
     # yet" vs "no such comment" responses cannot be used as an existence oracle.
     # A comment on a private account's post is equally absent for a non-follower
     # (issue #96), even one who interacted before the account went private.
-    if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
-            or not privacy_admits(comment.comment_thread.post.author, request.user) \
-            or not audience_admits(comment, request.user):
-        logger.warning(f"Retract report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
-        return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
+    # Check and write in one transaction under the post author's row
+    # lock, which set_account_privacy also takes: an owner going private
+    # is either seen here or waits until this commits (issue #96).
+    with transaction.atomic():
+        if not in_same_age_band(comment.author, request.user) \
+                or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+                or not _post_author_still_admits(comment.comment_thread.post, request.user) \
+                or not audience_admits(comment, request.user):
+            logger.warning(f"Retract report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
 
-    # Stamped, not deleted, exactly as for posts (issue #467).
-    retracted_count = comment.commentreport_set.active().filter(user=request.user).update(
-        retracted_time=timezone.now())
+        # Stamped, not deleted, exactly as for posts (issue #467).
+        retracted_count = comment.commentreport_set.active().filter(user=request.user).update(
+            retracted_time=timezone.now())
     if retracted_count == 0:
         logger.warning(f"Retract report comment failed: Comment not reported by user_id: {request.user.id}")
         return log_and_return_json("retract_report_comment", {'error': "Comment not reported yet"}, status=400)

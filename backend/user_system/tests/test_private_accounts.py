@@ -760,6 +760,72 @@ class PrivateTransitionInteractionTests(PrivateAccountTestBase):
         self.assertEqual(response.status_code, 200)
 
 
+class PrivacyRaceInteractionTests(PrivateAccountTestBase):
+    """The owner's going-private commit lands after an interaction endpoint
+    first looked at the author but before it locked them: the write must be
+    decided on the locked read, so a non-follower's like, report or save never
+    lands on a now-private post."""
+
+    def setUp(self):
+        super().setUp()
+        self.author.is_private = False
+        self.author.save(update_fields=['is_private'])
+        self.post = self._make_visible_post(self.author)
+        self.post_id = str(self.post.post_identifier)
+        thread = self.post.commentthread_set.create()
+        self.comment = thread.comment_set.create(
+            author=self.author, body=POSITIVE_CAPTION, hidden=False, audience=POST_AUDIENCE_PUBLIC)
+        self.comment_kwargs = {
+            'post_identifier': self.post_id,
+            'comment_thread_identifier': str(thread.comment_thread_identifier),
+            'comment_identifier': str(self.comment.comment_identifier),
+        }
+
+    def _racing(self, name, kwargs):
+        """Call `name` with the author going private just before the lock."""
+        from .. import views
+        real = views._post_author_still_admits
+
+        def goes_private_first(post, viewer):
+            PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(is_private=True)
+            return real(post, viewer)
+
+        with patch('user_system.views._post_author_still_admits', side_effect=goes_private_first) as locked:
+            response = self.client.post(
+                reverse(name, kwargs=kwargs), data=json.dumps({Fields.reason: 'not positive'}),
+                content_type='application/json', **self.viewer_header)
+        locked.assert_called()
+        PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(is_private=False)
+        return response
+
+    def test_writes_are_refused_when_privacy_commits_first(self):
+        post_kwargs = {'post_identifier': self.post_id}
+        for name, kwargs in (('like_post', post_kwargs), ('report_post', post_kwargs),
+                             ('save_post', post_kwargs), ('like_comment', self.comment_kwargs),
+                             ('report_comment', self.comment_kwargs)):
+            self.assertEqual(self._racing(name, kwargs).status_code, 400, name)
+        self.assertFalse(self.post.postlike_set.exists())
+        self.assertFalse(self.post.postreport_set.exists())
+        self.assertFalse(self.post.savedpost_set.exists())
+        self.assertFalse(self.comment.commentlike_set.exists())
+        self.assertFalse(self.comment.commentreport_set.exists())
+
+    def test_undos_are_refused_when_privacy_commits_first(self):
+        self.post.postlike_set.create(user=self.viewer)
+        self.post.postreport_set.create(user=self.viewer, reason='not positive')
+        self.comment.commentlike_set.create(user=self.viewer)
+        self.comment.commentreport_set.create(user=self.viewer, reason='not positive')
+        post_kwargs = {'post_identifier': self.post_id}
+        for name, kwargs in (('unlike_post', post_kwargs), ('retract_report_post', post_kwargs),
+                             ('unlike_comment', self.comment_kwargs),
+                             ('retract_report_comment', self.comment_kwargs)):
+            self.assertEqual(self._racing(name, kwargs).status_code, 400, name)
+        self.assertTrue(self.post.postlike_set.exists())
+        self.assertTrue(self.post.postreport_set.active().exists())
+        self.assertTrue(self.comment.commentlike_set.exists())
+        self.assertTrue(self.comment.commentreport_set.active().exists())
+
+
 class PrivateAuthorCommentTests(PrivateAccountTestBase):
     """Privacy gates posts only. A private account's comment on someone else's
     public post follows that comment's own audience, like anyone's."""

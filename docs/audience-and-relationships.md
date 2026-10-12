@@ -128,7 +128,11 @@ discovery, following and tag feeds, profile grids, saved posts, post details and
 the public share pages. Liking, reporting, commenting, and liking or reporting a
 comment on a private account's post are refused to non-followers the same way —
 and so are the undo actions (unlike, retract a report), so someone who interacted
-while the account was public can't keep mutating or probing it by id afterward.
+while the account was public can't keep mutating or probing it by id afterward. Each of
+these writes (and saving a post) re-checks the author's privacy under the
+author's row lock in the same transaction as the write — the lock
+`set_account_privacy` takes — so a switch to private that commits mid-request
+is never followed by a non-follower's like, report or save.
 Note the
 direction: privacy reads the **viewer → author** edge (do you follow them?) while
 [post audience](#relationship-categories--post-audience) reads the **author →
