@@ -416,6 +416,9 @@ function ProfileView({
           // Supersede an older profile load so it can't put "Requested" back.
           profileGeneration.current += 1
           setFollowRequestPending(false)
+          // If that was the only profile load (the header never arrived),
+          // start a replacement.
+          if (!profile) refresh()
         } catch {
           // Most likely the owner already answered the request (or went public
           // and approved it) while this page was open, so the cached
@@ -471,8 +474,12 @@ function ProfileView({
           // so it can't flip the button back to Follow.
           profileGeneration.current += 1
           setFollowRequestPending(true)
+          if (!profile) refresh()
         } else {
           profileGeneration.current += 1
+          // If that dropped the only profile load (the header never arrived),
+          // start a replacement.
+          if (!profile) refresh()
           setIsFollowing(true)
           setFollowCategory('following')
           setProfile(p => (p ? { ...p, follow_category: 'following', follower_count: p.follower_count + 1 } : p))

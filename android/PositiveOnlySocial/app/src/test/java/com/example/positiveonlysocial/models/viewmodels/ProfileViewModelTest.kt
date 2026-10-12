@@ -93,6 +93,9 @@ class ProfileViewModelTest {
         viewModel.fetchProfile("user1")
         
         whenever(api.followUser("token123", "user1")).thenReturn(Response.success(GenericResponse("Success", "None")))
+        // A confirmed follow reloads the profile (issue #96); the server reports it.
+        whenever(api.getProfileDetails("token123", "user1"))
+            .thenReturn(Response.success(mockProfile.copy(isFollowing = true, followerCount = 11)))
 
         viewModel.toggleFollow("user1")
 
@@ -157,18 +160,27 @@ class ProfileViewModelTest {
 
         viewModel.fetchProfile(userId)
 
+        // Follows and blocks reload the profile (issue #96), so the server
+        // reports each resulting state.
+        suspend fun serverSays(profile: ProfileDetailsResponse) =
+            whenever(api.getProfileDetails("token123", userId)).thenReturn(Response.success(profile))
+
         // Follow -> count goes from 0 to 1
+        serverSays(mockProfile.copy(isFollowing = true, followerCount = 1))
         viewModel.toggleFollow(userId)
         assertEquals(1, viewModel.profileDetails.value!!.followerCount)
         assertTrue(viewModel.isFollowing.value)
 
         // Block -> backend unfollows, so the count must drop back to 0
+        serverSays(mockProfile.copy(isBlocked = true))
         viewModel.toggleBlock(userId)
         assertEquals(0, viewModel.profileDetails.value!!.followerCount)
         assertFalse(viewModel.isFollowing.value)
 
         // Unblock then follow again -> count is 1, not 2
+        serverSays(mockProfile)
         viewModel.toggleBlock(userId)
+        serverSays(mockProfile.copy(isFollowing = true, followerCount = 1))
         viewModel.toggleFollow(userId)
         assertEquals(1, viewModel.profileDetails.value!!.followerCount)
         assertTrue(viewModel.isFollowing.value)

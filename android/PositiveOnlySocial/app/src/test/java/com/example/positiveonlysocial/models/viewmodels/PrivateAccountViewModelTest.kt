@@ -168,7 +168,9 @@ class PrivateAccountViewModelTest {
         // cancel before the follow it cancels had reached the server.
         val api: PositiveOnlySocialAPI = mock()
         val private = ProfileDetailsResponse("author", 0, 0, 0, isFollowing = false, isPrivate = true)
-        whenever(api.getProfileDetails("token123", "author")).thenReturn(Response.success(private))
+        // After the request is filed the server reports it pending.
+        whenever(api.getProfileDetails("token123", "author"))
+            .thenReturn(Response.success(private), Response.success(private.copy(followRequestPending = true)))
         whenever(api.getPostsForUser("token123", "author", 0)).thenReturn(Response.success(emptyList()))
         val followReply = CompletableDeferred<Response<GenericResponse>>()
         api.stub { onBlocking { followUser("token123", "author") } doSuspendableAnswer { followReply.await() } }
@@ -412,7 +414,12 @@ class PrivateAccountViewModelTest {
         var profileCalls = 0
         api.stub {
             onBlocking { getProfileDetails("token123", "author") } doSuspendableAnswer {
-                if (++profileCalls == 2) staleProfile.await() else Response.success(private)
+                when (++profileCalls) {
+                    1 -> Response.success(private)
+                    2 -> staleProfile.await()
+                    // After the request is filed the server reports it pending.
+                    else -> Response.success(private.copy(followRequestPending = true))
+                }
             }
             onBlocking { getPostsForUser(eq("token123"), eq("author"), any()) } doSuspendableAnswer {
                 Response.success(emptyList())
@@ -451,6 +458,35 @@ class PrivateAccountViewModelTest {
         viewModel.toggleFollow("author") // Requested → cancel, whose response is lost
 
         assertEquals(false, viewModel.profileDetails.value!!.followRequestPending)
+    }
+
+    @Test
+    fun `a follow confirmed while the first page loads still loads the grid`() = runTest {
+        val api: PositiveOnlySocialAPI = mock()
+        val public = ProfileDetailsResponse("author", 1, 0, 0, isFollowing = false, isPrivate = false)
+        val post = com.example.positiveonlysocial.data.model.Post(
+            postIdentifier = "p1", imageUrl = "a.jpg", authorUsername = "author", caption = "hi")
+        // After the follow the server reports it.
+        whenever(api.getProfileDetails("token123", "author")).thenReturn(
+            Response.success(public), Response.success(public.copy(isFollowing = true, followerCount = 1)))
+        val firstPage = CompletableDeferred<Response<List<com.example.positiveonlysocial.data.model.Post>>>()
+        var postsCalls = 0
+        api.stub {
+            onBlocking { getPostsForUser(eq("token123"), eq("author"), any()) } doSuspendableAnswer {
+                if (++postsCalls == 1) firstPage.await() else Response.success(listOf(post))
+            }
+            onBlocking { followUser("token123", "author") } doSuspendableAnswer {
+                Response.success(GenericResponse("User followed", null, "following", followRequestPending = false))
+            }
+        }
+        val viewModel = ProfileViewModel(api, keychainFor("token123", "viewer"))
+        viewModel.fetchProfile("author") // details arrive, first page stalls
+
+        viewModel.toggleFollow("author")
+        firstPage.complete(Response.success(listOf(post))) // superseded
+
+        assertEquals(1, viewModel.userPosts.value.size)
+        assertTrue(viewModel.isFollowing.value)
     }
 
     // --- FollowRequestsViewModel ---

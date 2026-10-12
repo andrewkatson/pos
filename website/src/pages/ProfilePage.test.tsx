@@ -695,3 +695,17 @@ test('a stale profile load landing after a follow request keeps Requested', asyn
   await waitFor(() => expect(mockGetProfile).toHaveBeenCalledTimes(2))
   expect(screen.getByRole('button', { name: 'Requested' })).toBeInTheDocument()
 })
+
+test('following before the profile header loads still loads it', async () => {
+  let resolveFirst: (details: ProfileDetails) => void = () => {}
+  mockGetProfile
+    .mockImplementationOnce(() => new Promise(resolve => (resolveFirst = resolve)))
+    .mockResolvedValue({ ...baseProfile, is_following: true, follower_count: 11 })
+  renderProfile()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Follow' }))
+  resolveFirst(baseProfile) // the superseded first load
+
+  expect(await screen.findByText('11')).toBeInTheDocument()
+  expect(mockGetProfile).toHaveBeenCalledTimes(2)
+})

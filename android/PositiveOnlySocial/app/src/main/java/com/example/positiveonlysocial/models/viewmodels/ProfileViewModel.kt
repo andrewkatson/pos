@@ -716,6 +716,10 @@ class ProfileViewModel(
                             )
                         }
                         _isFollowing.value = !filedRequest
+                        // The bump also dropped any posts/details load still in
+                        // flight (e.g. the first page), so start a replacement;
+                        // it queues behind a running load and reconciles counts.
+                        refreshProfile(username)
                     }
                 }
             } catch (e: Exception) {
@@ -760,6 +764,8 @@ class ProfileViewModel(
                     // "Requested" back, and re-apply the cancelled state.
                     loadGeneration++
                     _profileDetails.value = currentProfile.copy(followRequestPending = false)
+                    // Replace whatever load the bump dropped.
+                    refreshProfile(username)
                 }
             } catch (e: Exception) {
                 // A transport error is ambiguous: the server may already have
