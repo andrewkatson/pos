@@ -431,6 +431,28 @@ class PrivateAccountViewModelTest {
         assertEquals(true, viewModel.profileDetails.value!!.followRequestPending)
     }
 
+    @Test
+    fun `a cancel lost to a transport error reconciles the profile`() = runTest {
+        val api: PositiveOnlySocialAPI = mock()
+        val requested = ProfileDetailsResponse("author", 0, 0, 0, isFollowing = false, isPrivate = true,
+            followRequestPending = true)
+        val cancelled = requested.copy(followRequestPending = false)
+        whenever(api.getProfileDetails("token123", "author"))
+            .thenReturn(Response.success(requested), Response.success(cancelled))
+        whenever(api.getPostsForUser("token123", "author", 0)).thenReturn(Response.success(emptyList()))
+        api.stub {
+            onBlocking { cancelFollowRequest("token123", "author") } doSuspendableAnswer {
+                throw java.io.IOException("connection reset")
+            }
+        }
+        val viewModel = ProfileViewModel(api, keychainFor("token123", "viewer"))
+        viewModel.fetchProfile("author")
+
+        viewModel.toggleFollow("author") // Requested → cancel, whose response is lost
+
+        assertEquals(false, viewModel.profileDetails.value!!.followRequestPending)
+    }
+
     // --- FollowRequestsViewModel ---
 
     private val requesters = listOf(User("alice", true), User("bob", false))

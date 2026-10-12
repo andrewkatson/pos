@@ -435,6 +435,18 @@ class AccountPrivacySettingTests(PrivateAccountTestBase):
         enqueued = queue.return_value.enqueue.call_args
         self.assertEqual(enqueued.args, ('user_system.tasks.convert_follow_requests_job', str(self.author.pk)))
 
+    def test_inline_conversion_failure_still_reports_the_committed_change(self):
+        self._follow(self.local_username, self.viewer_header)
+        with patch('user_system.tasks.convert_follow_requests', side_effect=RuntimeError('db hiccup')), \
+                patch('user_system.tasks.enqueue_follow_request_conversion') as enqueue:
+            response = self._set_private(False, self.author_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()[Fields.is_private])
+        self.author.refresh_from_db()
+        self.assertFalse(self.author.is_private)
+        enqueue.assert_called_once_with(self.author.pk)
+
     def test_small_backlog_needs_no_background_job(self):
         self._follow(self.local_username, self.viewer_header)
         from django.test import override_settings

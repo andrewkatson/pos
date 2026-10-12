@@ -762,8 +762,12 @@ class ProfileViewModel(
                     _profileDetails.value = currentProfile.copy(followRequestPending = false)
                 }
             } catch (e: Exception) {
+                // A transport error is ambiguous: the server may already have
+                // cancelled before the response was lost. Restore the last known
+                // state, then reconcile, as the HTTP-error branch does.
                 _profileDetails.value = currentProfile
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+                refreshProfile(username)
             } finally {
                 _isFollowBusy.value = false
             }

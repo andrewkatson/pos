@@ -4689,8 +4689,17 @@ def set_account_privacy(request):
     # bounded however large the backlog. Requests still waiting on a now-public
     # account are harmless meanwhile: they grant no visibility, and following
     # directly simply works.
-    if not is_private and not tasks.convert_follow_requests(user.pk, max_rounds=1):
-        tasks.enqueue_follow_request_conversion(user.pk)
+    if not is_private:
+        try:
+            if not tasks.convert_follow_requests(user.pk, max_rounds=1):
+                tasks.enqueue_follow_request_conversion(user.pk)
+        except Exception:
+            # The privacy change has already committed, so report it as made: a
+            # 500 here would make clients revert their toggle to private while
+            # the account is public. The conversion is best-effort — hand it to
+            # the background job, and sweep_classifications backstops even that.
+            logger.exception(f"Inline follow-request conversion failed for user_id: {user.id}; queueing it")
+            tasks.enqueue_follow_request_conversion(user.pk)
     logger.info(f"Account privacy set to {is_private} for user_id: {user.id}")
     return log_and_return_json("set_account_privacy", {Fields.is_private: is_private})
 
