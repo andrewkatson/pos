@@ -434,6 +434,31 @@ struct MockedAPI: Networking {
         return try encode(users)
     }
 
+    func getFollowRequests(sessionManagementToken: String, after: Int?) async throws -> Data {
+        guard after == nil else { return try encode([User]()) }
+        let users = [
+            User(username: "requester_1", identityIsVerified: true),
+            User(username: "requester_2", identityIsVerified: false)
+        ]
+        return try encode(users)
+    }
+
+    func approveFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func denyFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func cancelFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func setAccountPrivacy(sessionManagementToken: String, isPrivate: Bool) async throws -> Data {
+        return try encode(["is_private": isPrivate])
+    }
+
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         let profile = ProfileDetailsResponse(
             username: username,

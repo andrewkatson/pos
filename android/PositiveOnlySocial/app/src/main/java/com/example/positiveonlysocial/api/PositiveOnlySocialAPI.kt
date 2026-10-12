@@ -378,6 +378,45 @@ interface PositiveOnlySocialAPI {
         @Header("Authorization") token: String
     ): Response<List<User>>
 
+    // Private accounts & follow requests (issue #96). Following a private account
+    // files a request (followUser's followRequestPending); its owner lists,
+    // approves and denies them, and the requester can cancel.
+    // One page of incoming requests, newest first (a popular account's backlog
+    // is unbounded, so the list is paginated). Pass the last row's requestId as
+    // `after` for the next, older page; null is the first page, an empty page
+    // the end. Retrofit omits the query when null.
+    @GET("users/follow-requests/")
+    suspend fun getFollowRequests(
+        @Header("Authorization") token: String,
+        @Query("after") after: Long? = null
+    ): Response<List<User>>
+
+    @POST("users/{username}/follow-request/approve/")
+    suspend fun approveFollowRequest(
+        @Header("Authorization") token: String,
+        @Path("username") username: String
+    ): Response<GenericResponse>
+
+    @POST("users/{username}/follow-request/deny/")
+    suspend fun denyFollowRequest(
+        @Header("Authorization") token: String,
+        @Path("username") username: String
+    ): Response<GenericResponse>
+
+    @POST("users/{username}/follow-request/cancel/")
+    suspend fun cancelFollowRequest(
+        @Header("Authorization") token: String,
+        @Path("username") username: String
+    ): Response<GenericResponse>
+
+    // Turns the signed-in user's private account setting on or off. Going
+    // public approves every pending request.
+    @POST("profile/private/")
+    suspend fun setAccountPrivacy(
+        @Header("Authorization") token: String,
+        @Body request: SetAccountPrivacyRequest
+    ): Response<SetAccountPrivacyResponse>
+
     @GET("users/{username}/profile/")
     suspend fun getProfileDetails(
         @Header("Authorization") token: String,

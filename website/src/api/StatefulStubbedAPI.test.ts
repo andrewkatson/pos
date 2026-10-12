@@ -295,7 +295,11 @@ test('getCurrentUser returns the signed-in account’s own username and email', 
   const api = new StatefulStubbedAPI()
   await register(api, 'ada')
 
-  expect(await api.getCurrentUser()).toEqual({ username: 'ada', email: 'ada@example.com' })
+  expect(await api.getCurrentUser()).toEqual({
+    username: 'ada',
+    email: 'ada@example.com',
+    is_private: false,
+  })
 })
 
 test('changePassword enforces the current password and strength, then updates it', async () => {
@@ -1144,4 +1148,211 @@ test('searchUsers hides anyone who blocked the searcher, but not those they bloc
 
   // Blocking someone doesn't hide them from you; being blocked does.
   expect(results.map((u) => u.username)).toEqual(['bobvictim'])
+})
+
+// --- Private accounts (issue #96) -------------------------------------------
+
+async function privateAuthorWithPost(api: StatefulStubbedAPI) {
+  await register(api, 'author')
+  await api.setAccountPrivacy(true)
+  const post = await api.createPost({ image_url: 'https://example.com/a.jpg', caption: 'hi' })
+  await register(api, 'viewer')
+  return post
+}
+
+test('following a private account files a request and hides its posts until approved', async () => {
+  const api = new StatefulStubbedAPI()
+  const post = await privateAuthorWithPost(api)
+
+  const response = await api.followUser('author', 'friend')
+  expect(response.follow_request_pending).toBe(true)
+  expect(await api.getPostsForUser('author', 0)).toEqual([])
+  const locked = await api.getProfile('author')
+  expect(locked.is_private).toBe(true)
+  expect(locked.follow_request_pending).toBe(true)
+  expect(locked.post_count).toBe(0)
+  await expect(api.followUser('author')).rejects.toThrow('Follow already requested')
+
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  expect((await api.getFollowRequests()).map((u) => u.username)).toEqual(['viewer'])
+  expect((await api.getProfile('author')).follow_request_count).toBe(1)
+  await api.approveFollowRequest('viewer')
+  expect(await api.getFollowRequests()).toEqual([])
+
+  await api.login({ username_or_email: 'viewer', password: 'password123' })
+  const unlocked = await api.getProfile('author')
+  expect(unlocked.is_following).toBe(true)
+  expect(unlocked.follow_category).toBe('friend')
+  expect((await api.getPostsForUser('author', 0)).map((p) => p.post_identifier)).toEqual([
+    post.post_identifier,
+  ])
+})
+
+test('a denied or cancelled request leaves the account locked', async () => {
+  const api = new StatefulStubbedAPI()
+  await privateAuthorWithPost(api)
+
+  await api.followUser('author')
+  await api.cancelFollowRequest('author')
+  expect((await api.getProfile('author')).follow_request_pending).toBe(false)
+  await expect(api.cancelFollowRequest('author')).rejects.toThrow('No follow request to cancel')
+
+  await api.followUser('author')
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  await api.denyFollowRequest('viewer')
+  await api.login({ username_or_email: 'viewer', password: 'password123' })
+  const profile = await api.getProfile('author')
+  expect(profile.is_following).toBe(false)
+  expect(profile.follow_request_pending).toBe(false)
+})
+
+test('going public approves pending requests', async () => {
+  const api = new StatefulStubbedAPI()
+  await privateAuthorWithPost(api)
+  await api.followUser('author')
+
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  await api.setAccountPrivacy(false)
+  expect((await api.getCurrentUser()).is_private).toBe(false)
+
+  await api.login({ username_or_email: 'viewer', password: 'password123' })
+  expect((await api.getProfile('author')).is_following).toBe(true)
+})
+
+test('a private account shares its header but no counts or posts', async () => {
+  const api = new StatefulStubbedAPI()
+  await privateAuthorWithPost(api)
+
+  const profile = await api.getPublicProfile('author')
+  expect(profile.is_private).toBe(true)
+  expect(profile.post_count).toBe(0)
+  expect(await api.getPublicPostsForUser('author', 0)).toEqual([])
+})
+
+test('a non-follower cannot find or interact with a private post', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  await api.setAccountPrivacy(true)
+  const post = await api.createPost({ image_url: 'https://example.com/a.jpg', caption: 'sunny #beach' })
+  const comment = await api.commentOnPost(post.post_identifier, 'lovely')
+  await register(api, 'viewer')
+
+  expect(await api.getPostsByTag('beach', 0)).toEqual([])
+  await expect(api.getPostDetails(post.post_identifier)).rejects.toThrow('No post with that identifier')
+  await expect(api.likePost(post.post_identifier)).rejects.toThrow('No post with that identifier')
+  await expect(api.reportPost(post.post_identifier, 'x')).rejects.toThrow('No post with that identifier')
+  await expect(api.commentOnPost(post.post_identifier, 'hi')).rejects.toThrow('No post with that identifier')
+  await expect(
+    api.likeComment(post.post_identifier, comment.comment_thread_identifier, comment.comment_identifier),
+  ).rejects.toThrow('Comment not found')
+  await expect(
+    api.reportComment(post.post_identifier, comment.comment_thread_identifier, comment.comment_identifier, 'x'),
+  ).rejects.toThrow('Comment not found')
+  await expect(api.getCommentsForPost(post.post_identifier, 0)).rejects.toThrow()
+  await expect(api.getCommentsForThread(comment.comment_thread_identifier, 0)).rejects.toThrow()
+  await expect(
+    api.replyToCommentThread(post.post_identifier, comment.comment_thread_identifier, 'hi'),
+  ).rejects.toThrow()
+
+  await api.followUser('author')
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  await api.approveFollowRequest('viewer')
+  await api.login({ username_or_email: 'viewer', password: 'password123' })
+  expect(await api.getPostsByTag('beach', 0)).toHaveLength(1)
+  await api.likePost(post.post_identifier)
+})
+
+test('a private follow request is refused when either side blocked the other', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  await api.setAccountPrivacy(true)
+  await register(api, 'viewer')
+  await api.toggleBlock('author')
+
+  await expect(api.followUser('author')).rejects.toThrow('User does not exist')
+})
+
+test('undoing a like or report is refused once the account goes private', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({ image_url: 'https://example.com/a.jpg', caption: 'hello' })
+  await register(api, 'viewer')
+  await api.likePost(post.post_identifier)
+  await api.reportPost(post.post_identifier, 'x')
+
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  await api.setAccountPrivacy(true)
+  await api.login({ username_or_email: 'viewer', password: 'password123' })
+
+  await expect(api.unlikePost(post.post_identifier)).rejects.toThrow('No post with that identifier')
+  await expect(api.retractReportPost(post.post_identifier)).rejects.toThrow(
+    'No post with that identifier',
+  )
+})
+
+test('deleting a requester drops their pending follow request', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  await api.setAccountPrivacy(true)
+  await register(api, 'viewer')
+  await api.followUser('author')
+  await api.deleteAccount()
+
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  expect(await api.getFollowRequests()).toEqual([])
+  expect((await api.getProfile('author')).follow_request_count).toBe(0)
+})
+
+test('a requester who verified into the other age band cannot be approved', async () => {
+  const api = new StatefulStubbedAPI()
+  await api.register({
+    username: 'author',
+    email: 'author@example.com',
+    password: 'password123',
+    date_of_birth: '1980-01-01',
+  })
+  await api.setAccountPrivacy(true)
+  await register(api, 'viewer')
+  await api.followUser('author')
+  await api.verifyIdentity(`${new Date().getFullYear() - 16}-01-01`) // viewer is a minor
+
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  expect(await api.getFollowRequests()).toEqual([])
+  expect((await api.getProfile('author')).follow_request_count).toBe(0)
+  await expect(api.approveFollowRequest('viewer')).rejects.toThrow('User does not exist')
+
+  await api.setAccountPrivacy(false)
+  expect((await api.getProfile('author')).follower_count).toBe(0)
+})
+
+test('follow requests page by request-id cursor, unaffected by answering rows', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  await api.setAccountPrivacy(true)
+  for (const name of ['r1', 'r2', 'r3']) {
+    await register(api, name)
+    await api.followUser('author')
+  }
+  await api.login({ username_or_email: 'author', password: 'password123' })
+
+  const first = await api.getFollowRequests()
+  expect(first.map((r) => r.username)).toEqual(['r3', 'r2', 'r1'])
+  await api.approveFollowRequest('r3')
+  const older = await api.getFollowRequests(first[1].request_id)
+  expect(older.map((r) => r.username)).toEqual(['r1'])
+})
+
+test('a request across age bands is refused up front', async () => {
+  const api = new StatefulStubbedAPI()
+  await api.register({
+    username: 'author',
+    email: 'author@example.com',
+    password: 'password123',
+    date_of_birth: '1980-01-01',
+  })
+  await api.setAccountPrivacy(true)
+  await register(api, 'viewer')
+  await api.verifyIdentity(`${new Date().getFullYear() - 16}-01-01`) // viewer is a minor
+
+  await expect(api.followUser('author')).rejects.toThrow('User does not exist')
 })
