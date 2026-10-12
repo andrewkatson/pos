@@ -534,6 +534,23 @@ class AccountPrivacySettingTests(PrivateAccountTestBase):
         self.assertEqual(UserFollow.objects.filter(user_to=self.author).count(), 3)
         self.assertEqual(FollowRequest.objects.filter(user_to=self.author).count(), 2)
 
+    def test_direct_follow_during_a_backlog_drops_the_request(self):
+        """Request, the owner goes public with the backlog still draining, the
+        requester follows directly and then unfollows: the later conversion
+        must not recreate the follow from the leftover request."""
+        from .. import tasks
+        self._follow(self.local_username, self.viewer_header)
+        # Public, but the conversion hasn't reached this request yet.
+        PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(is_private=False)
+
+        self.assertEqual(self._follow(self.local_username, self.viewer_header).status_code, 200)
+        self.assertFalse(FollowRequest.objects.exists())
+        self.client.post(
+            reverse('unfollow_user', kwargs={'username_to_unfollow': self.local_username}), **self.viewer_header)
+        tasks.convert_follow_requests(str(self.author.pk))
+
+        self.assertFalse(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
+
     def test_going_private_keeps_existing_followers(self):
         self._set_private(False, self.author_header)
         self._label(self.viewer, self.author, FOLLOW_CATEGORY_FOLLOWING)

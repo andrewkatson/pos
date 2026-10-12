@@ -4284,6 +4284,11 @@ def follow_user(request, username_to_follow):
         # unique (user_from, user_to) constraint is the real guard: translate the
         # resulting IntegrityError into the same clean "Already following" 400
         # rather than a 500.
+        # A public account can still hold this caller's request while a
+        # going-public backlog drains (issue #96). Drop it under the same locks
+        # before following, or the conversion would later recreate the edge even
+        # after the caller unfollows.
+        FollowRequest.objects.filter(user_from=caller, user_to=user_to_follow_obj).delete()
         try:
             with transaction.atomic():
                 UserFollow.objects.create(user_from=request.user, user_to=user_to_follow_obj, category=category)

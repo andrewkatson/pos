@@ -113,7 +113,9 @@ transaction. If an enqueue fails or a job dies, the 15-minute
 `sweep_classifications` timer re-enqueues any public account that still has
 pending requests. If the owner goes private again part-way, the rest simply stay
 pending; until conversion finishes, requests left on a public account are
-harmless, since following directly works. Only requesters still in the owner's
+harmless, since following directly works — and a direct follow deletes the
+caller's leftover request, so unfollowing later can't be undone by the
+conversion catching up. Only requesters still in the owner's
 age band are approved, checked with their rows locked so a concurrent identity
 verification can't slip past; anyone who has since verified into the other band
 — or whose row is mid-update at that moment — has their request dropped instead,
