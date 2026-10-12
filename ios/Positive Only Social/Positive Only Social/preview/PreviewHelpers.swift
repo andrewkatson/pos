@@ -284,6 +284,9 @@ struct MockedAPI: Networking {
     }
 
     func getTopPosts(sessionManagementToken: String, batch: Int, period: String) async throws -> Data {
+        // One page only: TopPostsViewModel pages past repeat-only pages, so the
+        // same rows on every batch would make a preview request forever.
+        guard batch == 0 else { return try encode([Post]()) }
         let posts = [
             Post(postIdentifier: "7", imageUrl: "https://picsum.photos/400/305", originalImageUrl: nil, caption: "Crowd favorite", authorUsername: "popular_pal")
         ]
