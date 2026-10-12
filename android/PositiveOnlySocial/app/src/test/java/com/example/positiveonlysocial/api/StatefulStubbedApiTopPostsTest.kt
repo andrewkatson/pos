@@ -54,4 +54,20 @@ class StatefulStubbedApiTopPostsTest {
         assertEquals(listOf(adultPost), api.getTopPosts(adultToken, 0, "week").body()!!.map { it.postIdentifier })
         assertEquals(listOf(teenPost), api.getTopPosts(teenToken, 0, "week").body()!!.map { it.postIdentifier })
     }
+
+    @Test
+    fun `top users rank by followers and leave out the unfollowed`() = runTest {
+        val api = StatefulStubbedAPI()
+        register(api, "quiet")
+        register(api, "star")
+        register(api, "rising")
+        val fan1 = register(api, "fan1")
+        api.followUser(fan1, "star")
+        api.followUser(fan1, "rising")
+        val fan2 = register(api, "fan2")
+        api.followUser(fan2, "star")
+
+        val top = api.getTopUsers(fan2, 0).body()!!.map { it.username to it.followerCount }
+        assertEquals(listOf("star" to 2, "rising" to 1), top)
+    }
 }

@@ -13,8 +13,9 @@ changes.
 - [Text formatting](text-formatting.md) — caption fonts and background colors,
   the Text / Image composer, and inline comment formatting.
 - [Hashtags](hashtags.md) — `#tag` parsing and tag feeds.
-- [Top posts scoreboard](top-posts.md) — the Feed tab's Top segment: the
-  most-liked public posts over a day, week, month or year.
+- [Top scoreboards](top-posts.md) — the Feed tab's Top segment: the
+  most-liked public posts over a day, week, month or year, and the
+  most-followed people right now.
 - [Positive interest tags](interest-tags.md) — the interest vocabulary and how
   it personalizes the discovery feed ranking.
 - [Audience, relationships and blocking](audience-and-relationships.md) —

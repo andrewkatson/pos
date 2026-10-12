@@ -60,6 +60,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // The Top posts windows and depth, matching backend/user_system/constants.py.
     private val TOP_POST_PERIOD_DAYS = mapOf("day" to 1, "week" to 7, "month" to 30, "year" to 365)
     private val TOP_POSTS_LIMIT = 100
+    // The most-followed board's batch size and depth, matching the backend.
+    private val TOP_USERS_BATCH_SIZE = 10
+    private val TOP_USERS_LIMIT = 100
 
     /** Mirrors visibility.is_minor: verified and not adult (issue #329). */
     private fun isVerifiedMinor(user: UserMock?): Boolean =
@@ -1516,6 +1519,26 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             .sortedBy { it.username }
             .map { User(it.username, it.isVerified, approvedAvatarFor(it.id), approvedAvatarFor(it.id)) }
         return Response.success(followers)
+    }
+
+    /** Mirrors get_top_users (issue #562): same-age-band, unblocked accounts with
+     * at least one follower, most followers first then by username, capped at
+     * the top 100. Followers are counted within the viewer's age band, as the
+     * profile header counts them; the stub has no ban model, so bans don't apply. */
+    override suspend fun getTopUsers(token: String, batch: Int): Response<List<TopUser>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val viewerIsMinor = isVerifiedMinor(user)
+        val bandIds = users.filter { isVerifiedMinor(it) == viewerIsMinor }.map { it.id }.toSet()
+        val ranked = users
+            .filter { it.id in bandIds && !user.blocked.contains(it.id) && !user.blockedBy.contains(it.id) }
+            .map { it to it.followers.count { followerId -> followerId in bandIds } }
+            .filter { (_, count) -> count > 0 }
+            .sortedWith(compareByDescending<Pair<UserMock, Int>> { it.second }.thenBy { it.first.username })
+            .take(TOP_USERS_LIMIT)
+        val rows = getBatch(ranked, batch, TOP_USERS_BATCH_SIZE).map { (u, count) ->
+            TopUser(u.username, u.isVerified, count, approvedAvatarFor(u.id), approvedAvatarFor(u.id))
+        }
+        return Response.success(rows)
     }
 
     override suspend fun getFollowing(token: String): Response<List<User>> {

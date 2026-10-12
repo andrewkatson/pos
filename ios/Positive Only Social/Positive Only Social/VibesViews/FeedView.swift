@@ -18,6 +18,7 @@ struct FeedView: View {
     @StateObject private var forYouViewModel: FeedViewModel
     @StateObject private var followingViewModel: FollowingFeedViewModel
     @StateObject private var topViewModel: TopPostsViewModel
+    @StateObject private var topUsersViewModel: TopUsersViewModel
     // Powers the like / report / delete controls on each feed row (issue #267).
     @StateObject private var postActions: PostActionsViewModel
 
@@ -32,6 +33,7 @@ struct FeedView: View {
         _forYouViewModel = StateObject(wrappedValue: FeedViewModel(api: api, keychainHelper: keychainHelper))
         _followingViewModel = StateObject(wrappedValue: FollowingFeedViewModel(api: api, keychainHelper: keychainHelper))
         _topViewModel = StateObject(wrappedValue: TopPostsViewModel(api: api, keychainHelper: keychainHelper))
+        _topUsersViewModel = StateObject(wrappedValue: TopUsersViewModel(api: api, keychainHelper: keychainHelper))
         _postActions = StateObject(wrappedValue: PostActionsViewModel(api: api, keychainHelper: keychainHelper))
 
         self.api = api
@@ -58,7 +60,7 @@ struct FeedView: View {
                 case .following:
                     FollowingFeedView(viewModel: followingViewModel, postActions: postActions)
                 case .top:
-                    TopFeedView(viewModel: topViewModel, postActions: postActions)
+                    TopFeedView(viewModel: topViewModel, usersViewModel: topUsersViewModel, postActions: postActions)
                 }
             }
             .navigationTitle("Feed")
@@ -328,25 +330,49 @@ struct FollowingFeedView: View {
 /// The "Top" feed (issue #558): the most-liked public posts across the app over
 /// a chosen period, numbered by rank.
 struct TopFeedView: View {
+    /// What the Top feed ranks: posts by likes over a period (#558), or people
+    /// by followers right now (#562).
+    enum Kind: String, CaseIterable {
+        case posts = "Posts"
+        case people = "People"
+    }
+
     @ObservedObject var viewModel: TopPostsViewModel
+    @ObservedObject var usersViewModel: TopUsersViewModel
     @ObservedObject var postActions: PostActionsViewModel
+    @State private var kind: Kind = .posts
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Period", selection: Binding(
-                get: { viewModel.selectedPeriod },
-                set: { viewModel.selectPeriod($0) }
-            )) {
-                ForEach(TopPostPeriod.allCases) { period in
-                    Text(period.displayName).tag(period)
+            Picker("Top board", selection: $kind) {
+                ForEach(Kind.allCases, id: \.self) { kind in
+                    Text(kind.rawValue).tag(kind)
                 }
             }
             .pickerStyle(.segmented)
             .padding(.horizontal)
             .padding(.top, 8)
-            .accessibilityIdentifier("TopPeriodPicker")
+            .accessibilityIdentifier("TopKindPicker")
 
-            feedScroll
+            switch kind {
+            case .posts:
+                Picker("Period", selection: Binding(
+                    get: { viewModel.selectedPeriod },
+                    set: { viewModel.selectPeriod($0) }
+                )) {
+                    ForEach(TopPostPeriod.allCases) { period in
+                        Text(period.displayName).tag(period)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .accessibilityIdentifier("TopPeriodPicker")
+
+                feedScroll
+            case .people:
+                TopUsersList(viewModel: usersViewModel, currentUsername: postActions.currentUsername)
+            }
         }
     }
 
@@ -433,6 +459,69 @@ struct TopFeedView: View {
         .onAppear {
             if viewModel.topPosts.isEmpty {
                 viewModel.fetchTopPosts()
+            }
+        }
+    }
+}
+
+
+/// The most-followed people board (issue #562), numbered by rank; each row
+/// opens that profile.
+struct TopUsersList: View {
+    @ObservedObject var viewModel: TopUsersViewModel
+    let currentUsername: String?
+
+    var body: some View {
+        List {
+            if viewModel.topUsers.isEmpty && !viewModel.isLoadingNextPage {
+                Text("Nobody to rank yet.").foregroundColor(.gray)
+            }
+            ForEach(Array(viewModel.topUsers.enumerated()), id: \.element.id) { index, row in
+                AuthorNameLink(username: row.user.username, isCurrentUser: row.user.username == currentUsername) {
+                    HStack(spacing: 8) {
+                        Text("#\(index + 1)")
+                            .font(.headline)
+                            .monospacedDigit()
+                            .foregroundStyle(Color.accentColor)
+                            .accessibilityLabel("Rank \(index + 1)")
+                        ProfileAvatarView(
+                            imageUrl: row.user.authorProfileImageUrl,
+                            originalImageUrl: row.user.authorProfileImageOriginalUrl,
+                            blurHash: row.user.authorProfileImageBlurHash,
+                            size: 28
+                        )
+                        Text(row.user.username)
+                        if row.user.identityIsVerified {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundColor(.blue)
+                                .accessibilityLabel("Verified")
+                        }
+                        Spacer()
+                        Text(row.followerCount == 1 ? "1 follower" : "\(row.followerCount.formatted()) followers")
+                            .font(.subheadline)
+                            .monospacedDigit()
+                            .foregroundColor(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .accessibilityIdentifier("TopUser_\(row.user.username)")
+                .onAppear {
+                    if row.id == viewModel.topUsers.last?.id {
+                        viewModel.fetchTopUsers()
+                    }
+                }
+            }
+            if viewModel.isLoadingNextPage {
+                ProgressView().frame(maxWidth: .infinity)
+            }
+        }
+        .listStyle(.plain)
+        .refreshable {
+            await Task { await viewModel.refresh() }.value
+        }
+        .onAppear {
+            if viewModel.topUsers.isEmpty {
+                viewModel.fetchTopUsers()
             }
         }
     }

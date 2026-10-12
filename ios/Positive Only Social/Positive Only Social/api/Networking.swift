@@ -232,6 +232,10 @@ protocol Networking {
     /// so another user's follower list can't be requested (issue #8).
     func getFollowers(sessionManagementToken: String) async throws -> Data
 
+    /// The most-followed people board (issue #562): who has the most followers
+    /// right now, in batches, capped at the top 100.
+    func getTopUsers(sessionManagementToken: String, batch: Int) async throws -> Data
+
     /// Gets the users the signed-in user follows. There is no username
     /// parameter, so another user's following list can't be requested (issue #8).
     func getFollowing(sessionManagementToken: String) async throws -> Data

@@ -10,6 +10,7 @@ vi.mock('../api/client', () => ({
     getFeed: vi.fn(),
     getFollowedFeed: vi.fn(),
     getTopPosts: vi.fn(),
+    getTopUsers: vi.fn(),
     getPostLikers: vi.fn(),
     likePost: vi.fn(),
     unlikePost: vi.fn(),
@@ -27,6 +28,7 @@ import { apiClient } from '../api/client'
 const mockGetFeed = vi.mocked(apiClient.getFeed)
 const mockGetFollowed = vi.mocked(apiClient.getFollowedFeed)
 const mockGetTop = vi.mocked(apiClient.getTopPosts)
+const mockGetTopUsers = vi.mocked(apiClient.getTopUsers)
 const mockLikePost = vi.mocked(apiClient.likePost)
 const mockSavePost = vi.mocked(apiClient.savePost)
 const mockDeletePost = vi.mocked(apiClient.deletePost)
@@ -52,6 +54,7 @@ beforeEach(() => {
   mockGetFeed.mockReset()
   mockGetFollowed.mockReset()
   mockGetTop.mockReset()
+  mockGetTopUsers.mockReset()
   mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockSavePost.mockReset().mockResolvedValue({ message: 'Post saved' })
   mockDeletePost.mockReset().mockResolvedValue({ message: 'ok' })
@@ -313,6 +316,46 @@ test('Load more skips past a Top page of nothing but repeats (#558)', async () =
   // One click reaches page 2's new post instead of stalling on page 1.
   expect(await screen.findByRole('button', { name: 'Open post by author_c' })).toBeInTheDocument()
   expect(mockGetTop).toHaveBeenCalledWith(2, 'week')
+})
+
+test('the People board ranks the most-followed accounts and opens a profile (#562)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([])
+  mockGetTopUsers.mockResolvedValue([
+    { username: 'popular', identity_is_verified: true, follower_count: 1200 },
+    { username: 'ada', identity_is_verified: false, follower_count: 1 },
+  ])
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await userEvent.click(screen.getByRole('tab', { name: 'People' }))
+
+  const first = await screen.findByRole('button', { name: /popular/ })
+  expect(first).toHaveTextContent('#1')
+  expect(first).toHaveTextContent('1,200 followers')
+  expect(screen.getByRole('button', { name: /ada/ })).toHaveTextContent('1 follower')
+  // People has no period: it's who is most followed right now.
+  expect(screen.queryByLabelText('Top posts time period')).not.toBeInTheDocument()
+
+  await userEvent.click(first)
+  expect(screen.getByText('Profile page')).toBeInTheDocument()
+})
+
+test('switching back to Posts shows the post board again (#562)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'best' },
+  ])
+  mockGetTopUsers.mockResolvedValue([])
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await userEvent.click(screen.getByRole('tab', { name: 'People' }))
+  expect(await screen.findByText('Nobody to rank yet.')).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Posts' }))
+  expect(await screen.findByRole('button', { name: 'Open post by ada' })).toBeInTheDocument()
+  expect(screen.getByLabelText('Top posts time period')).toBeInTheDocument()
 })
 
 test('the period picker and ranks are only on the Top feed (#558)', async () => {

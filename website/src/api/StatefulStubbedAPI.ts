@@ -71,6 +71,7 @@ import type {
   SubmitAppealRequest,
   SubmitAppealResponse,
   TopPostPeriod,
+  TopUser,
   TwoFactorSetupResponse,
   AuthorAvatarFields,
   UserSearchResult,
@@ -91,6 +92,9 @@ const LIKE_BATCH_SIZE = 10
 // The Top posts windows and depth, matching backend/user_system/constants.py.
 const TOP_POST_PERIOD_DAYS: Record<TopPostPeriod, number> = { day: 1, week: 7, month: 30, year: 365 }
 const TOP_POSTS_LIMIT = 100
+// The most-followed board's batch size and depth, matching the backend.
+const TOP_USERS_BATCH_SIZE = 10
+const TOP_USERS_LIMIT = 100
 
 // The stub has no clock-based TOTP; this fixed code is the one the stub
 // accepts, mirroring the fixed codes in the iOS/Android stubs.
@@ -1931,6 +1935,28 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         identity_is_verified: u.isVerified,
         ...this.authorAvatarFields(u.id),
       }))
+  }
+
+  /** Mirrors get_top_users (issue #562): same-age-band, unblocked accounts with
+   * at least one follower, most followers first then by username, capped at
+   * TOP_USERS_LIMIT. Followers are counted within the viewer's age band, as the
+   * profile header counts them; the stub has no ban model, so bans don't apply. */
+  async getTopUsers(batch: number): Promise<TopUser[]> {
+    const user = this.requireUser()
+    const viewerIsMinor = user.isVerified && !user.isAdult
+    const inBand = (id: string) => this.isVerifiedMinor(id) === viewerIsMinor
+    const ranked = this.users
+      .filter((u) => inBand(u.id) && !user.blocked.has(u.id) && !user.blockedBy.has(u.id))
+      .map((u) => ({ u, count: [...u.followers].filter(inBand).length }))
+      .filter(({ count }) => count > 0)
+      .sort((a, b) => b.count - a.count || a.u.username.localeCompare(b.u.username))
+      .slice(0, TOP_USERS_LIMIT)
+    return this.batch(ranked, batch, TOP_USERS_BATCH_SIZE).map(({ u, count }) => ({
+      username: u.username,
+      identity_is_verified: u.isVerified,
+      ...this.authorAvatarFields(u.id),
+      follower_count: count,
+    }))
   }
 
   async getFollowing(): Promise<UserSearchResult[]> {

@@ -56,6 +56,7 @@ import type {
   SubmitAppealRequest,
   SubmitAppealResponse,
   TopPostPeriod,
+  TopUser,
   TwoFactorSetupResponse,
   UserSearchResult,
   VerifyEmailRequest,
@@ -235,6 +236,9 @@ export interface PositiveOnlySocialAPI {
   toggleBlock(username: string): Promise<MessageResponse>
   getBlockedUsers(): Promise<UserSearchResult[]>
   getFollowers(): Promise<UserSearchResult[]>
+  /** The most-followed people board (issue #562): who has the most followers
+   * right now, batched and capped at the top 100. */
+  getTopUsers(batch: number): Promise<TopUser[]>
   getFollowing(): Promise<UserSearchResult[]>
   getProfile(username: string): Promise<ProfileDetails>
   /** Set the signed-in user's profile photo to an already-uploaded image

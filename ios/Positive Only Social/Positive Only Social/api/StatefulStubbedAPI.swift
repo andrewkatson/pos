@@ -276,6 +276,7 @@ final class StatefulStubbedAPI: Networking {
     public private(set) var getPostsInFeedCallCount = 0
     public private(set) var getPostsForFollowedUsersCallCount = 0
     public private(set) var getTopPostsCallCount = 0
+    public private(set) var getTopUsersCallCount = 0
     /// The `period` of the most recent getTopPosts call, for asserting the
     /// view model forwards the selected window (issue #558).
     public private(set) var lastTopPostsPeriod: String?
@@ -1858,6 +1859,58 @@ final class StatefulStubbedAPI: Networking {
         }
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
+
+    /// Mirrors get_top_users (issue #562): same-age-band, unblocked accounts with
+    /// at least one follower, most followers first then by username, capped at
+    /// the top 100. Followers are counted within the viewer's age band, as the
+    /// profile header counts them; the stub has no ban model, so bans don't apply.
+    func getTopUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
+        getTopUsersCallCount += 1
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 401)
+        }
+        let viewerIsMinor = isVerifiedMinor(currentUser)
+        let bandIds: Set<UUID> = Set(users.filter { isVerifiedMinor($0) == viewerIsMinor }.map(\.id))
+        var counts: [UUID: Int] = [:]
+        for follow in userFollows where bandIds.contains(follow.userFromId) {
+            counts[follow.userToId, default: 0] += 1
+        }
+        let eligible: [MockUser] = users.filter { user in
+            bandIds.contains(user.id)
+                && !currentUser.blocked.contains(user.id)
+                && !currentUser.blockedBy.contains(user.id)
+                && (counts[user.id] ?? 0) > 0
+        }
+        let sorted: [MockUser] = eligible.sorted { a, b in
+            let countA = counts[a.id] ?? 0
+            let countB = counts[b.id] ?? 0
+            return countA != countB ? countA > countB : a.username < b.username
+        }
+        let ranked: [(MockUser, Int)] = sorted.prefix(Self.topUsersLimit).map { ($0, counts[$0.id] ?? 0) }
+
+        struct Fields: Codable {
+            let username: String
+            let identity_is_verified: Bool
+            let author_profile_image_url: String?
+            let author_profile_image_original_url: String?
+            let follower_count: Int
+        }
+        let startIndex = batch * pageSize
+        guard startIndex < ranked.count else {
+            return try createSerializedListResponse(fieldsList: [Fields]())
+        }
+        let endIndex = min(startIndex + pageSize, ranked.count)
+        let fieldObjects: [Fields] = ranked[startIndex..<endIndex].map { (user: MockUser, count: Int) -> Fields in
+            let avatar = user.profileImageStatus == "approved" ? user.profileImageUrl : nil
+            return Fields(username: user.username, identity_is_verified: user.identityIsVerified,
+                          author_profile_image_url: avatar, author_profile_image_original_url: avatar,
+                          follower_count: count)
+        }
+        return try createSerializedListResponse(fieldsList: fieldObjects)
+    }
+
+    private static let topUsersLimit = 100
 
     func getFollowing(sessionManagementToken: String) async throws -> Data {
         await simulateNetwork()

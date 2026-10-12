@@ -1200,3 +1200,23 @@ test('top posts stay within the viewer\'s age band', async () => {
     teenPost.post_identifier,
   ])
 })
+
+// --- Most-followed board (#562) ----------------------------------------------
+
+test('top users rank by followers and leave out the unfollowed', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'quiet')
+  await register(api, 'star')
+  await register(api, 'rising')
+  await register(api, 'fan1')
+  await api.followUser('star')
+  await api.followUser('rising')
+  await register(api, 'fan2')
+  await api.followUser('star')
+
+  const top = await api.getTopUsers(0)
+  expect(top.map((u) => [u.username, u.follower_count])).toEqual([
+    ['star', 2],
+    ['rising', 1],
+  ])
+})

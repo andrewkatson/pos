@@ -565,6 +565,12 @@ export interface UserSearchResult extends AuthorAvatarFields {
   identity_is_verified: boolean
 }
 
+/** A row of the most-followed people board (issue #562). `follower_count` is
+ * counted the same way as the profile header's, so the two always agree. */
+export interface TopUser extends UserSearchResult {
+  follower_count: number
+}
+
 /**
  * The part of a profile that is about the profile's owner rather than about
  * whoever is looking: what `GET /public/profiles/<username>/details/` serves for

@@ -1,12 +1,20 @@
-# Top posts scoreboard
+# Top scoreboards
 
-The Feed tab has a third segment, **Top**, beside For You and Following
-(issue #558). It is a scoreboard of the most-liked **public** posts across the
-whole app over a period the viewer picks: **Today**, **This week** (the
-default), **This month** or **This year**. Each row is numbered by its rank and
-carries the same author line, caption and action bar as the other feeds.
+The Feed tab has a third segment, **Top**, beside For You and Following. It
+holds two boards, switched with a **Posts / People** toggle:
 
-## Endpoint
+- **Posts** (issue #558): the most-liked **public** posts across the whole app
+  over a period the viewer picks: **Today**, **This week** (the default),
+  **This month** or **This year**. Each row is numbered by its rank and carries
+  the same author line, caption and action bar as the other feeds.
+- **People** (issue #562): the most-followed accounts **right now**, each row
+  numbered by rank with the avatar, username, verified badge and follower
+  count, tapping through to the profile. It has no period picker; most-followed
+  over a period is a follow-up.
+
+## Posts board
+
+### Endpoint
 
 `GET /feed/top/<batch>/?period=day|week|month|year` returns the ranking in the
 usual `POST_BATCH_SIZE` batches with the same per-post payload as the other
@@ -44,7 +52,7 @@ is a 400.
 - **Depth.** The board stops at `TOP_POSTS_LIMIT` (100). Batches past it are
   empty: it is a "top N", not a second endless feed.
 
-## Eligibility
+### Eligibility
 
 - Only `audience = public` posts compete — a scoreboard is a public ranking, so
   a restricted post stays off it even for viewers its audience admits.
@@ -55,7 +63,32 @@ is a 400.
   the board for everyone else, and because of age segregation each age band
   effectively gets its own board (see [Age and identity](age-and-identity.md)).
 
-## Computation
+### Computation
 
 The ranking is computed on the fly per request. Pre-computing each period's
 board on a schedule is tracked in issue #559.
+
+## People board
+
+`GET /users/top/<batch>/` returns the ranking in batches of
+`TOP_USERS_BATCH_SIZE` (10), each row carrying `username`,
+`identity_is_verified`, the author avatar fields and `follower_count`. It stops
+at `TOP_USERS_LIMIT` (100); later batches are empty.
+
+- **Count.** `follower_count` is counted exactly as the profile header counts
+  it (`with_visible_follower_count` in `visibility.py`): followers who are
+  shadow-banned or outside the viewer's age band don't count (issue #398). So
+  the number on the board always matches the profile it opens.
+- **Ranking.** Follower count descending, then username. Like the posts board
+  this is live OFFSET paging, so someone whose count changes between two page
+  requests can repeat or be skipped; the clients drop repeats and page past a
+  page of nothing but repeats, exactly as for posts.
+- **Eligibility.** The user-search rule (`searchable_users`: no shadow-banned or
+  cross-age-band accounts, so each age band gets its own board), the block
+  filters in both directions, no account under an outright ban, and only
+  accounts with at least one counted follower. The viewer can appear on their
+  own board.
+- **Private accounts** (issue #96) must be left off the board entirely, so it
+  can never reveal a follower count their profile hides from non-followers.
+  The private flag lands with the private-accounts change; whichever of the two
+  merges second adds the filter to `get_top_users` (and the client stubs).

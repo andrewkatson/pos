@@ -420,6 +420,19 @@ data class User(
     @SerializedName("author_profile_image_blurhash") val authorProfileImageBlurHash: String? = null
 )
 
+/**
+ * A row of the most-followed people board (issue #562): the usual user fields
+ * plus a follower count that matches the profile header's.
+ */
+data class TopUser(
+    val username: String,
+    @SerializedName("identity_is_verified") val identityIsVerified: Boolean,
+    @SerializedName("follower_count") val followerCount: Int,
+    @SerializedName("author_profile_image_url") val authorProfileImageUrl: String? = null,
+    @SerializedName("author_profile_image_original_url") val authorProfileImageOriginalUrl: String? = null,
+    @SerializedName("author_profile_image_blurhash") val authorProfileImageBlurHash: String? = null
+)
+
 // Renamed from ProfileDto to ProfileDetailsResponse to match Swift
 data class ProfileDetailsResponse(
     val username: String,
