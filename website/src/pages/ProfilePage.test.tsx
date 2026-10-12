@@ -659,3 +659,20 @@ test('unfollowing an account that went private meanwhile fails closed and reload
   expect(await screen.findByText('This account is private')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Post by bob' })).not.toBeInTheDocument()
 })
+
+test('a follow that reveals the account went public shows Following even if the reload fails', async () => {
+  mockGetProfile.mockResolvedValueOnce(privateProfile).mockRejectedValue(new Error('offline'))
+  mockGetPosts.mockResolvedValueOnce([]).mockRejectedValue(new Error('offline'))
+  mockFollow.mockResolvedValue({
+    message: 'User followed',
+    follow_category: 'following',
+    follow_request_pending: false,
+  })
+  renderProfile()
+  await screen.findByText('This account is private')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Follow' }))
+
+  expect(await screen.findByRole('button', { name: 'Following' })).toBeInTheDocument()
+  expect(screen.queryByText('This account is private')).not.toBeInTheDocument()
+})

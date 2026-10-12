@@ -681,6 +681,18 @@ class ProfileViewModel(
                             )
                             _isFollowing.value = false
                             _userPosts.value = emptyList()
+                        } else {
+                            // The account went public and the server just created
+                            // the follow: apply that now, so a failed reload can't
+                            // leave it showing Requested (whose cancel can't work).
+                            _profileDetails.value = currentProfile.copy(
+                                isPrivate = false,
+                                isFollowing = true,
+                                followRequestPending = false,
+                                followCategory = FollowCategory.FOLLOWING.value
+                            )
+                            _isFollowing.value = true
+                            _followCategory.value = FollowCategory.FOLLOWING
                         }
                         refreshProfile(username)
                     }

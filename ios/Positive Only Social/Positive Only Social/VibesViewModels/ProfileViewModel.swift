@@ -545,6 +545,21 @@ class ProfileViewModel: ObservableObject {
                             // cached public grid and counts must not stay on
                             // screen for someone who is now only a requester.
                             applyLockedPendingState()
+                        } else {
+                            // The account went public and the server just
+                            // created the follow: apply that now, so a failed
+                            // reload can't leave the profile locked showing
+                            // Follow for someone who already follows.
+                            followRequestPending = false
+                            isFollowing = true
+                            followCategory = .following
+                            if var details = profileDetails {
+                                details.isPrivate = false
+                                details.isFollowing = true
+                                details.followRequestPending = false
+                                details.followCategory = FollowCategory.following.rawValue
+                                profileDetails = details
+                            }
                         }
                         await refreshProfileDetails()
                         await reloadPostsAuthoritatively()

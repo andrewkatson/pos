@@ -435,6 +435,14 @@ function ProfileView({
               p ? { ...p, is_private: true, post_count: 0, follower_count: 0, following_count: 0 } : p,
             )
             setPosts([])
+          } else {
+            // The account went public and the server just created the follow:
+            // apply that now, so a failed reload can't leave the page locked
+            // with a Follow button that would only get "Already following".
+            setFollowRequestPending(false)
+            setIsFollowing(true)
+            setFollowCategory('following')
+            setProfile(p => (p ? { ...p, is_private: false, follow_category: 'following' } : p))
           }
           refresh()
         } else if (filedRequest) {
