@@ -121,6 +121,7 @@ fun SettingsScreen(
         val currentUser by viewModel.currentUser.collectAsState()
         val notificationPreferences by viewModel.notificationPreferences.collectAsState()
         val savingPreferences by viewModel.savingPreferences.collectAsState()
+        val isSavingPrivacy by viewModel.isSavingPrivacy.collectAsState()
 
         // Interests dialog (issues #446/#35).
         var showingInterests by remember { mutableStateOf(false) }
@@ -551,6 +552,45 @@ fun SettingsScreen(
 
             ListListItem(text = "Blocked Users") {
                 navController.navigate(Screen.BlockedUsers.route)
+            }
+
+            HorizontalDivider()
+
+            // Privacy section (issue #96): the private account switch and the
+            // incoming follow requests it produces.
+            Text(
+                text = "Privacy",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(16.dp)
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Private Account")
+                    Text(
+                        "Only people you approve can see your posts. Your comments keep the audience you pick for each one.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = currentUser?.isPrivate == true,
+                    // Disabled until the setting loads, and while a save is in flight.
+                    enabled = currentUser?.isPrivate != null && !isSavingPrivacy,
+                    onCheckedChange = { viewModel.setAccountPrivacy(it) },
+                    modifier = Modifier.testTag("PrivateAccountSwitch")
+                )
+            }
+
+            HorizontalDivider()
+
+            ListListItem(text = "Follow Requests") {
+                navController.navigate(Screen.FollowRequests.route)
             }
 
             HorizontalDivider()

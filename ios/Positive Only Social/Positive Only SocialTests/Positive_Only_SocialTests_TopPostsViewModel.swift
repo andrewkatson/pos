@@ -232,6 +232,20 @@ struct Positive_Only_SocialTests_TopPostsViewModel {
         #expect(sut.isLoadingNextPage == false)
     }
 
+    @Test func testTopPosts_LeaveOutPrivateAccounts() async throws {
+        stubAPI.pageSize = 10
+        let secretToken = try await registerUserAndGetToken(username: "secret")
+        _ = try await stubAPI.setAccountPrivacy(sessionManagementToken: secretToken, isPrivate: true)
+        _ = try await makePost(token: secretToken, caption: "private")
+        let openToken = try await registerUserAndGetToken(username: "open")
+        let openPost = try await makePost(token: openToken, caption: "public")
+        let viewerToken = try await registerUserAndGetToken(username: "viewer")
+
+        struct Row: Decodable { let post_identifier: String }
+        let data = try await stubAPI.getTopPosts(sessionManagementToken: viewerToken, batch: 0, period: "week")
+        #expect(try JSONDecoder().decode([Row].self, from: data).map(\.post_identifier) == [openPost])
+    }
+
     @Test func testFetchTopPosts_NoSession_LeavesFeedEmpty() async throws {
         let sut = TopPostsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "topNoSession")
 

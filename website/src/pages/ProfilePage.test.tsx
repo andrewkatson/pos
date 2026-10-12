@@ -14,6 +14,7 @@ vi.mock('../api/client', () => ({
     getPublicPostsForUser: vi.fn(),
     followUser: vi.fn(),
     unfollowUser: vi.fn(),
+    cancelFollowRequest: vi.fn(),
     setFollowCategory: vi.fn(),
     toggleBlock: vi.fn(),
     likePost: vi.fn(),
@@ -40,6 +41,7 @@ const mockGetPublicProfile = vi.mocked(apiClient.getPublicProfile)
 const mockGetPublicPosts = vi.mocked(apiClient.getPublicPostsForUser)
 const mockFollow = vi.mocked(apiClient.followUser)
 const mockUnfollow = vi.mocked(apiClient.unfollowUser)
+const mockCancelRequest = vi.mocked(apiClient.cancelFollowRequest)
 const mockSetCategory = vi.mocked(apiClient.setFollowCategory)
 const mockLikePost = vi.mocked(apiClient.likePost)
 const mockUnlikePost = vi.mocked(apiClient.unlikePost)
@@ -78,6 +80,7 @@ beforeEach(() => {
   mockGetPublicPosts.mockReset()
   mockFollow.mockReset().mockResolvedValue({ message: 'ok' })
   mockUnfollow.mockReset().mockResolvedValue({ message: 'ok' })
+  mockCancelRequest.mockReset().mockResolvedValue({ message: 'ok' })
   mockSetCategory.mockReset().mockResolvedValue({ message: 'ok' })
   mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockUnlikePost.mockReset().mockResolvedValue({ message: 'ok' })
@@ -449,4 +452,291 @@ test('Back on a cold-opened shared link goes to the landing page rather than now
   await userEvent.click(screen.getByRole('button', { name: '← Back' }))
 
   expect(screen.getByText('Landing page')).toBeInTheDocument()
+})
+
+// --- Private accounts (issue #96) ------------------------------------------
+
+const privateProfile: ProfileDetails = {
+  ...baseProfile,
+  is_private: true,
+  // The backend zeroes a private account's counts for a non-follower.
+  post_count: 0,
+  follower_count: 0,
+  following_count: 0,
+}
+
+test('a private profile you do not follow hides its stats and grid', async () => {
+  mockGetProfile.mockResolvedValue(privateProfile)
+  renderProfile()
+
+  expect(await screen.findByText('This account is private')).toBeInTheDocument()
+  expect(screen.getByText('Follow bob to see their posts.')).toBeInTheDocument()
+  expect(screen.getByRole('img', { name: 'Private account' })).toBeInTheDocument()
+  expect(screen.queryByText('Followers')).not.toBeInTheDocument()
+  expect(screen.queryByText("bob hasn't posted anything yet.")).not.toBeInTheDocument()
+})
+
+test('following a private account files a request and shows Requested', async () => {
+  mockGetProfile.mockResolvedValue(privateProfile)
+  mockFollow.mockResolvedValue({
+    message: 'Follow requested',
+    follow_category: null,
+    follow_request_pending: true,
+  })
+  renderProfile()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Follow' }))
+
+  await waitFor(() => expect(mockFollow).toHaveBeenCalledWith('bob'))
+  expect(await screen.findByRole('button', { name: 'Requested' })).toBeInTheDocument()
+  // Still locked, and no category control: a request is not a follow.
+  expect(screen.getByText("Once bob approves your request, you'll see their posts.")).toBeInTheDocument()
+  expect(screen.queryByLabelText('Relationship with bob')).not.toBeInTheDocument()
+})
+
+test('tapping Requested cancels the pending request', async () => {
+  mockGetProfile.mockResolvedValue({ ...privateProfile, follow_request_pending: true })
+  renderProfile()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Requested' }))
+
+  await waitFor(() => expect(mockCancelRequest).toHaveBeenCalledWith('bob'))
+  expect(mockUnfollow).not.toHaveBeenCalled()
+  expect(await screen.findByRole('button', { name: 'Follow' })).toBeInTheDocument()
+})
+
+test('an approved follower sees a private profile normally', async () => {
+  mockGetProfile.mockResolvedValue({ ...baseProfile, is_private: true, is_following: true })
+  renderProfile()
+
+  expect(await screen.findByText('10')).toBeInTheDocument()
+  expect(screen.getByRole('img', { name: 'Private account' })).toBeInTheDocument()
+  expect(screen.queryByText('This account is private')).not.toBeInTheDocument()
+})
+
+test('a signed-out visitor sees a private profile header but not its posts', async () => {
+  mockGetPublicProfile.mockResolvedValue({
+    ...publicProfile,
+    is_private: true,
+    post_count: 0,
+    follower_count: 0,
+    following_count: 0,
+  })
+  mockGetPublicPosts.mockResolvedValue([])
+  renderSignedOut()
+
+  expect(await screen.findByText('This account is private')).toBeInTheDocument()
+  expect(screen.getByText('Explorer of small joys.')).toBeInTheDocument()
+  expect(screen.getByText('Only people bob approves can see their posts.')).toBeInTheDocument()
+  expect(screen.queryByText('Followers')).not.toBeInTheDocument()
+})
+
+test('a follow answered with a request on a profile loaded as public reloads it', async () => {
+  // The owner went private after this page loaded: the follow filed a request,
+  // so the cached public grid and counts must be replaced, not just the button.
+  mockFollow.mockResolvedValue({
+    message: 'Follow requested',
+    follow_category: null,
+    follow_request_pending: true,
+  })
+  mockGetProfile
+    .mockResolvedValueOnce(baseProfile)
+    .mockResolvedValue({ ...privateProfile, follow_request_pending: true })
+  renderProfile()
+  await userEvent.click(await screen.findByRole('button', { name: 'Follow' }))
+
+  await waitFor(() => expect(mockGetProfile).toHaveBeenCalledTimes(2))
+  expect(mockGetPosts).toHaveBeenCalledTimes(2)
+  expect(await screen.findByRole('button', { name: 'Requested' })).toBeInTheDocument()
+  expect(screen.getByText('This account is private')).toBeInTheDocument()
+})
+
+test('a cancel that finds the request already answered reloads the profile', async () => {
+  // The owner approved the request while this page was open: cancelling fails,
+  // and the reload shows the viewer as an approved follower.
+  mockGetProfile
+    .mockResolvedValueOnce({ ...privateProfile, follow_request_pending: true })
+    .mockResolvedValue({ ...baseProfile, is_private: true, is_following: true })
+  mockCancelRequest.mockRejectedValue(new Error('No follow request to cancel'))
+  renderProfile()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Requested' }))
+
+  expect(await screen.findByRole('button', { name: 'Following' })).toBeInTheDocument()
+  expect(mockGetPosts).toHaveBeenCalledTimes(2)
+  expect(screen.queryByText('This account is private')).not.toBeInTheDocument()
+})
+
+test('a follow that reveals the account went private fails closed if the reload fails', async () => {
+  mockGetProfile.mockResolvedValueOnce(baseProfile).mockRejectedValue(new Error('offline'))
+  mockGetPosts
+    .mockResolvedValueOnce([
+      { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'bob', caption: 'hi' },
+    ])
+    .mockRejectedValue(new Error('offline'))
+  mockFollow.mockResolvedValue({
+    message: 'Follow requested',
+    follow_category: null,
+    follow_request_pending: true,
+  })
+  renderProfile()
+  await screen.findByRole('button', { name: 'Post by bob' })
+
+  await userEvent.click(screen.getByRole('button', { name: 'Follow' }))
+
+  expect(await screen.findByText('This account is private')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Requested' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Post by bob' })).not.toBeInTheDocument()
+  expect(screen.queryByText('Followers')).not.toBeInTheDocument()
+})
+
+test('a stale manual refresh cannot undo the private state a follow applied', async () => {
+  // Load public, start a manual refresh that stalls, then follow: the account
+  // turned private, so the page fails closed. The stalled refresh then resolves
+  // with the old public profile and grid — it must be ignored.
+  let resolveStaleProfile: (details: ProfileDetails) => void = () => {}
+  let resolveStalePosts: (posts: { post_identifier: string; image_url: string; author_username: string; caption: string }[]) => void = () => {}
+  const publicPost = { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'bob', caption: 'hi' }
+  mockGetProfile
+    .mockResolvedValueOnce(baseProfile)
+    .mockImplementationOnce(() => new Promise(resolve => (resolveStaleProfile = resolve)))
+    .mockResolvedValue({ ...privateProfile, follow_request_pending: true })
+  mockGetPosts
+    .mockResolvedValueOnce([publicPost])
+    .mockImplementationOnce(() => new Promise(resolve => (resolveStalePosts = resolve)))
+    .mockResolvedValue([])
+  mockFollow.mockResolvedValue({
+    message: 'Follow requested',
+    follow_category: null,
+    follow_request_pending: true,
+  })
+  renderProfile()
+  await screen.findByRole('button', { name: 'Post by bob' })
+
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Follow' }))
+  expect(await screen.findByText('This account is private')).toBeInTheDocument()
+
+  resolveStaleProfile(baseProfile)
+  resolveStalePosts([publicPost])
+  await waitFor(() => expect(mockGetProfile).toHaveBeenCalledTimes(3))
+
+  expect(await screen.findByText('This account is private')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Post by bob' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Requested' })).toBeInTheDocument()
+})
+
+test('an older profile load failing after a newer refresh succeeded is ignored', async () => {
+  let rejectFirst: (err: Error) => void = () => {}
+  mockGetProfile
+    .mockImplementationOnce(() => new Promise((_, reject) => (rejectFirst = reject)))
+    .mockResolvedValue(baseProfile)
+  renderProfile()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Refresh' }))
+  expect(await screen.findByText('10')).toBeInTheDocument()
+  rejectFirst(new Error('timeout'))
+
+  await waitFor(() => expect(mockGetProfile).toHaveBeenCalledTimes(2))
+  expect(screen.queryByText("Couldn't load bob's profile.")).not.toBeInTheDocument()
+  expect(screen.getByText('10')).toBeInTheDocument()
+})
+
+test('unfollowing an account that went private meanwhile fails closed and reloads', async () => {
+  // Loaded as a public account we follow; the owner has since gone private, so
+  // unfollowing revokes access even though the cached profile says public.
+  const post = { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'bob', caption: 'hi' }
+  mockGetProfile
+    .mockResolvedValueOnce({ ...baseProfile, is_following: true })
+    .mockResolvedValue(privateProfile)
+  mockGetPosts.mockResolvedValueOnce([post]).mockResolvedValue([])
+  renderProfile()
+  await screen.findByRole('button', { name: 'Post by bob' })
+
+  await userEvent.click(screen.getByRole('button', { name: 'Following' }))
+
+  await waitFor(() => expect(mockUnfollow).toHaveBeenCalledWith('bob'))
+  expect(await screen.findByText('This account is private')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Post by bob' })).not.toBeInTheDocument()
+})
+
+test('a follow that reveals the account went public shows Following even if the reload fails', async () => {
+  mockGetProfile.mockResolvedValueOnce(privateProfile).mockRejectedValue(new Error('offline'))
+  mockGetPosts.mockResolvedValueOnce([]).mockRejectedValue(new Error('offline'))
+  mockFollow.mockResolvedValue({
+    message: 'User followed',
+    follow_category: 'following',
+    follow_request_pending: false,
+  })
+  renderProfile()
+  await screen.findByText('This account is private')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Follow' }))
+
+  expect(await screen.findByRole('button', { name: 'Following' })).toBeInTheDocument()
+  expect(screen.queryByText('This account is private')).not.toBeInTheDocument()
+})
+
+test('a stale profile load landing after a follow request keeps Requested', async () => {
+  let resolveStale: (details: ProfileDetails) => void = () => {}
+  mockGetProfile
+    .mockResolvedValueOnce(privateProfile)
+    .mockImplementationOnce(() => new Promise(resolve => (resolveStale = resolve)))
+  mockGetPosts.mockResolvedValue([])
+  mockFollow.mockResolvedValue({ message: 'Follow requested', follow_category: null, follow_request_pending: true })
+  renderProfile()
+  await screen.findByText('This account is private')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' })) // stalls
+  await userEvent.click(screen.getByRole('button', { name: 'Follow' }))
+  expect(await screen.findByRole('button', { name: 'Requested' })).toBeInTheDocument()
+
+  resolveStale(privateProfile) // the pre-request profile: no pending request
+  await waitFor(() => expect(mockGetProfile).toHaveBeenCalledTimes(2))
+  expect(screen.getByRole('button', { name: 'Requested' })).toBeInTheDocument()
+})
+
+test('following before the profile header loads still loads it', async () => {
+  let resolveFirst: (details: ProfileDetails) => void = () => {}
+  mockGetProfile
+    .mockImplementationOnce(() => new Promise(resolve => (resolveFirst = resolve)))
+    .mockResolvedValue({ ...baseProfile, is_following: true, follower_count: 11 })
+  renderProfile()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Follow' }))
+  resolveFirst(baseProfile) // the superseded first load
+
+  expect(await screen.findByText('11')).toBeInTheDocument()
+  expect(mockGetProfile).toHaveBeenCalledTimes(2)
+})
+
+test('unfollowing hides the counts until a fresh read, and keeps them hidden if it fails', async () => {
+  // The cached profile says public, but the owner may have gone private since:
+  // after the unfollow the counts can't be vouched for until the server says.
+  mockGetProfile
+    .mockResolvedValueOnce({ ...baseProfile, is_following: true })
+    .mockRejectedValue(new Error('offline'))
+  mockGetPosts.mockResolvedValueOnce([]).mockRejectedValue(new Error('offline'))
+  renderProfile()
+  expect(await screen.findByText('Followers')).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Following' }))
+
+  await waitFor(() => expect(mockUnfollow).toHaveBeenCalledWith('bob'))
+  await waitFor(() => expect(mockGetProfile).toHaveBeenCalledTimes(2))
+  expect(screen.queryByText('Followers')).not.toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: 'Follow' })).toBeInTheDocument()
+})
+
+test('the counts return once the reload after an unfollow succeeds', async () => {
+  mockGetProfile
+    .mockResolvedValueOnce({ ...baseProfile, is_following: true })
+    .mockResolvedValue({ ...baseProfile, follower_count: 9 })
+  renderProfile()
+  expect(await screen.findByText('Followers')).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Following' }))
+
+  expect(await screen.findByText('9')).toBeInTheDocument()
+  expect(screen.getByText('Followers')).toBeInTheDocument()
 })

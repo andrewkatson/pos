@@ -8,6 +8,10 @@ email** under a "Contact Information" heading, backed by `GET /me/` (scoped to
 separate "Contact Us" entry lists the support address `katsonsoftware@gmail.com`
 for feedback and help (issues #194/#197).
 
+A "Privacy" section holds the **Private Account** switch and the **Follow
+Requests** list (issue #96); see
+[private accounts](audience-and-relationships.md#private-accounts-issue-96).
+
 Users can also **change their password** from Settings via
 `POST /password/change/` (issue #197). Unlike the reset flow, this requires an
 authenticated session *and* the current password — a stolen session alone

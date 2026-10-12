@@ -44,6 +44,9 @@ served only when it is:
   an anonymous visitor is on nobody's follow list;
 - by an author who is **not shadow banned** (an outright ban stops the account
   from acting but is not a content takedown, so their approved posts stay up);
+- by an author whose account is **not private** — an anonymous visitor follows
+  nobody, so a [private account](audience-and-relationships.md#private-accounts-issue-96)'s
+  posts are never public;
 - by an author who is **not a verified minor** — an anonymous visitor's age is
   unknown, which puts them in the adult band, and the two bands are mutually
   invisible (see [Age and identity](age-and-identity.md)). A minor's post is
@@ -77,6 +80,10 @@ follower/following counts exclude accounts that are themselves not public
 Nothing per-viewer is served — no follow or block state — and none of the
 owner-only photo-review fields: the owner's own browser on the public page sees
 what a stranger would.
+
+A **private** account still shares its header — avatar, join number, bio — and
+reports `is_private: true`, but its counts are zeroed and its grid is empty, so
+the page shows a "this account is private" note instead (issue #96).
 
 An account that is not public is reported as **404, identical to a username
 that was never registered**, so the endpoints cannot confirm a shadow ban or

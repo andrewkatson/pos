@@ -48,6 +48,8 @@ is a 400.
 
 - Only `audience = public` posts compete — a scoreboard is a public ranking, so
   a restricted post stays off it even for viewers its audience admits.
+- Posts by private accounts (issue #96) never compete either, even for the
+  approved followers who can otherwise see them, for the same reason.
 - Only classifier-approved posts compete, the viewer's own included: an author
   never sees their own pending or rejected post ranked.
 - Everything else is the standard listing rule — `visible_posts` plus the block

@@ -126,8 +126,12 @@ export interface LoginWithRememberMeResponse {
 
 export interface MessageResponse {
   message: string
-  /** Echoed by the follow / set-category endpoints (issue #392). */
-  follow_category?: FollowCategory
+  /** Echoed by the follow / set-category endpoints (issue #392). Null when a
+   * follow call filed a request instead (issue #96). */
+  follow_category?: FollowCategory | null
+  /** Echoed by the follow endpoint (issue #96): true when the target is a
+   * private account, so the call filed a follow request rather than following. */
+  follow_request_pending?: boolean
 }
 
 /** Register (or refresh) this browser's Web-push token (issues #342/#343).
@@ -190,6 +194,8 @@ export interface ResetPasswordRequest {
 export interface CurrentUser {
   username: string
   email: string
+  /** Whether the account is private (issue #96). Absent on older backends. */
+  is_private?: boolean
 }
 
 export interface ChangePasswordRequest {
@@ -565,6 +571,12 @@ export interface UserSearchResult extends AuthorAvatarFields {
   identity_is_verified: boolean
 }
 
+/** One incoming follow request (issue #96): the requester plus the request's
+ * id, which is the keyset cursor for the next page (`?after=<request_id>`). */
+export interface FollowRequestRow extends UserSearchResult {
+  request_id: number
+}
+
 /**
  * The part of a profile that is about the profile's owner rather than about
  * whoever is looking: what `GET /public/profiles/<username>/details/` serves for
@@ -593,6 +605,10 @@ export interface PublicProfileDetails {
   /** The user's free-text bio (#380), already moderated on write and shown to
    * everyone. Empty string when they have not set one. */
   bio: string
+  /** Private account (issue #96): only approved followers see its posts and
+   * counts. The counts above are zeroed for anyone else, so clients hide them
+   * rather than show zeros. Absent on older backends (treated as public). */
+  is_private?: boolean
 }
 
 export interface ProfileDetails extends PublicProfileDetails {
@@ -601,6 +617,11 @@ export interface ProfileDetails extends PublicProfileDetails {
    * not following. Absent on older backends. */
   follow_category?: FollowCategory | null
   is_blocked: boolean
+  /** The viewer has asked to follow this private account and is waiting on
+   * an answer (issue #96). Absent on older backends. */
+  follow_request_pending?: boolean
+  /** Owner-only: incoming follow requests awaiting a decision (issue #96). */
+  follow_request_count?: number
   is_adult: boolean
   /** Owner-only: the moderation state of a photo still under review (or the
    * last rejected upload). Present only when viewing your own profile, so your

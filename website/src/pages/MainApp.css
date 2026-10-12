@@ -529,6 +529,30 @@
   overflow-wrap: anywhere;
 }
 
+/* Lock beside a private account's name (issue #96). */
+.profile-private-badge {
+  margin-left: 0.35rem;
+  font-size: 0.95rem;
+}
+
+/* The owner's "Follow requests (n)" entry on a private profile (issue #96). */
+.profile-follow-requests {
+  display: block;
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+/* Stands in for the grid on a private profile the viewer doesn't follow. */
+.profile-locked {
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.profile-locked__title {
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
 /* The profile's options (Share) button (issue #510), sitting at the right end
    of the identity row like the post menus sit at the end of their rows. */
 .profile-menu-button {
@@ -966,6 +990,12 @@
 .settings-row__value {
   color: #5ba4dc;
   font-weight: 600;
+}
+
+/* Explanatory line under a settings row (the Private account toggle, #96). */
+.settings-row__hint {
+  font-size: 0.85rem;
+  margin: 0 0.25rem;
 }
 
 /* ---- Anchored menu (the three-dots options menus, issue #477) ---- */
