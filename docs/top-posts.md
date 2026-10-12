@@ -56,6 +56,8 @@ is a 400.
 
 - Only `audience = public` posts compete — a scoreboard is a public ranking, so
   a restricted post stays off it even for viewers its audience admits.
+- Posts by private accounts (issue #96) never compete either, even for the
+  approved followers who can otherwise see them, for the same reason.
 - Only classifier-approved posts compete, the viewer's own included: an author
   never sees their own pending or rejected post ranked.
 - Everything else is the standard listing rule — `visible_posts` plus the block
@@ -87,8 +89,6 @@ at `TOP_USERS_LIMIT` (100); later batches are empty.
   cross-age-band accounts, so each age band gets its own board), the block
   filters in both directions, no account under an outright ban, and only
   accounts with at least one counted follower. The viewer can appear on their
-  own board.
-- **Private accounts** (issue #96) must be left off the board entirely, so it
-  can never reveal a follower count their profile hides from non-followers.
-  The private flag lands with the private-accounts change; whichever of the two
-  merges second adds the filter to `get_top_users` (and the client stubs).
+  own board unless their account is private.
+- **Private accounts** (issue #96) are left off the board entirely, so it can
+  never reveal a follower count their profile hides from non-followers.

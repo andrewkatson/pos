@@ -110,6 +110,35 @@ class UserFollow(models.Model):
         ]
 
 
+# A pending request to follow a private account (issue #96). Kept apart from
+# UserFollow on purpose: every audience/visibility join reads UserFollow, so a
+# pending request must never look like a follow edge to any of them. Approving
+# the request turns it into a UserFollow carrying the category the requester
+# asked for; denying or cancelling just deletes it.
+class FollowRequest(models.Model):
+    user_from = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='follow_requests_sent',
+                                  on_delete=models.CASCADE)
+    user_to = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='follow_requests_received',
+                                on_delete=models.CASCADE)
+    # The relationship category the requester picked when asking (follow_user
+    # accepts one), applied to the follow edge once the request is approved.
+    category = models.CharField(max_length=16, choices=FOLLOW_CATEGORY_CHOICES,
+                                default=FOLLOW_CATEGORY_FOLLOWING)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = 'user_system'
+        constraints = [
+            models.UniqueConstraint(fields=['user_from', 'user_to'], name='unique_follow_requests')
+        ]
+        # Serves the owner's keyset-paginated request list
+        # (WHERE user_to = ? AND id < ? ORDER BY id DESC LIMIT n) straight off the
+        # index, so a page costs the same however large the backlog.
+        indexes = [
+            models.Index(fields=['user_to', '-id'], name='follow_request_owner_idx'),
+        ]
+
+
 # The model to explicitly define the "block" relationship
 class UserBlock(models.Model):
     user_blocker = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='blocking_set', on_delete=models.CASCADE)
@@ -196,6 +225,11 @@ class PositiveOnlySocialUser(AbstractUser):
     # there is no pending/approved lifecycle: a bio that fails the positivity
     # check is simply rejected and never stored. Empty string means "no bio".
     bio = models.TextField(default="", blank=True)
+
+    # Private account (issue #96). A private account's posts are visible only to
+    # its approved followers (and itself), and following it takes a request the
+    # owner approves. Comments are unaffected — each carries its own audience.
+    is_private = models.BooleanField(default=False)
 
     # Google sign-in (issue #10). The `sub` claim from a Google ID token: the
     # stable, per-account identifier Google guarantees is never reused and never

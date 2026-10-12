@@ -387,6 +387,15 @@ class Fields:
     # The viewer's relationship category for a profile user (null when not
     # following), and the group/audience selectors introduced in issue #392.
     follow_category = "follow_category"
+    # Private accounts (issue #96): whether a profile is private, whether the
+    # viewer has a follow request pending on it, and (owner-only) how many
+    # incoming requests are waiting for a decision.
+    is_private = "is_private"
+    follow_request_pending = "follow_request_pending"
+    follow_request_count = "follow_request_count"
+    # Each incoming follow request row's id, the keyset cursor for paging the
+    # list (`?after=<request_id>` returns older requests).
+    request_id = "request_id"
     category = "category"
     # Time window for the Top posts scoreboard (issue #558): one of TOP_POST_PERIODS.
     period = "period"
@@ -482,6 +491,9 @@ COMMENT_THREAD_BATCH_SIZE = 10
 # because a liker row is a single line of text and an avatar, so a scroll
 # through them costs far less than a screen of images.
 LIKE_BATCH_SIZE = 30
+# Incoming follow requests per page (issue #96): a popular private account can
+# accumulate an unbounded backlog, so the list is paginated like likers.
+FOLLOW_REQUEST_BATCH_SIZE = 30
 
 # Top posts scoreboard (issue #558): the selectable windows, as rolling
 # lookbacks in days from now, and how deep the ranking goes. Batches past

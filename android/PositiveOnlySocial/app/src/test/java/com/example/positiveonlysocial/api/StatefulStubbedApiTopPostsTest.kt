@@ -4,6 +4,7 @@ import com.example.positiveonlysocial.data.model.CreatePostRequest
 import com.example.positiveonlysocial.data.model.IdentityVerificationRequest
 import com.example.positiveonlysocial.data.model.PostAudience
 import com.example.positiveonlysocial.data.model.RegisterRequest
+import com.example.positiveonlysocial.data.model.SetAccountPrivacyRequest
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -69,5 +70,32 @@ class StatefulStubbedApiTopPostsTest {
 
         val top = api.getTopUsers(fan2, 0).body()!!.map { it.username to it.followerCount }
         assertEquals(listOf("star" to 2, "rising" to 1), top)
+    }
+
+    @Test
+    fun `top posts leave out private accounts`() = runTest {
+        val api = StatefulStubbedAPI()
+        val secretToken = register(api, "secret")
+        api.setAccountPrivacy(secretToken, SetAccountPrivacyRequest(true))
+        api.makePost(secretToken, CreatePostRequest(imageUrl = "s.jpg", caption = "private"))
+        val openToken = register(api, "open")
+        val openPost = api.makePost(openToken, CreatePostRequest(imageUrl = "o.jpg", caption = "public")).body()!!.postIdentifier
+
+        val viewerToken = register(api, "viewer")
+        assertEquals(listOf(openPost), api.getTopPosts(viewerToken, 0, "week").body()!!.map { it.postIdentifier })
+    }
+
+    @Test
+    fun `top users leave out private accounts`() = runTest {
+        val api = StatefulStubbedAPI()
+        val secretToken = register(api, "secret")
+        api.setAccountPrivacy(secretToken, SetAccountPrivacyRequest(true))
+        register(api, "open")
+        val fanToken = register(api, "fan")
+        api.followUser(fanToken, "open")
+        api.followUser(fanToken, "secret")
+        api.approveFollowRequest(secretToken, "fan")
+
+        assertEquals(listOf("open"), api.getTopUsers(fanToken, 0).body()!!.map { it.username })
     }
 }

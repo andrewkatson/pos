@@ -1,0 +1,951 @@
+import json
+from unittest.mock import patch
+
+from django.urls import reverse
+
+from .test_relationship_categories import RelationshipCategoryTestBase, POSITIVE_CAPTION
+from ..constants import (
+    BAN_TYPE_SHADOW,
+    Fields,
+    FOLLOW_CATEGORY_FAMILY,
+    FOLLOW_CATEGORY_FOLLOWING,
+    FOLLOW_CATEGORY_FRIEND,
+    POST_AUDIENCE_FRIENDS,
+    POST_AUDIENCE_PUBLIC,
+)
+from ..models import FollowRequest, PositiveOnlySocialUser, Tag, UserBan, UserFollow
+from ..visibility import PUBLIC_VIEWER, can_view_post, privacy_admits, visible_comments, visible_posts
+from ..visibility import in_same_age_band as real_in_same_age_band
+
+
+class PrivateAccountTestBase(RelationshipCategoryTestBase):
+    """A private author (A) and a viewer (B) who does not follow them, plus
+    helpers to drive the follow-request endpoints (issue #96)."""
+
+    def setUp(self):
+        super().setUp()
+        self.author.is_private = True
+        self.author.save(update_fields=['is_private'])
+
+    def _follow(self, username, header, category=None):
+        url = reverse('follow_user', kwargs={'username_to_follow': username})
+        if category is None:
+            return self.client.post(url, **header)
+        return self.client.post(
+            url, data=json.dumps({Fields.category: category}),
+            content_type='application/json', **header)
+
+    def _request_action(self, action, username, header):
+        url = reverse(f'{action}_follow_request', kwargs={'username': username})
+        return self.client.post(url, **header)
+
+    def _set_private(self, is_private, header):
+        return self.client.post(
+            reverse('set_account_privacy'), data=json.dumps({Fields.is_private: is_private}),
+            content_type='application/json', **header)
+
+    def _profile(self, username, header):
+        return self.client.get(
+            reverse('get_profile_details', kwargs={'username': username}), **header).json()
+
+    def _profile_post_ids(self, username, header):
+        url = reverse('get_posts_for_user', kwargs={'username': username, 'batch': 0})
+        return {p[Fields.post_identifier] for p in self.client.get(url, **header).json()}
+
+
+class FollowPrivateAccountTests(PrivateAccountTestBase):
+
+    def test_following_private_account_files_request_not_edge(self):
+        response = self._follow(self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body[Fields.follow_request_pending])
+        self.assertIsNone(body[Fields.follow_category])
+        self.assertFalse(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
+        self.assertTrue(FollowRequest.objects.filter(user_from=self.viewer, user_to=self.author).exists())
+
+    def test_following_public_account_is_unchanged(self):
+        response = self._follow(self.viewer_username, self.author_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()[Fields.follow_request_pending])
+        self.assertTrue(UserFollow.objects.filter(user_from=self.author, user_to=self.viewer).exists())
+        self.assertFalse(FollowRequest.objects.exists())
+
+    def test_duplicate_request_rejected(self):
+        self._follow(self.local_username, self.viewer_header)
+        response = self._follow(self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "Follow already requested")
+        self.assertEqual(FollowRequest.objects.count(), 1)
+
+    def test_request_from_blocked_user_looks_like_missing_account(self):
+        self.author.blocked.add(self.viewer)
+
+        response = self._follow(self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "User does not exist")
+        self.assertFalse(FollowRequest.objects.exists())
+
+    def test_decision_uses_fresh_privacy_not_the_stale_lookup(self):
+        """The follow-vs-request decision re-reads the target under a row lock
+        in the write's transaction, so an account that went private after the
+        view first looked it up still gets a request, not an unapproved follow."""
+        stale = PositiveOnlySocialUser.objects.get(pk=self.author.pk)
+        stale.is_private = False
+
+        with patch('user_system.views.get_user_with_username', return_value=stale):
+            response = self._follow(self.local_username, self.viewer_header)
+
+        self.assertTrue(response.json()[Fields.follow_request_pending])
+        self.assertFalse(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
+        self.assertTrue(FollowRequest.objects.filter(user_from=self.viewer, user_to=self.author).exists())
+
+    def test_age_band_rechecked_on_the_locked_row(self):
+        """The target verified as a minor after the view's first lookup: the
+        locked re-read sees it and refuses the follow, like a missing account."""
+        stale = PositiveOnlySocialUser.objects.get(pk=self.author.pk)
+        self.author.identity_is_verified = True
+        self.author.is_adult = False
+        self.author.save(update_fields=['identity_is_verified', 'is_adult'])
+
+        with patch('user_system.views.get_user_with_username', return_value=stale):
+            response = self._follow(self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "User does not exist")
+        self.assertFalse(FollowRequest.objects.exists())
+        self.assertFalse(UserFollow.objects.exists())
+
+    def test_request_to_an_account_you_blocked_is_refused(self):
+        self.viewer.blocked.add(self.author)
+
+        response = self._follow(self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "User does not exist")
+        self.assertFalse(FollowRequest.objects.exists())
+
+    def test_existing_follower_is_already_following(self):
+        self._label(self.viewer, self.author, FOLLOW_CATEGORY_FOLLOWING)
+
+        response = self._follow(self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "Already following user")
+        self.assertFalse(FollowRequest.objects.exists())
+
+
+class FollowRequestDecisionTests(PrivateAccountTestBase):
+
+    def test_approve_creates_edge_with_requested_category(self):
+        self._follow(self.local_username, self.viewer_header, category=FOLLOW_CATEGORY_FAMILY)
+
+        response = self._request_action('approve', self.viewer_username, self.author_header)
+
+        self.assertEqual(response.status_code, 200)
+        edge = UserFollow.objects.get(user_from=self.viewer, user_to=self.author)
+        self.assertEqual(edge.category, FOLLOW_CATEGORY_FAMILY)
+        self.assertFalse(FollowRequest.objects.exists())
+
+    def test_block_before_approval_leaves_nothing_to_approve(self):
+        self._follow(self.local_username, self.viewer_header)
+        self.client.post(
+            reverse('toggle_block', kwargs={'username_to_toggle_block': self.viewer_username}),
+            **self.author_header)
+
+        response = self._request_action('approve', self.viewer_username, self.author_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "No follow request from user")
+        self.assertFalse(UserFollow.objects.exists())
+
+    def test_approve_without_request_fails(self):
+        response = self._request_action('approve', self.viewer_username, self.author_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "No follow request from user")
+        self.assertFalse(UserFollow.objects.exists())
+
+    def test_requester_cannot_approve_own_request(self):
+        """Approval acts on requests *to* the caller, so the requester naming the
+        private account finds nothing to approve."""
+        self._follow(self.local_username, self.viewer_header)
+
+        response = self._request_action('approve', self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(UserFollow.objects.exists())
+        self.assertTrue(FollowRequest.objects.exists())
+
+    def test_deny_drops_request_without_edge(self):
+        self._follow(self.local_username, self.viewer_header)
+
+        response = self._request_action('deny', self.viewer_username, self.author_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(FollowRequest.objects.exists())
+        self.assertFalse(UserFollow.objects.exists())
+        # The requester may ask again.
+        self.assertEqual(self._follow(self.local_username, self.viewer_header).status_code, 200)
+
+    def test_cancel_withdraws_own_request(self):
+        self._follow(self.local_username, self.viewer_header)
+
+        response = self._request_action('cancel', self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(FollowRequest.objects.exists())
+
+    def test_cancel_still_works_after_a_band_change(self):
+        """A requester who verified into the other band can still withdraw
+        their request; the owner can no longer see or answer it."""
+        self._follow(self.local_username, self.viewer_header)
+        self.viewer.identity_is_verified = True
+        self.viewer.is_adult = False
+        self.viewer.save(update_fields=['identity_is_verified', 'is_adult'])
+
+        response = self._request_action('cancel', self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(FollowRequest.objects.exists())
+
+    def test_cancel_with_no_request_to_a_cross_band_account_reads_as_missing(self):
+        self.viewer.identity_is_verified = True
+        self.viewer.is_adult = False
+        self.viewer.save(update_fields=['identity_is_verified', 'is_adult'])
+
+        response = self._request_action('cancel', self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "User does not exist")
+
+    def test_caller_band_rechecked_on_a_fresh_read(self):
+        """The caller verified as a minor after authentication loaded them: the
+        locked re-read of the caller refuses a request to the adult account."""
+        self.author.identity_is_verified = True
+        self.author.is_adult = True
+        self.author.save(update_fields=['identity_is_verified', 'is_adult'])
+        stale_caller = PositiveOnlySocialUser.objects.get(pk=self.viewer.pk)
+        self.viewer.identity_is_verified = True
+        self.viewer.is_adult = False
+        self.viewer.save(update_fields=['identity_is_verified', 'is_adult'])
+
+        calls = []
+
+        def first_check_sees_stale_caller(a, b):
+            # Only the pre-lock check sees the caller as loaded before verifying.
+            calls.append(a)
+            return real_in_same_age_band(stale_caller if len(calls) == 1 else a, b)
+
+        with patch('user_system.views.in_same_age_band', side_effect=first_check_sees_stale_caller):
+            response = self._follow(self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "User does not exist")
+        self.assertFalse(FollowRequest.objects.exists())
+
+    def test_cancel_band_decision_reads_the_locked_rows(self):
+        """Both accounts verify into different bands while the cancel waits for
+        its locks: the decision uses the fresh rows, so the now cross-band
+        account reads as missing rather than confirming it exists."""
+        from .. import views
+        real_lock_users = views._lock_users
+
+        def verify_while_waiting(*users):
+            PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(
+                identity_is_verified=True, is_adult=True)
+            PositiveOnlySocialUser.objects.filter(pk=self.viewer.pk).update(
+                identity_is_verified=True, is_adult=False)
+            real_lock_users(*users)
+
+        with patch('user_system.views._lock_users', side_effect=verify_while_waiting):
+            response = self._request_action('cancel', self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "User does not exist")
+
+    def test_cancel_without_request_fails(self):
+        response = self._request_action('cancel', self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "No follow request to cancel")
+
+    def test_decision_endpoints_require_auth(self):
+        bad = {'HTTP_AUTHORIZATION': 'Bearer notarealtoken'}
+        for action in ('approve', 'deny', 'cancel'):
+            self.assertEqual(self._request_action(action, self.viewer_username, bad).status_code, 401)
+        self.assertEqual(self.client.get(reverse('get_follow_requests'), **bad).status_code, 401)
+
+
+class FollowRequestListTests(PrivateAccountTestBase):
+
+    def _list(self, header):
+        response = self.client.get(reverse('get_follow_requests'), **header)
+        self.assertEqual(response.status_code, 200)
+        return [row[Fields.username] for row in response.json()]
+
+    def test_lists_incoming_requests_newest_first(self):
+        other = self.make_user_with_prefix(prefix='other')
+        other_header = {'HTTP_AUTHORIZATION': f'Bearer {other[Fields.session_management_token]}'}
+        self._follow(self.local_username, self.viewer_header)
+        self._follow(self.local_username, other_header)
+
+        self.assertEqual(self._list(self.author_header), [other[Fields.username], self.viewer_username])
+
+    def test_requester_does_not_see_outgoing_requests_in_list(self):
+        self._follow(self.local_username, self.viewer_header)
+
+        self.assertEqual(self._list(self.viewer_header), [])
+
+    def test_unrelated_requests_do_not_duplicate_rows(self):
+        """A requester who has also asked to follow other private accounts is
+        listed once, not once per request they ever sent."""
+        second = PositiveOnlySocialUser.objects.get(
+            username=self.make_user_with_prefix(prefix='second')[Fields.username])
+        second.is_private = True
+        second.save(update_fields=['is_private'])
+        self._follow(second.username, self.viewer_header)
+        self._follow(self.local_username, self.viewer_header)
+
+        self.assertEqual(self._list(self.author_header), [self.viewer_username])
+
+    def test_list_is_keyset_paginated(self):
+        for i in range(3):
+            fan = self.make_user_with_prefix(prefix=f'pager{i}')
+            self._follow(self.local_username,
+                         {'HTTP_AUTHORIZATION': f'Bearer {fan[Fields.session_management_token]}'})
+        url = reverse('get_follow_requests')
+
+        with patch('user_system.views.FOLLOW_REQUEST_BATCH_SIZE', 2):
+            first = self.client.get(url, **self.author_header).json()
+            # Answer a row from the first page before fetching the next one: a
+            # cursor is unaffected, where an offset would now skip a request.
+            self._request_action('approve', first[0][Fields.username], self.author_header)
+            second = self.client.get(url, {'after': first[-1][Fields.request_id]}, **self.author_header).json()
+            third = self.client.get(url, {'after': second[-1][Fields.request_id]}, **self.author_header).json()
+
+        self.assertEqual(len(first), 2)
+        self.assertEqual(len(second), 1)
+        self.assertEqual(third, [])
+        self.assertEqual(len({row[Fields.username] for row in first + second}), 3)
+        self.assertEqual(self.client.get(url, {'after': 'x'}, **self.author_header).status_code, 400)
+
+    def test_shadow_banned_requester_hidden_from_list_and_count(self):
+        self._follow(self.local_username, self.viewer_header)
+        UserBan.objects.create(user=self.viewer, ban_type=BAN_TYPE_SHADOW)
+
+        self.assertEqual(self._list(self.author_header), [])
+        self.assertEqual(self._profile(self.local_username, self.author_header)[Fields.follow_request_count], 0)
+
+    def test_owner_profile_carries_request_count(self):
+        self._follow(self.local_username, self.viewer_header)
+
+        self.assertEqual(self._profile(self.local_username, self.author_header)[Fields.follow_request_count], 1)
+        # Never exposed on someone else's profile.
+        self.assertNotIn(Fields.follow_request_count, self._profile(self.local_username, self.viewer_header))
+
+
+class AccountPrivacySettingTests(PrivateAccountTestBase):
+
+    def test_set_private_round_trips_through_me(self):
+        response = self._set_private(False, self.author_header)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()[Fields.is_private])
+        me = self.client.get(reverse('get_current_user'), **self.author_header).json()
+        self.assertFalse(me[Fields.is_private])
+
+        self._set_private(True, self.author_header)
+        me = self.client.get(reverse('get_current_user'), **self.author_header).json()
+        self.assertTrue(me[Fields.is_private])
+
+    def test_non_boolean_rejected(self):
+        for bad in ("true", 1, None):
+            response = self.client.post(
+                reverse('set_account_privacy'), data=json.dumps({Fields.is_private: bad}),
+                content_type='application/json', **self.author_header)
+            self.assertEqual(response.status_code, 400)
+        self.author.refresh_from_db()
+        self.assertTrue(self.author.is_private)
+
+    def test_going_public_approves_pending_requests(self):
+        self._follow(self.local_username, self.viewer_header, category=FOLLOW_CATEGORY_FRIEND)
+
+        self._set_private(False, self.author_header)
+
+        edge = UserFollow.objects.get(user_from=self.viewer, user_to=self.author)
+        self.assertEqual(edge.category, FOLLOW_CATEGORY_FRIEND)
+        self.assertFalse(FollowRequest.objects.exists())
+
+    def test_going_public_converts_requests_in_constant_queries(self):
+        """The conversion is bulk: the query count doesn't grow with the number
+        of pending requests, and each keeps its requested category."""
+        categories = [FOLLOW_CATEGORY_FOLLOWING, FOLLOW_CATEGORY_FRIEND, FOLLOW_CATEGORY_FAMILY]
+        requesters = []
+        for i, category in enumerate(categories * 3):
+            requester = PositiveOnlySocialUser.objects.get(
+                username=self.make_user_with_prefix(prefix=f'fan{i}')[Fields.username])
+            FollowRequest.objects.create(user_from=requester, user_to=self.author, category=category)
+            requesters.append((requester, category))
+        # One requester already follows (e.g. from before the account went
+        # private); the conversion keeps that edge rather than failing.
+        UserFollow.objects.create(user_from=requesters[0][0], user_to=self.author,
+                                  category=FOLLOW_CATEGORY_FAMILY)
+
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        with CaptureQueriesContext(connection) as queries:
+            self._set_private(False, self.author_header)
+        many = len(queries)
+
+        for requester, category in requesters[1:]:
+            self.assertEqual(
+                UserFollow.objects.get(user_from=requester, user_to=self.author).category, category)
+        self.assertEqual(
+            UserFollow.objects.get(user_from=requesters[0][0], user_to=self.author).category,
+            FOLLOW_CATEGORY_FAMILY)
+        self.assertFalse(FollowRequest.objects.exists())
+
+        # The same toggle with a single pending request costs the same.
+        self._set_private(True, self.author_header)
+        lone = PositiveOnlySocialUser.objects.get(
+            username=self.make_user_with_prefix(prefix='lone')[Fields.username])
+        FollowRequest.objects.create(user_from=lone, user_to=self.author)
+        with CaptureQueriesContext(connection) as queries:
+            self._set_private(False, self.author_header)
+        self.assertEqual(len(queries), many)
+
+    def test_going_public_skips_requesters_now_in_the_other_age_band(self):
+        """Request, then the requester verifies as a minor, then the adult owner
+        goes public: no cross-band follow is created, and the stale request is
+        dropped rather than left pending."""
+        self.author.identity_is_verified = True
+        self.author.is_adult = True
+        self.author.save(update_fields=['identity_is_verified', 'is_adult'])
+        self._follow(self.local_username, self.viewer_header)
+        self.viewer.identity_is_verified = True
+        self.viewer.is_adult = False
+        self.viewer.save(update_fields=['identity_is_verified', 'is_adult'])
+
+        self._set_private(False, self.author_header)
+
+        self.assertFalse(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
+        self.assertFalse(FollowRequest.objects.exists())
+
+    def test_going_public_converts_first_chunk_inline_and_queues_the_rest(self):
+        """With a queue configured, going public converts one chunk before
+        returning and leaves the rest of the backlog to a background job."""
+        for i in range(3):
+            fan = PositiveOnlySocialUser.objects.get(
+                username=self.make_user_with_prefix(prefix=f'queued{i}')[Fields.username])
+            FollowRequest.objects.create(user_from=fan, user_to=self.author)
+        from django.test import override_settings
+        with override_settings(CLASSIFICATION_EAGER=False), \
+                patch('user_system.tasks.FOLLOW_REQUEST_BULK_BATCH_SIZE', 2), \
+                patch('user_system.tasks._queue') as queue, \
+                self.captureOnCommitCallbacks(execute=True):
+            response = self._set_private(False, self.author_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(UserFollow.objects.filter(user_to=self.author).count(), 2)
+        self.assertEqual(FollowRequest.objects.filter(user_to=self.author).count(), 1)
+        enqueued = queue.return_value.enqueue.call_args
+        self.assertEqual(enqueued.args, ('user_system.tasks.convert_follow_requests_job', str(self.author.pk)))
+
+    def test_privacy_rejects_json_that_is_not_an_object(self):
+        for body in ('[]', 'false', '"x"'):
+            response = self.client.post(reverse('set_account_privacy'), data=body,
+                                        content_type='application/json', **self.author_header)
+            self.assertEqual(response.status_code, 400, body)
+            self.assertEqual(response.json()['error'], "Invalid JSON data", body)
+
+    def test_inline_conversion_failure_still_reports_the_committed_change(self):
+        self._follow(self.local_username, self.viewer_header)
+        with patch('user_system.tasks.convert_follow_requests', side_effect=RuntimeError('db hiccup')), \
+                patch('user_system.tasks.enqueue_follow_request_conversion') as enqueue:
+            response = self._set_private(False, self.author_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()[Fields.is_private])
+        self.author.refresh_from_db()
+        self.assertFalse(self.author.is_private)
+        enqueue.assert_called_once_with(self.author.pk)
+
+    def test_small_backlog_needs_no_background_job(self):
+        self._follow(self.local_username, self.viewer_header)
+        from django.test import override_settings
+        with override_settings(CLASSIFICATION_EAGER=False), \
+                patch('user_system.tasks._queue') as queue, \
+                self.captureOnCommitCallbacks(execute=True):
+            self._set_private(False, self.author_header)
+
+        queue.return_value.enqueue.assert_not_called()
+        self.assertTrue(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
+
+    def test_job_stops_after_its_rounds_and_enqueues_a_continuation(self):
+        from .. import tasks
+        for i in range(3):
+            fan = PositiveOnlySocialUser.objects.get(
+                username=self.make_user_with_prefix(prefix=f'job{i}')[Fields.username])
+            FollowRequest.objects.create(user_from=fan, user_to=self.author)
+        PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(is_private=False)
+
+        with patch('user_system.tasks.FOLLOW_REQUEST_BULK_BATCH_SIZE', 1), \
+                patch('user_system.tasks.FOLLOW_REQUEST_CHUNKS_PER_JOB', 2), \
+                patch('user_system.tasks.enqueue_follow_request_conversion') as enqueue:
+            tasks.convert_follow_requests_job(str(self.author.pk))
+
+        self.assertEqual(UserFollow.objects.filter(user_to=self.author).count(), 2)
+        enqueue.assert_called_once_with(str(self.author.pk))
+
+    def test_sweep_requeues_public_accounts_with_pending_requests(self):
+        from django.core.management import call_command
+        FollowRequest.objects.create(user_from=self.viewer, user_to=self.author)
+        PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(is_private=False)
+
+        with patch('user_system.tasks.enqueue_follow_request_conversion') as enqueue:
+            call_command('sweep_classifications', stdout=__import__('io').StringIO())
+
+        enqueue.assert_called_once_with(self.author.pk)
+
+    def test_going_public_works_through_a_backlog_in_chunks(self):
+        for i in range(5):
+            fan = PositiveOnlySocialUser.objects.get(
+                username=self.make_user_with_prefix(prefix=f'chunk{i}')[Fields.username])
+            FollowRequest.objects.create(user_from=fan, user_to=self.author)
+
+        with patch('user_system.tasks.FOLLOW_REQUEST_BULK_BATCH_SIZE', 2):
+            self._set_private(False, self.author_header)
+
+        self.assertEqual(UserFollow.objects.filter(user_to=self.author).count(), 5)
+        self.assertFalse(FollowRequest.objects.exists())
+
+    def test_eager_conversion_is_bounded_and_leaves_the_rest_to_the_sweep(self):
+        """Without a queue the remainder still runs inline, but capped at a
+        job's worth of chunks, so a huge backlog can't hold the request."""
+        for i in range(5):
+            fan = PositiveOnlySocialUser.objects.get(
+                username=self.make_user_with_prefix(prefix=f'eager{i}')[Fields.username])
+            FollowRequest.objects.create(user_from=fan, user_to=self.author)
+        from django.test import override_settings
+        with override_settings(CLASSIFICATION_EAGER=True), \
+                patch('user_system.tasks.FOLLOW_REQUEST_BULK_BATCH_SIZE', 1), \
+                patch('user_system.tasks.FOLLOW_REQUEST_CHUNKS_PER_JOB', 2):
+            response = self._set_private(False, self.author_header)
+
+        self.assertEqual(response.status_code, 200)
+        # One chunk inline before responding, then one job's worth (two chunks).
+        self.assertEqual(UserFollow.objects.filter(user_to=self.author).count(), 3)
+        self.assertEqual(FollowRequest.objects.filter(user_to=self.author).count(), 2)
+
+    def test_direct_follow_during_a_backlog_drops_the_request(self):
+        """Request, the owner goes public with the backlog still draining, the
+        requester follows directly and then unfollows: the later conversion
+        must not recreate the follow from the leftover request."""
+        from .. import tasks
+        self._follow(self.local_username, self.viewer_header)
+        # Public, but the conversion hasn't reached this request yet.
+        PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(is_private=False)
+
+        self.assertEqual(self._follow(self.local_username, self.viewer_header).status_code, 200)
+        self.assertFalse(FollowRequest.objects.exists())
+        self.client.post(
+            reverse('unfollow_user', kwargs={'username_to_unfollow': self.local_username}), **self.viewer_header)
+        tasks.convert_follow_requests(str(self.author.pk))
+
+        self.assertFalse(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
+
+    def test_conversion_keeps_requests_from_busy_requesters_pending(self):
+        """A requester whose row another transaction holds is skipped, not
+        dropped: their request stays for a later run, which approves it."""
+        from .. import tasks
+        fans = [PositiveOnlySocialUser.objects.get(
+            username=self.make_user_with_prefix(prefix=f'busy{i}')[Fields.username]) for i in range(2)]
+        for fan in fans:
+            FollowRequest.objects.create(user_from=fan, user_to=self.author)
+        PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(is_private=False)
+        busy = fans[0].pk
+
+        with patch('user_system.tasks._lock_free_requesters',
+                   side_effect=lambda ids: {pk for pk in ids if pk != busy}), \
+                patch('user_system.tasks.enqueue_follow_request_conversion') as enqueue:
+            tasks.convert_follow_requests_job(str(self.author.pk))
+
+        self.assertTrue(UserFollow.objects.filter(user_from=fans[1], user_to=self.author).exists())
+        self.assertTrue(FollowRequest.objects.filter(user_from=fans[0], user_to=self.author).exists())
+        # Only the busy row is left, so the job stops rather than spin on it.
+        enqueue.assert_not_called()
+
+        tasks.convert_follow_requests(str(self.author.pk))  # the sweep's later run
+
+        self.assertTrue(UserFollow.objects.filter(user_from=fans[0], user_to=self.author).exists())
+        self.assertFalse(FollowRequest.objects.exists())
+
+    def test_going_private_keeps_existing_followers(self):
+        self._set_private(False, self.author_header)
+        self._label(self.viewer, self.author, FOLLOW_CATEGORY_FOLLOWING)
+        post = self._make_visible_post(self.author)
+
+        self._set_private(True, self.author_header)
+
+        self.assertTrue(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
+        self.assertIn(str(post.post_identifier), self._profile_post_ids(self.local_username, self.viewer_header))
+
+    def test_block_clears_requests_both_ways(self):
+        self._follow(self.local_username, self.viewer_header)
+        url = reverse('toggle_block', kwargs={'username_to_toggle_block': self.viewer_username})
+
+        self.client.post(url, **self.author_header)
+
+        self.assertFalse(FollowRequest.objects.exists())
+
+
+class PrivatePostVisibilityTests(PrivateAccountTestBase):
+    """The core rule (issue #96): a private account's posts reach only the
+    account itself and its approved followers, everywhere posts are served."""
+
+    def setUp(self):
+        super().setUp()
+        self.post = self._make_visible_post(self.author)
+        self.post_id = str(self.post.post_identifier)
+
+    def _post_details_status(self, header):
+        url = reverse('get_post_details', kwargs={'post_identifier': self.post_id})
+        return self.client.get(url, **header).status_code
+
+    def test_non_follower_cannot_see_posts(self):
+        self.assertFalse(can_view_post(self.post, self.viewer))
+        self.assertNotIn(self.post, visible_posts(self.author.post_set.all(), self.viewer))
+        self.assertEqual(self._profile_post_ids(self.local_username, self.viewer_header), set())
+        self.assertNotEqual(self._post_details_status(self.viewer_header), 200)
+
+    def test_pending_requester_cannot_see_posts(self):
+        self._follow(self.local_username, self.viewer_header)
+
+        self.assertFalse(can_view_post(self.post, self.viewer))
+        self.assertEqual(self._profile_post_ids(self.local_username, self.viewer_header), set())
+
+    def test_approved_follower_sees_posts(self):
+        self._follow(self.local_username, self.viewer_header)
+        self._request_action('approve', self.viewer_username, self.author_header)
+
+        self.assertTrue(can_view_post(self.post, self.viewer))
+        self.assertEqual(self._profile_post_ids(self.local_username, self.viewer_header), {self.post_id})
+        self.assertEqual(self._post_details_status(self.viewer_header), 200)
+
+    def test_author_always_sees_own_posts(self):
+        self.assertTrue(can_view_post(self.post, self.author))
+        self.assertEqual(self._profile_post_ids(self.local_username, self.author_header), {self.post_id})
+
+    def test_author_following_viewer_is_not_enough(self):
+        """Privacy reads the viewer→author edge. The author following the viewer
+        (the edge audience reads) does not let the viewer in."""
+        self._label(self.author, self.viewer, FOLLOW_CATEGORY_FAMILY)
+
+        self.assertFalse(can_view_post(self.post, self.viewer))
+        self.assertNotIn(self.post, visible_posts(self.author.post_set.all(), self.viewer))
+
+    def test_audience_still_applies_to_followers(self):
+        """A private author's friends-only post needs both: the viewer follows
+        the author (privacy) and the author labeled the viewer a friend (audience)."""
+        friends_post = self._make_visible_post(self.author, audience=POST_AUDIENCE_FRIENDS)
+        self._label(self.viewer, self.author, FOLLOW_CATEGORY_FOLLOWING)
+        self.assertFalse(can_view_post(friends_post, self.viewer))
+        self.assertNotIn(friends_post, visible_posts(self.author.post_set.all(), self.viewer))
+
+        self._label(self.author, self.viewer, FOLLOW_CATEGORY_FRIEND)
+        self.assertTrue(can_view_post(friends_post, self.viewer))
+        self.assertIn(friends_post, visible_posts(self.author.post_set.all(), self.viewer))
+
+    def test_follower_query_does_not_duplicate_posts(self):
+        """The privacy subquery must not add fan-out (issue #397)."""
+        self._label(self.viewer, self.author, FOLLOW_CATEGORY_FOLLOWING)
+        for i in range(3):
+            other = PositiveOnlySocialUser.objects.get(
+                username=self.make_user_with_prefix(prefix=f'extra{i}')[Fields.username])
+            self._label(self.author, other, FOLLOW_CATEGORY_FOLLOWING)
+            self._label(self.viewer, other, FOLLOW_CATEGORY_FOLLOWING)
+
+        self.assertEqual(visible_posts(self.author.post_set.all(), self.viewer).count(), 1)
+        self.assertEqual(visible_posts(self.author.post_set.all(), self.author).count(), 1)
+
+    def test_hidden_from_discovery_feed_and_tag_feed(self):
+        tag, _ = Tag.objects.get_or_create(name='sunshine')
+        self.post.tags.add(tag)
+        feed_url = reverse('get_posts_in_feed', kwargs={'batch': 0})
+        tag_url = reverse('get_posts_for_tag', kwargs={'tag': 'sunshine', 'batch': 0})
+
+        feed_ids = {p[Fields.post_identifier] for p in self.client.get(feed_url, **self.viewer_header).json()}
+        tag_ids = {p[Fields.post_identifier] for p in self.client.get(tag_url, **self.viewer_header).json()}
+        self.assertNotIn(self.post_id, feed_ids)
+        self.assertNotIn(self.post_id, tag_ids)
+
+        self._label(self.viewer, self.author, FOLLOW_CATEGORY_FOLLOWING)
+        tag_ids = {p[Fields.post_identifier] for p in self.client.get(tag_url, **self.viewer_header).json()}
+        self.assertIn(self.post_id, tag_ids)
+
+    def test_going_private_during_classification_blocks_the_comment(self):
+        """The author goes private while the comment is being classified: the
+        locked re-check before the insert refuses it."""
+        self.author.is_private = False
+        self.author.save(update_fields=['is_private'])
+        from ..classifiers import text_classifier
+        real_classify = text_classifier.is_text_positive
+
+        def classify_then_go_private(*args, **kwargs):
+            PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(is_private=True)
+            return real_classify(*args, **kwargs)
+
+        with patch.object(text_classifier, 'is_text_positive', side_effect=classify_then_go_private):
+            response = self.client.post(
+                reverse('comment_on_post', kwargs={'post_identifier': self.post_id}),
+                data=json.dumps({Fields.comment_text: POSITIVE_CAPTION}),
+                content_type='application/json', **self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(self.post.commentthread_set.exists())
+
+    def test_non_follower_cannot_like_or_report(self):
+        like = self.client.post(
+            reverse('like_post', kwargs={'post_identifier': self.post_id}), **self.viewer_header)
+        report = self.client.post(
+            reverse('report_post', kwargs={'post_identifier': self.post_id}),
+            data=json.dumps({Fields.reason: 'not positive'}),
+            content_type='application/json', **self.viewer_header)
+
+        self.assertEqual(like.status_code, 400)
+        self.assertEqual(like.json()['error'], "No post with that identifier")
+        self.assertEqual(report.status_code, 400)
+        self.assertEqual(report.json()['error'], "No post with that identifier")
+        self.assertFalse(self.post.postlike_set.exists())
+
+    def test_non_follower_cannot_read_or_like_comments_on_private_post(self):
+        thread = self.post.commentthread_set.create()
+        comment = thread.comment_set.create(
+            author=self.author, body=POSITIVE_CAPTION, hidden=False, audience=POST_AUDIENCE_PUBLIC)
+
+        listing = self.client.get(
+            reverse('get_comments_for_post', kwargs={'post_identifier': self.post_id, 'batch': 0}),
+            **self.viewer_header)
+        like = self.client.post(reverse('like_comment', kwargs={
+            'post_identifier': self.post_id,
+            'comment_thread_identifier': str(thread.comment_thread_identifier),
+            'comment_identifier': str(comment.comment_identifier),
+        }), **self.viewer_header)
+
+        self.assertNotEqual(listing.status_code, 200)
+        self.assertEqual(like.status_code, 400)
+        self.assertFalse(comment.commentlike_set.exists())
+
+
+class PrivateTransitionInteractionTests(PrivateAccountTestBase):
+    """Someone who liked or reported a post or comment while the account was
+    public loses access when it goes private: undoing those interactions treats
+    the content as absent too, so prior ids can't mutate it or confirm it."""
+
+    def setUp(self):
+        super().setUp()
+        self.author.is_private = False
+        self.author.save(update_fields=['is_private'])
+        self.post = self._make_visible_post(self.author)
+        self.post_id = str(self.post.post_identifier)
+        self.thread = self.post.commentthread_set.create()
+        self.comment = self.thread.comment_set.create(
+            author=self.author, body=POSITIVE_CAPTION, hidden=False, audience=POST_AUDIENCE_PUBLIC)
+        self.comment_kwargs = {
+            'post_identifier': self.post_id,
+            'comment_thread_identifier': str(self.thread.comment_thread_identifier),
+            'comment_identifier': str(self.comment.comment_identifier),
+        }
+        report_body = json.dumps({Fields.reason: 'not positive'})
+        for name, kwargs in (('like_post', {'post_identifier': self.post_id}),
+                             ('report_post', {'post_identifier': self.post_id}),
+                             ('like_comment', self.comment_kwargs),
+                             ('report_comment', self.comment_kwargs)):
+            response = self.client.post(reverse(name, kwargs=kwargs), data=report_body,
+                                        content_type='application/json', **self.viewer_header)
+            self.assertEqual(response.status_code, 200, name)
+        self._set_private(True, self.author_header)
+
+    def test_undo_endpoints_treat_the_content_as_absent(self):
+        cases = (
+            ('unlike_post', {'post_identifier': self.post_id}, "No post with that identifier"),
+            ('retract_report_post', {'post_identifier': self.post_id}, "No post with that identifier"),
+            ('unlike_comment', self.comment_kwargs, "Comment not found"),
+            ('retract_report_comment', self.comment_kwargs, "Comment not found"),
+        )
+        for name, kwargs, error in cases:
+            response = self.client.post(reverse(name, kwargs=kwargs), **self.viewer_header)
+            self.assertEqual(response.status_code, 400, name)
+            self.assertEqual(response.json()['error'], error, name)
+        self.assertTrue(self.post.postlike_set.filter(user=self.viewer).exists())
+        self.assertTrue(self.comment.commentlike_set.filter(user=self.viewer).exists())
+
+    def test_approved_follower_can_undo_again(self):
+        self._label(self.viewer, self.author, FOLLOW_CATEGORY_FOLLOWING)
+
+        response = self.client.post(
+            reverse('unlike_post', kwargs={'post_identifier': self.post_id}), **self.viewer_header)
+
+        self.assertEqual(response.status_code, 200)
+
+
+class PrivacyRaceInteractionTests(PrivateAccountTestBase):
+    """The owner's going-private commit lands after an interaction endpoint
+    first looked at the author but before it locked them: the write must be
+    decided on the locked read, so a non-follower's like, report or save never
+    lands on a now-private post."""
+
+    def setUp(self):
+        super().setUp()
+        self.author.is_private = False
+        self.author.save(update_fields=['is_private'])
+        self.post = self._make_visible_post(self.author)
+        self.post_id = str(self.post.post_identifier)
+        thread = self.post.commentthread_set.create()
+        self.comment = thread.comment_set.create(
+            author=self.author, body=POSITIVE_CAPTION, hidden=False, audience=POST_AUDIENCE_PUBLIC)
+        self.comment_kwargs = {
+            'post_identifier': self.post_id,
+            'comment_thread_identifier': str(thread.comment_thread_identifier),
+            'comment_identifier': str(self.comment.comment_identifier),
+        }
+
+    def _racing(self, name, kwargs):
+        """Call `name` with the author going private just before the lock."""
+        from .. import views
+        real = views._post_author_still_admits
+
+        def goes_private_first(post, viewer):
+            PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(is_private=True)
+            return real(post, viewer)
+
+        with patch('user_system.views._post_author_still_admits', side_effect=goes_private_first) as locked:
+            response = self.client.post(
+                reverse(name, kwargs=kwargs), data=json.dumps({Fields.reason: 'not positive'}),
+                content_type='application/json', **self.viewer_header)
+        locked.assert_called()
+        PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(is_private=False)
+        return response
+
+    def test_writes_are_refused_when_privacy_commits_first(self):
+        post_kwargs = {'post_identifier': self.post_id}
+        for name, kwargs in (('like_post', post_kwargs), ('report_post', post_kwargs),
+                             ('save_post', post_kwargs), ('like_comment', self.comment_kwargs),
+                             ('report_comment', self.comment_kwargs)):
+            self.assertEqual(self._racing(name, kwargs).status_code, 400, name)
+        self.assertFalse(self.post.postlike_set.exists())
+        self.assertFalse(self.post.postreport_set.exists())
+        self.assertFalse(self.post.savedpost_set.exists())
+        self.assertFalse(self.comment.commentlike_set.exists())
+        self.assertFalse(self.comment.commentreport_set.exists())
+
+    def test_undos_are_refused_when_privacy_commits_first(self):
+        self.post.postlike_set.create(user=self.viewer)
+        self.post.postreport_set.create(user=self.viewer, reason='not positive')
+        self.comment.commentlike_set.create(user=self.viewer)
+        self.comment.commentreport_set.create(user=self.viewer, reason='not positive')
+        post_kwargs = {'post_identifier': self.post_id}
+        for name, kwargs in (('unlike_post', post_kwargs), ('retract_report_post', post_kwargs),
+                             ('unlike_comment', self.comment_kwargs),
+                             ('retract_report_comment', self.comment_kwargs)):
+            self.assertEqual(self._racing(name, kwargs).status_code, 400, name)
+        self.assertTrue(self.post.postlike_set.exists())
+        self.assertTrue(self.post.postreport_set.active().exists())
+        self.assertTrue(self.comment.commentlike_set.exists())
+        self.assertTrue(self.comment.commentreport_set.active().exists())
+
+
+class PrivateAuthorCommentTests(PrivateAccountTestBase):
+    """Privacy gates posts only. A private account's comment on someone else's
+    public post follows that comment's own audience, like anyone's."""
+
+    def test_public_comment_by_private_account_visible_to_non_followers(self):
+        public_post = self._make_visible_post(self.viewer)
+        thread = public_post.commentthread_set.create()
+        comment = thread.comment_set.create(
+            author=self.author, body=POSITIVE_CAPTION, hidden=False, audience=POST_AUDIENCE_PUBLIC)
+        stranger = PositiveOnlySocialUser.objects.get(
+            username=self.make_user_with_prefix(prefix='stranger')[Fields.username])
+
+        self.assertIn(comment, visible_comments(thread.comment_set.all(), stranger))
+        self.assertIn(comment, visible_comments(thread.comment_set.all(), PUBLIC_VIEWER))
+
+
+class PrivateProfileDetailsTests(PrivateAccountTestBase):
+
+    def setUp(self):
+        super().setUp()
+        self._make_visible_post(self.author)
+        other = PositiveOnlySocialUser.objects.get(
+            username=self.make_user_with_prefix(prefix='fan')[Fields.username])
+        self._label(other, self.author, FOLLOW_CATEGORY_FOLLOWING)
+
+    def test_non_follower_sees_no_counts(self):
+        profile = self._profile(self.local_username, self.viewer_header)
+
+        self.assertTrue(profile[Fields.is_private])
+        self.assertEqual(profile[Fields.post_count], 0)
+        self.assertEqual(profile[Fields.follower_count], 0)
+        self.assertEqual(profile[Fields.following_count], 0)
+        self.assertFalse(profile[Fields.follow_request_pending])
+        # The header itself is still there.
+        self.assertEqual(profile[Fields.username], self.local_username)
+
+    def test_pending_flag_reflects_request(self):
+        self._follow(self.local_username, self.viewer_header)
+
+        profile = self._profile(self.local_username, self.viewer_header)
+
+        self.assertTrue(profile[Fields.follow_request_pending])
+        self.assertFalse(profile[Fields.is_following])
+
+    def test_follower_and_owner_see_counts(self):
+        self._label(self.viewer, self.author, FOLLOW_CATEGORY_FOLLOWING)
+
+        for header in (self.viewer_header, self.author_header):
+            profile = self._profile(self.local_username, header)
+            self.assertEqual(profile[Fields.post_count], 1)
+            self.assertEqual(profile[Fields.follower_count], 2)
+
+    def test_public_profile_reports_not_private(self):
+        profile = self._profile(self.viewer_username, self.author_header)
+
+        self.assertFalse(profile[Fields.is_private])
+
+
+class PrivateAccountShareLinkTests(PrivateAccountTestBase):
+    """A shared link to a private account shows the header but no counts or
+    posts; its posts' own links 404 for a signed-out visitor."""
+
+    def setUp(self):
+        super().setUp()
+        self.post = self._make_visible_post(self.author)
+        self.author.bio = "sunny days"
+        self.author.save(update_fields=['bio'])
+
+    def test_public_profile_shows_header_without_counts(self):
+        response = self.client.get(
+            reverse('get_public_profile_details', kwargs={'username': self.local_username}))
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body[Fields.is_private])
+        self.assertEqual(body[Fields.bio], "sunny days")
+        self.assertEqual(body[Fields.post_count], 0)
+        self.assertEqual(body[Fields.follower_count], 0)
+        self.assertEqual(body[Fields.following_count], 0)
+
+    def test_public_grid_empty_and_post_link_404s(self):
+        grid = self.client.get(
+            reverse('get_public_posts_for_user', kwargs={'username': self.local_username, 'batch': 0}))
+        details = self.client.get(
+            reverse('get_public_post_details', kwargs={'post_identifier': str(self.post.post_identifier)}))
+
+        self.assertEqual(grid.status_code, 200)
+        self.assertEqual(grid.json(), [])
+        self.assertEqual(details.status_code, 404)
+        self.assertFalse(privacy_admits(self.author, PUBLIC_VIEWER))

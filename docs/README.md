@@ -19,8 +19,8 @@ changes.
 - [Positive interest tags](interest-tags.md) — the interest vocabulary and how
   it personalizes the discovery feed ranking.
 - [Audience, relationships and blocking](audience-and-relationships.md) —
-  follow categories, nested post/comment audiences, audience badges, and
-  blocking.
+  follow categories, nested post/comment audiences, private accounts and follow
+  requests, audience badges, and blocking.
 - [Sharing](sharing.md) — share links, the public post and profile pages, link
   previews, and Universal Links / App Links.
 - [Profiles](profiles.md) — profile photos (and their moderation) and bios.

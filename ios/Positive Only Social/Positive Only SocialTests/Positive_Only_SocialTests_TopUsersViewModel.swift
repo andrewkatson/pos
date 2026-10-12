@@ -119,6 +119,20 @@ struct Positive_Only_SocialTests_TopUsersViewModel {
         #expect(sut.isLoadingNextPage == false)
     }
 
+    @Test func testTopUsers_LeaveOutPrivateAccounts() async throws {
+        stubAPI.pageSize = 10
+        let secretToken = try await registerUserAndGetToken(username: "secret")
+        _ = try await stubAPI.setAccountPrivacy(sessionManagementToken: secretToken, isPrivate: true)
+        _ = try await registerUserAndGetToken(username: "open")
+        let fanToken = try await registerUserAndGetToken(username: "fan")
+        _ = try await stubAPI.followUser(sessionManagementToken: fanToken, username: "open")
+        _ = try await stubAPI.followUser(sessionManagementToken: fanToken, username: "secret")
+        _ = try await stubAPI.approveFollowRequest(sessionManagementToken: secretToken, username: "fan")
+
+        let data = try await stubAPI.getTopUsers(sessionManagementToken: fanToken, batch: 0)
+        #expect(try JSONDecoder().decode([TopUser].self, from: data).map(\.user.username) == ["open"])
+    }
+
     @Test func testTopUserDecodesFlatRow() throws {
         let json = #"[{"username":"star","identity_is_verified":true,"follower_count":12}]"#
         let rows = try JSONDecoder().decode([TopUser].self, from: Data(json.utf8))

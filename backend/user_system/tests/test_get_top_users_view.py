@@ -125,6 +125,18 @@ class GetTopUsersTests(PositiveOnlySocialTestCase):
         star.blocked.add(self.viewer)
         self.assertEqual(self._names(), [])
 
+    def test_private_account_left_off(self):
+        # A private profile shows non-followers no follower count (issue #96),
+        # so the board must not rank it, even for its followers.
+        star = self._user('star')
+        self._followed_by(star, 2)
+        UserFollow.objects.create(user_from=self.viewer, user_to=star)
+        PositiveOnlySocialUser.objects.filter(pk=star.pk).update(is_private=True)
+        public = self._user('public')
+        self._followed_by(public, 1)
+
+        self.assertEqual(self._names(), ['public'])
+
     def test_viewer_can_rank(self):
         self._followed_by(self.viewer, 1, prefix='viewer')
         self.assertEqual(self._names(), [self.viewer.username])

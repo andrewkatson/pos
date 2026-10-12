@@ -243,6 +243,27 @@ protocol Networking {
     /// Gets the details of a profile
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data
 
+    // MARK: - Private accounts & follow requests (issue #96)
+
+    /// Gets one page of the signed-in user's incoming follow requests, newest
+    /// first. Pass the last row's `requestId` as `after` for the next (older)
+    /// page; an empty page is the end. Like the follower list there is no
+    /// username parameter.
+    func getFollowRequests(sessionManagementToken: String, after: Int?) async throws -> Data
+
+    /// Approves the follow request `username` sent the signed-in user.
+    func approveFollowRequest(sessionManagementToken: String, username: String) async throws -> Data
+
+    /// Denies the follow request `username` sent the signed-in user.
+    func denyFollowRequest(sessionManagementToken: String, username: String) async throws -> Data
+
+    /// Withdraws the signed-in user's own pending request to follow `username`.
+    func cancelFollowRequest(sessionManagementToken: String, username: String) async throws -> Data
+
+    /// Turns the signed-in user's private account setting on or off. Going
+    /// public approves every pending request.
+    func setAccountPrivacy(sessionManagementToken: String, isPrivate: Bool) async throws -> Data
+
     // MARK: - Profile Photo (issue #7)
 
     /// Sets the signed-in user's profile photo. The JPEG bytes are uploaded

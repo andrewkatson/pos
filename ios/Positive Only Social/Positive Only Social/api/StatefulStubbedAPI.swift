@@ -44,6 +44,8 @@ struct MockUser {
     var profileImageReasonCode: String? = nil
     // Free-text bio (issue #380); "" when unset.
     var bio: String = ""
+    // Private account (issue #96): only approved followers see its posts.
+    var isPrivate: Bool = false
     // Positive interest tags (issues #446/#35): weighting buckets (picks ∪
     // mapped freeform) and the freeform terms the user typed.
     var interestCategories: [String] = []
@@ -66,6 +68,16 @@ fileprivate struct MockTwoFactorChallenge {
     let userId: UUID
     let rememberMe: Bool
     let ip: String
+}
+
+// A pending request to follow a private account (issue #96), carrying the
+// category the requester asked for so approval creates exactly that edge.
+fileprivate struct MockFollowRequest {
+    let userFromId: UUID
+    let userToId: UUID
+    var category: String = FollowCategory.following.rawValue
+    // Monotonic like the backend's primary key: the list's keyset cursor.
+    var id: Int = 0
 }
 
 fileprivate struct MockUserFollow {
@@ -207,6 +219,8 @@ final class StatefulStubbedAPI: Networking {
     private var comments: [MockComment] = []
     private var appeals: [MockAppeal] = []
     private var userFollows: [MockUserFollow] = []
+    // Pending follow requests (issue #96), oldest first.
+    private var followRequests: [MockFollowRequest] = []
 
     // Monotonic source for membership numbers (issue #198). A dedicated counter
     // rather than users.count so a delete + re-register never reuses a number,
@@ -273,6 +287,9 @@ final class StatefulStubbedAPI: Networking {
     private let reviewRejectedMarker = "reviewable"
     private let awsStubBucket = "https://stub-bucket.s3.us-east-2.amazonaws.com/"
     public var pageSize = 2 // Make this small for easier testing
+    // Incoming follow requests per page (issue #96), matching the backend.
+    public var followRequestPageSize = 30
+    private var nextFollowRequestId = 1
     public private(set) var getPostsInFeedCallCount = 0
     public private(set) var getPostsForFollowedUsersCallCount = 0
     public private(set) var getTopPostsCallCount = 0
@@ -300,6 +317,46 @@ final class StatefulStubbedAPI: Networking {
     private func findComment(byIdentifier id: String) -> MockComment? { comments.first { $0.commentIdentifier == id } }
     private func isUserFollowing(from: UUID, to: UUID) -> Bool {
             userFollows.contains { $0.userFromId == from && $0.userToId == to }
+    }
+
+    /// The index of a comment addressed by its full (post, thread, comment) id
+    /// tuple, or nil when the ids don't belong together or the post it really
+    /// sits on is a private account's post the viewer doesn't follow (issue
+    /// #96). Resolving the tuple first means a private comment can't be reached
+    /// by pairing its id with some unrelated public post's id, as the backend's
+    /// lookup by all three ids also prevents.
+    private func reachableCommentIndex(postIdentifier: String, threadIdentifier: String,
+                                       commentIdentifier: String, viewer: MockUser) -> Int? {
+        guard let index = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }),
+              comments[index].threadId == threadIdentifier,
+              let thread = commentThreads.first(where: { $0.commentThreadIdentifier == threadIdentifier }),
+              thread.postId == postIdentifier,
+              let post = findPost(byIdentifier: postIdentifier),
+              privacyAdmits(authorId: post.authorId, viewer: viewer) else { return nil }
+        return index
+    }
+
+    /// privacyAdmits for the post a comment thread sits on (issue #96). An
+    /// unknown thread is left to the caller's own not-found handling.
+    private func threadPostPrivacyAdmits(_ threadId: String, viewer: MockUser) -> Bool {
+        guard let thread = commentThreads.first(where: { $0.commentThreadIdentifier == threadId }),
+              let post = findPost(byIdentifier: thread.postId) else { return true }
+        return privacyAdmits(authorId: post.authorId, viewer: viewer)
+    }
+
+    /// Mirrors visibility.in_same_age_band (issue #329): verified minors form
+    /// one band, everyone else (adults and unverified accounts) the other.
+    private func inSameAgeBand(_ a: MockUser, _ b: MockUser) -> Bool {
+        let aMinor = a.identityIsVerified && !a.isAdult
+        let bMinor = b.identityIsVerified && !b.isAdult
+        return aMinor == bMinor
+    }
+
+    /// Mirrors visibility.privacy_admits (issue #96): a private account's posts
+    /// reach only the account itself and the people who follow it.
+    private func privacyAdmits(authorId: UUID, viewer: MockUser) -> Bool {
+        guard let author = users.first(where: { $0.id == authorId }), author.isPrivate else { return true }
+        return authorId == viewer.id || isUserFollowing(from: viewer.id, to: authorId)
     }
 
     // MARK: - Private Helpers
@@ -969,8 +1026,12 @@ final class StatefulStubbedAPI: Networking {
     func getCurrentUser(sessionManagementToken: String) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
-        struct Fields: Codable { let username, email: String }
-        return try createSerializedResponse(fields: Fields(username: user.username, email: user.email))
+        struct Fields: Codable {
+            let username, email: String
+            let is_private: Bool
+        }
+        return try createSerializedResponse(fields: Fields(
+            username: user.username, email: user.email, is_private: user.isPrivate))
     }
 
     func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data {
@@ -1018,6 +1079,10 @@ final class StatefulStubbedAPI: Networking {
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         sessions.removeAll { $0.userId == user.id }
         posts.removeAll { $0.authorId == user.id }
+        // Pending follow requests both ways (issue #96), like the backend's
+        // CASCADE foreign keys — otherwise an owner's request count keeps
+        // counting a requester who no longer exists.
+        followRequests.removeAll { $0.userFromId == user.id || $0.userToId == user.id }
         users.removeAll { $0.id == user.id }
         return try createEmptySuccessResponse()
     }
@@ -1221,7 +1286,9 @@ final class StatefulStubbedAPI: Networking {
     func reportPost(sessionManagementToken: String, postIdentifier: String, reason: String) async throws -> Data {
         await simulateNetwork()
         guard let reporter = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // A private account's post reads as missing to a non-follower (issue #96).
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }),
+              privacyAdmits(authorId: posts[postIndex].authorId, viewer: reporter) else { throw APIError.badServerResponse(statusCode: 400) }
         if posts[postIndex].authorId == reporter.id { throw APIError.badServerResponse(statusCode: 400) }
         if posts[postIndex].reports.contains(where: { $0.username == reporter.username }) { throw APIError.badServerResponse(statusCode: 400) }
         
@@ -1239,7 +1306,10 @@ final class StatefulStubbedAPI: Networking {
     func retractReportPost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let retractor = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // Undo actions treat a private account's post as missing to a
+        // non-follower too (issue #96).
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }),
+              privacyAdmits(authorId: posts[postIndex].authorId, viewer: retractor) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let reportIndex = posts[postIndex].reports.firstIndex(where: { $0.username == retractor.username }) else { throw APIError.badServerResponse(statusCode: 400) }
 
         // Retracting never un-hides: hiding is a moderation decision, not a
@@ -1251,7 +1321,9 @@ final class StatefulStubbedAPI: Networking {
     func likePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let liker = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // A private account's post reads as missing to a non-follower (issue #96).
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }),
+              privacyAdmits(authorId: posts[postIndex].authorId, viewer: liker) else { throw APIError.badServerResponse(statusCode: 400) }
         if posts[postIndex].authorId == liker.id { throw APIError.badServerResponse(statusCode: 400) }
         if posts[postIndex].likes.contains(liker.username) { throw APIError.badServerResponse(statusCode: 400) }
         
@@ -1262,7 +1334,10 @@ final class StatefulStubbedAPI: Networking {
     func unlikePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let unliker = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // Undo actions treat a private account's post as missing to a
+        // non-follower too (issue #96).
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }),
+              privacyAdmits(authorId: posts[postIndex].authorId, viewer: unliker) else { throw APIError.badServerResponse(statusCode: 400) }
         if posts[postIndex].authorId == unliker.id { throw APIError.badServerResponse(statusCode: 400) }
         guard let likeIndex = posts[postIndex].likes.firstIndex(of: unliker.username) else { throw APIError.badServerResponse(statusCode: 400) }
         
@@ -1284,7 +1359,9 @@ final class StatefulStubbedAPI: Networking {
     func savePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let saver = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // A private account's post reads as missing to a non-follower (issue #96).
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier }),
+              privacyAdmits(authorId: posts[postIndex].authorId, viewer: saver) else { throw APIError.badServerResponse(statusCode: 400) }
         // Mirror the backend (save_post): a repeat save is rejected with 400
         // ("Already saved post"), like a double-like — so the client's optimistic
         // revert path is exercised. Saving your own post is still allowed.
@@ -1319,6 +1396,7 @@ final class StatefulStubbedAPI: Networking {
                 !post.isHidden &&
                 !user.blocked.contains(post.authorId) &&
                 !user.blockedBy.contains(post.authorId) &&
+                privacyAdmits(authorId: post.authorId, viewer: user) &&
                 audienceAdmits(post, viewer: user)
             }
             .sorted { $0.createdDate > $1.createdDate }
@@ -1384,8 +1462,8 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
-    /// Mirrors get_top_posts (issue #558): public, live, same-age-band posts
-    /// created within the period, most likes first, then newest, then post id,
+    /// Mirrors get_top_posts (issue #558): public, live, same-age-band posts by
+    /// public accounts, created within the period, most likes first, then newest, then post id,
     /// capped at the top 100.
     func getTopPosts(sessionManagementToken: String, batch: Int, period: String) async throws -> Data {
         getTopPostsCallCount += 1
@@ -1404,6 +1482,7 @@ final class StatefulStubbedAPI: Networking {
             .filter { post in
                 !post.isHidden &&
                 post.audience == PostAudience.public.rawValue &&
+                !(users.first { $0.id == post.authorId }?.isPrivate ?? false) &&
                 post.createdDate >= since &&
                 !currentUser.blocked.contains(post.authorId) &&
                 !currentUser.blockedBy.contains(post.authorId) &&
@@ -1460,6 +1539,7 @@ final class StatefulStubbedAPI: Networking {
         let relevantPosts = posts
             .filter { $0.authorId == targetUser.id && $0.hiddenReason != "classifier_final" }
             .filter { isOwnGrid || !$0.isHidden }
+            .filter { isOwnGrid || privacyAdmits(authorId: $0.authorId, viewer: user) }
             .filter { isOwnGrid || audienceAdmits($0, viewer: user) }
             .sorted { $0.createdDate > $1.createdDate } // Sort newest first
 
@@ -1487,7 +1567,9 @@ final class StatefulStubbedAPI: Networking {
         guard let post = findPost(byIdentifier: postIdentifier) else { throw APIError.badServerResponse(statusCode: 400) }
         // Mirror can_view_post: a restricted post the viewer isn't in the
         // audience for reads exactly like a missing one (issue #392).
-        if post.authorId != user.id && !audienceAdmits(post, viewer: user) {
+        // A private account's post reads as missing to a non-follower (issue #96).
+        if post.authorId != user.id
+            && (!audienceAdmits(post, viewer: user) || !privacyAdmits(authorId: post.authorId, viewer: user)) {
             throw APIError.badServerResponse(statusCode: 400)
         }
         struct Fields: Codable {
@@ -1555,6 +1637,7 @@ final class StatefulStubbedAPI: Networking {
             .filter { $0.hiddenReason != "classifier_final" }
             .filter { $0.authorId == user.id || !$0.isHidden }
             .filter { !user.blocked.contains($0.authorId) && !user.blockedBy.contains($0.authorId) }
+            .filter { privacyAdmits(authorId: $0.authorId, viewer: user) }
             .sorted { $0.createdDate > $1.createdDate }
 
         let startIndex = batch * pageSize
@@ -1572,7 +1655,9 @@ final class StatefulStubbedAPI: Networking {
     func commentOnPost(sessionManagementToken: String, postIdentifier: String, commentText: String, formatting: [CommentFormatSpan]? = nil, audience: String? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let post = findPost(byIdentifier: postIdentifier) else { throw APIError.badServerResponse(statusCode: 400) }
+        // A private account's post reads as missing to a non-follower (issue #96).
+        guard let post = findPost(byIdentifier: postIdentifier),
+              privacyAdmits(authorId: post.authorId, viewer: user) else { throw APIError.badServerResponse(statusCode: 400) }
         // The author may disable commenting at creation or lock it afterward
         // (issue #492). Existing comments stay visible; only new ones blocked.
         if post.commentsDisabled {
@@ -1597,6 +1682,9 @@ final class StatefulStubbedAPI: Networking {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let threadIndex = commentThreads.firstIndex(where: { $0.commentThreadIdentifier == commentThreadIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // A thread on a private account's post reads as missing to a
+        // non-follower (issue #96).
+        guard threadPostPrivacyAdmits(commentThreadIdentifier, viewer: user) else { throw APIError.badServerResponse(statusCode: 400) }
         // The author may disable commenting at creation or lock it afterward
         // (issue #492). Existing replies stay visible; only new ones blocked.
         if let post = findPost(byIdentifier: commentThreads[threadIndex].postId), post.commentsDisabled {
@@ -1616,7 +1704,11 @@ final class StatefulStubbedAPI: Networking {
     func likeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let liker = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // A comment on a private account's post is out of reach for a
+        // non-follower (issue #96), judged by the post it sits on.
+        guard let commentIndex = reachableCommentIndex(
+            postIdentifier: postIdentifier, threadIdentifier: commentThreadIdentifier,
+            commentIdentifier: commentIdentifier, viewer: liker) else { throw APIError.badServerResponse(statusCode: 400) }
         if comments[commentIndex].authorUsername == liker.username { throw APIError.badServerResponse(statusCode: 400) }
         if comments[commentIndex].likes.contains(liker.username) { throw APIError.badServerResponse(statusCode: 400) }
 
@@ -1627,7 +1719,11 @@ final class StatefulStubbedAPI: Networking {
     func unlikeComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let unliker = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // Undo actions treat a comment on a private account's post as missing
+        // to a non-follower too (issue #96).
+        guard let commentIndex = reachableCommentIndex(
+            postIdentifier: postIdentifier, threadIdentifier: commentThreadIdentifier,
+            commentIdentifier: commentIdentifier, viewer: unliker) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let likeIndex = comments[commentIndex].likes.firstIndex(of: unliker.username) else { throw APIError.badServerResponse(statusCode: 400) }
         
         comments[commentIndex].likes.remove(at: likeIndex)
@@ -1698,7 +1794,11 @@ final class StatefulStubbedAPI: Networking {
     func reportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, reason: String) async throws -> Data {
         await simulateNetwork()
         guard let reporter = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // A comment on a private account's post is out of reach for a
+        // non-follower (issue #96), judged by the post it sits on.
+        guard let commentIndex = reachableCommentIndex(
+            postIdentifier: postIdentifier, threadIdentifier: commentThreadIdentifier,
+            commentIdentifier: commentIdentifier, viewer: reporter) else { throw APIError.badServerResponse(statusCode: 400) }
         if comments[commentIndex].authorUsername == reporter.username { throw APIError.badServerResponse(statusCode: 400) }
         if comments[commentIndex].reports.contains(where: { $0.username == reporter.username }) { throw APIError.badServerResponse(statusCode: 400) }
         
@@ -1715,7 +1815,11 @@ final class StatefulStubbedAPI: Networking {
     func retractReportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let retractor = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // Undo actions treat a comment on a private account's post as missing
+        // to a non-follower too (issue #96).
+        guard let commentIndex = reachableCommentIndex(
+            postIdentifier: postIdentifier, threadIdentifier: commentThreadIdentifier,
+            commentIdentifier: commentIdentifier, viewer: retractor) else { throw APIError.badServerResponse(statusCode: 400) }
         guard let reportIndex = comments[commentIndex].reports.firstIndex(where: { $0.username == retractor.username }) else { throw APIError.badServerResponse(statusCode: 400) }
 
         comments[commentIndex].reports.remove(at: reportIndex)
@@ -1725,6 +1829,11 @@ final class StatefulStubbedAPI: Networking {
     func getCommentsForPost(sessionManagementToken: String, postIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+        // A private account's post reads as missing to a non-follower (issue #96),
+        // as the backend's can_view_post check makes it.
+        if let post = findPost(byIdentifier: postIdentifier), !privacyAdmits(authorId: post.authorId, viewer: user) {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
         let categoryFilter = category.flatMap { FollowCategory(rawValue: $0) }
         // Only threads with a comment the viewer may see under the current filter
         // survive (issue #445), mirroring visible_comment_threads.
@@ -1746,6 +1855,9 @@ final class StatefulStubbedAPI: Networking {
     func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
+        // A thread on a private account's post reads as missing to a
+        // non-follower (issue #96).
+        guard threadPostPrivacyAdmits(commentThreadIdentifier, viewer: user) else { throw APIError.badServerResponse(statusCode: 400) }
         let categoryFilter = category.flatMap { FollowCategory(rawValue: $0) }
         let relevantComments = visibleComments(inThread: commentThreadIdentifier, viewer: user, category: categoryFilter)
             .sorted { $0.createdDate < $1.createdDate }
@@ -1860,8 +1972,8 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
-    /// Mirrors get_top_users (issue #562): same-age-band, unblocked accounts with
-    /// at least one follower, most followers first then by username, capped at
+    /// Mirrors get_top_users (issue #562): public, same-age-band, unblocked
+    /// accounts with at least one follower, most followers first then by username, capped at
     /// the top 100. Followers are counted within the viewer's age band, as the
     /// profile header counts them; the stub has no ban model, so bans don't apply.
     func getTopUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
@@ -1877,7 +1989,8 @@ final class StatefulStubbedAPI: Networking {
             counts[follow.userToId, default: 0] += 1
         }
         let eligible: [MockUser] = users.filter { user in
-            bandIds.contains(user.id)
+            !user.isPrivate
+                && bandIds.contains(user.id)
                 && !currentUser.blocked.contains(user.id)
                 && !currentUser.blockedBy.contains(user.id)
                 && (counts[user.id] ?? 0) > 0
@@ -1960,14 +2073,152 @@ final class StatefulStubbedAPI: Networking {
         }
 
         let followCategory = category ?? FollowCategory.following.rawValue
-        userFollows.append(MockUserFollow(
-            userFromId: currentUser.id, userToId: userToFollow.id, category: followCategory))
 
         struct Fields: Codable {
             let message: String
-            let follow_category: String
+            let follow_category: String?
+            let follow_request_pending: Bool
         }
-        return try createSerializedResponse(fields: Fields(message: "User followed", follow_category: followCategory))
+
+        // A private account (issue #96) gets a request, not a follow.
+        if userToFollow.isPrivate {
+            // A block in either direction refuses the request, like the backend.
+            // ...or the two accounts being in different age bands, like the backend.
+            if userToFollow.blocked.contains(currentUser.id) || currentUser.blocked.contains(userToFollow.id)
+                || !inSameAgeBand(currentUser, userToFollow) {
+                throw APIError.serverError(statusCode: 400, serverMessage: "User does not exist")
+            }
+            if followRequests.contains(where: { $0.userFromId == currentUser.id && $0.userToId == userToFollow.id }) {
+                throw APIError.serverError(statusCode: 400, serverMessage: "Follow already requested")
+            }
+            followRequests.append(MockFollowRequest(
+                userFromId: currentUser.id, userToId: userToFollow.id, category: followCategory,
+                id: nextFollowRequestId))
+            nextFollowRequestId += 1
+            return try createSerializedResponse(fields: Fields(
+                message: "Follow requested", follow_category: nil, follow_request_pending: true))
+        }
+
+        userFollows.append(MockUserFollow(
+            userFromId: currentUser.id, userToId: userToFollow.id, category: followCategory))
+        return try createSerializedResponse(fields: Fields(
+            message: "User followed", follow_category: followCategory, follow_request_pending: false))
+    }
+
+    // MARK: - Private accounts & follow requests (issue #96)
+
+    /// Turns a pending request into the follow edge it asked for.
+    private func approve(_ request: MockFollowRequest) {
+        followRequests.removeAll { $0.userFromId == request.userFromId && $0.userToId == request.userToId }
+        if !isUserFollowing(from: request.userFromId, to: request.userToId) {
+            userFollows.append(MockUserFollow(
+                userFromId: request.userFromId, userToId: request.userToId, category: request.category))
+        }
+    }
+
+    /// The pending request `username` sent `owner`, or the backend's 400s.
+    private func incomingRequest(to owner: MockUser, from username: String) throws -> MockFollowRequest {
+        // A requester who has since moved into the other age band reads as
+        // missing, like the backend, so their request can't become a
+        // cross-band follow.
+        guard let requester = findUser(byUsername: username), inSameAgeBand(owner, requester) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "User does not exist")
+        }
+        guard let request = followRequests.first(where: { $0.userFromId == requester.id && $0.userToId == owner.id }) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "No follow request from user")
+        }
+        return request
+    }
+
+    func getFollowRequests(sessionManagementToken: String, after: Int?) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        // Newest first and keyset-paginated by request id, like the backend;
+        // cross-band requesters are hidden there too.
+        let rows = followRequests
+            .filter { $0.userToId == currentUser.id && (after == nil || $0.id < after!) }
+            .sorted { $0.id > $1.id }
+            .compactMap { request -> (MockUser, Int)? in
+                guard let requester = users.first(where: { $0.id == request.userFromId }),
+                      inSameAgeBand(currentUser, requester) else { return nil }
+                return (requester, request.id)
+            }
+            .prefix(followRequestPageSize)
+
+        struct Fields: Codable {
+            let username: String
+            let identity_is_verified: Bool
+            let request_id: Int
+            let author_profile_image_url: String?
+            let author_profile_image_original_url: String?
+        }
+        let fieldObjects = rows.map { user, requestId -> Fields in
+            let avatar = user.profileImageStatus == "approved" ? user.profileImageUrl : nil
+            return Fields(username: user.username, identity_is_verified: user.identityIsVerified,
+                          request_id: requestId,
+                          author_profile_image_url: avatar, author_profile_image_original_url: avatar)
+        }
+        return try createSerializedListResponse(fieldsList: fieldObjects)
+    }
+
+    func approveFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        approve(try incomingRequest(to: currentUser, from: username))
+        return try createEmptySuccessResponse()
+    }
+
+    func denyFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        let request = try incomingRequest(to: currentUser, from: username)
+        followRequests.removeAll { $0.userFromId == request.userFromId && $0.userToId == request.userToId }
+        return try createEmptySuccessResponse()
+    }
+
+    func cancelFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        guard let target = findUser(byUsername: username) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "User does not exist")
+        }
+        let before = followRequests.count
+        followRequests.removeAll { $0.userFromId == currentUser.id && $0.userToId == target.id }
+        if followRequests.count == before {
+            throw APIError.serverError(statusCode: 400, serverMessage: "No follow request to cancel")
+        }
+        return try createEmptySuccessResponse()
+    }
+
+    func setAccountPrivacy(sessionManagementToken: String, isPrivate: Bool) async throws -> Data {
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken),
+              let index = users.firstIndex(where: { $0.id == currentUser.id }) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        users[index].isPrivate = isPrivate
+        // Going public approves everyone still waiting, like the backend — except
+        // a requester now in the other age band, whose request is just dropped.
+        if !isPrivate {
+            for request in followRequests.filter({ $0.userToId == currentUser.id }) {
+                if let requester = users.first(where: { $0.id == request.userFromId }),
+                   inSameAgeBand(users[index], requester) {
+                    approve(request)
+                } else {
+                    followRequests.removeAll { $0.userFromId == request.userFromId && $0.userToId == request.userToId }
+                }
+            }
+        }
+        struct Fields: Codable { let is_private: Bool }
+        return try createSerializedResponse(fields: Fields(is_private: isPrivate))
     }
 
     func setFollowCategory(sessionManagementToken: String, username: String, category: String) async throws -> Data {
@@ -2052,6 +2303,11 @@ final class StatefulStubbedAPI: Networking {
             if isUserFollowing(from: userToBlock.id, to: currentUser.id) {
                  userFollows.removeAll { $0.userFromId == userToBlock.id && $0.userToId == currentUser.id }
             }
+            // ...and drops pending follow requests both ways (issue #96).
+            followRequests.removeAll {
+                ($0.userFromId == currentUser.id && $0.userToId == userToBlock.id)
+                    || ($0.userFromId == userToBlock.id && $0.userToId == currentUser.id)
+            }
         }
         
         return try createEmptySuccessResponse()
@@ -2089,6 +2345,12 @@ final class StatefulStubbedAPI: Networking {
         let isFollowing = followEdge != nil
         let isBlocked = requestingUser.blocked.contains(profileUser.id)
         let isBlockedBy = requestingUser.blockedBy.contains(profileUser.id)
+        // Private accounts (issue #96): a non-follower sees no counts, and the
+        // viewer may have a request pending.
+        let hideCounts = !privacyAdmits(authorId: profileUser.id, viewer: requestingUser)
+        let followRequestPending = followRequests.contains {
+            $0.userFromId == requestingUser.id && $0.userToId == profileUser.id
+        }
 
         // 5. Build the response data (matching the Swift struct). The owner-only
         // photo moderation fields (issue #7) are present only when viewing your
@@ -2118,6 +2380,10 @@ final class StatefulStubbedAPI: Networking {
             let pending_profile_image_url: String?
             // Public bio (issue #380).
             let bio: String
+            // Private accounts (issue #96); the count is owner-only.
+            let is_private: Bool
+            let follow_request_pending: Bool
+            let follow_request_count: Int?
         }
 
         if isBlockedBy {
@@ -2138,16 +2404,19 @@ final class StatefulStubbedAPI: Networking {
                 profile_image_reason_code: nil,
                 pending_profile_image_url: nil,
                 // Redacted for a blocked requester, like the stats/avatar above.
-                bio: ""
+                bio: "",
+                is_private: profileUser.isPrivate,
+                follow_request_pending: false,
+                follow_request_count: nil
             )
             return try createSerializedResponse(fields: fields)
         }
 
         let fields = Fields(
             username: profileUser.username,
-            post_count: postCount,
-            follower_count: followerCount,
-            following_count: followingCount,
+            post_count: hideCounts ? 0 : postCount,
+            follower_count: hideCounts ? 0 : followerCount,
+            following_count: hideCounts ? 0 : followingCount,
             is_following: isFollowing,
             follow_category: followEdge?.category,
             is_blocked: isBlocked,
@@ -2159,7 +2428,16 @@ final class StatefulStubbedAPI: Networking {
             profile_image_status: isOwnProfile ? profileUser.profileImageStatus : nil,
             profile_image_reason_code: isOwnProfile ? profileUser.profileImageReasonCode : nil,
             pending_profile_image_url: isOwnProfile ? profileUser.pendingProfileImageUrl : nil,
-            bio: profileUser.bio
+            bio: profileUser.bio,
+            is_private: profileUser.isPrivate,
+            follow_request_pending: followRequestPending,
+            // Counted like the list: cross-band requesters are hidden from both.
+            follow_request_count: isOwnProfile
+                ? followRequests.filter { request in
+                    request.userToId == profileUser.id
+                        && users.first(where: { $0.id == request.userFromId })
+                            .map { inSameAgeBand(profileUser, $0) } == true
+                }.count : nil
         )
 
         // 6. Return the data using your existing helper

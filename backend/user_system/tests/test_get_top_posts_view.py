@@ -147,6 +147,16 @@ class GetTopPostsTests(PositiveOnlySocialTestCase):
 
         self.assertEqual(self._ids(), [public])
 
+    def test_private_account_excluded_even_for_followers(self):
+        # A private account's posts reach its approved followers (issue #96),
+        # but a public scoreboard never ranks them, even for those followers.
+        UserFollow.objects.create(user_from=self.viewer, user_to=self.poster)
+        PositiveOnlySocialUser.objects.filter(pk=self.poster.pk).update(is_private=True)
+        self._post(likes=3)
+        public = self._post(likes=0, author=self.likers[0])
+
+        self.assertEqual(self._ids(), [public])
+
     def test_hidden_post_excluded(self):
         self._post(likes=3, hidden=True, hidden_reason=HIDDEN_REASON_CLASSIFIER)
         self.assertEqual(self._ids(), [])

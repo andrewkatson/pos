@@ -34,6 +34,7 @@ import type {
   DisableTotpResponse,
   FeedPost,
   FollowCategory,
+  FollowRequestRow,
   GoogleLoginRequest,
   HiddenComment,
   HiddenPost,
@@ -88,6 +89,7 @@ import type {
 const POST_BATCH_SIZE = 10
 const COMMENT_BATCH_SIZE = 10
 const LIKE_BATCH_SIZE = 10
+const FOLLOW_REQUEST_BATCH_SIZE = 30
 
 // The Top posts windows and depth, matching backend/user_system/constants.py.
 const TOP_POST_PERIOD_DAYS: Record<TopPostPeriod, number> = { day: 1, week: 7, month: 30, year: 365 }
@@ -147,6 +149,11 @@ interface UserMock {
    * follow, keyed by that person's id. Absent entries default to 'following'. */
   followCategories: Map<string, FollowCategory>
   followers: Set<string>
+  /** Private account (issue #96): only approved followers see its posts. */
+  isPrivate: boolean
+  /** Incoming follow requests awaiting a decision, keyed by the requester's id
+   * to the category they asked for, in arrival order. */
+  followRequests: Map<string, FollowCategory>
   isVerified: boolean
   isAdult: boolean
   blocked: Set<string>
@@ -303,6 +310,10 @@ function ageFromDateOfBirth(dateOfBirth: string): number | null {
 
 export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   private users: UserMock[] = []
+  /** Each pending request's id, keyed `${ownerId}|${requesterId}` — the keyset
+   * cursor the backend pages the request list by (issue #96). */
+  private followRequestIds = new Map<string, number>()
+  private nextFollowRequestId = 1
   private sessions: SessionMock[] = []
   private loginCookies: LoginCookieMock[] = []
   private twoFactorChallenges: TwoFactorChallengeMock[] = []
@@ -357,6 +368,38 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return post
   }
 
+  /** findPost for an interaction (like, report, comment): a private account's
+   * post reads as missing to a non-follower, like the backend (issue #96). */
+  private findReachablePost(postId: string, viewer: UserMock): PostMock {
+    const post = this.findPost(postId)
+    if (!this.privacyAdmits(post.authorId, viewer)) {
+      throw new ApiError(404, 'No post with that identifier')
+    }
+    return post
+  }
+
+  /** findComment for an interaction: a comment on a private account's post is
+   * out of reach for a non-follower (issue #96). */
+  private findReachableComment(
+    postId: string,
+    threadId: string,
+    commentId: string,
+    viewer: UserMock,
+  ): CommentMock {
+    const comment = this.findComment(postId, threadId, commentId)
+    const post = this.posts.find((p) => p.postIdentifier === postId)
+    if (!post || !this.privacyAdmits(post.authorId, viewer)) {
+      throw new ApiError(404, 'Comment not found')
+    }
+    return comment
+  }
+
+  /** privacyAdmits for the post a comment thread sits on (issue #96). */
+  private threadPostPrivacyAdmits(thread: CommentThreadMock, viewer: UserMock): boolean {
+    const post = this.posts.find((p) => p.postIdentifier === thread.postId)
+    return !post || this.privacyAdmits(post.authorId, viewer)
+  }
+
   private findComment(postId: string, threadId: string, commentId: string): CommentMock {
     const thread = this.commentThreads.find(
       (t) => t.threadIdentifier === threadId && t.postId === postId,
@@ -403,6 +446,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       following: new Set(),
       followCategories: new Map(),
       followers: new Set(),
+      isPrivate: false,
+      followRequests: new Map(),
       isVerified: Boolean(body.date_of_birth),
       isAdult: age !== null && age >= 18,
       blocked: new Set(),
@@ -562,6 +607,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         following: new Set(),
         followCategories: new Map(),
         followers: new Set(),
+        isPrivate: false,
+        followRequests: new Map(),
         isVerified: false,
         isAdult: false,
         blocked: new Set(),
@@ -782,6 +829,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     this.posts = this.posts.filter((p) => p.authorId !== user.id)
     this.sessions = this.sessions.filter((s) => s.userId !== user.id)
     this.loginCookies = this.loginCookies.filter((c) => c.userId !== user.id)
+    // Pending follow requests both ways (issue #96), like the backend's CASCADE
+    // foreign keys — otherwise an owner's request count keeps counting a
+    // requester who no longer exists.
+    this.users.forEach((u) => u.followRequests.delete(user.id))
     this.users = this.users.filter((u) => u.id !== user.id)
     this.setToken(null)
     return { message: 'User deleted successfully' }
@@ -789,7 +840,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async getCurrentUser(): Promise<CurrentUser> {
     const user = this.requireUser()
-    return { username: user.username, email: user.email }
+    return { username: user.username, email: user.email, is_private: user.isPrivate }
   }
 
   // ---------------------------------------------------------------------------
@@ -1063,7 +1114,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async reportPost(postIdentifier: string, reason: string): Promise<MessageResponse> {
     const user = this.requireUser()
-    const post = this.findPost(postIdentifier)
+    const post = this.findReachablePost(postIdentifier, user)
     if (post.authorId === user.id) {
       throw new ApiError(400, 'Cannot report own post')
     }
@@ -1077,7 +1128,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async retractReportPost(postIdentifier: string): Promise<MessageResponse> {
     const user = this.requireUser()
-    const post = this.findPost(postIdentifier)
+    const post = this.findReachablePost(postIdentifier, user)
     if (!post.reports.has(user.id)) {
       throw new ApiError(400, 'Post not reported yet')
     }
@@ -1089,7 +1140,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async likePost(postIdentifier: string): Promise<MessageResponse> {
     const user = this.requireUser()
-    const post = this.findPost(postIdentifier)
+    const post = this.findReachablePost(postIdentifier, user)
     if (post.authorId === user.id) {
       throw new ApiError(400, 'Cannot like own post')
     }
@@ -1102,7 +1153,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async unlikePost(postIdentifier: string): Promise<MessageResponse> {
     const user = this.requireUser()
-    const post = this.findPost(postIdentifier)
+    const post = this.findReachablePost(postIdentifier, user)
     if (!post.likes.has(user.id)) {
       throw new ApiError(400, 'Post not liked yet')
     }
@@ -1215,7 +1266,17 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (post.hiddenReason === 'classifier_final') return false
     if (post.authorId === viewer.id) return true
     if (post.hidden) return false
+    if (!this.privacyAdmits(post.authorId, viewer)) return false
     return !viewer.blocked.has(post.authorId) && !viewer.blockedBy.has(post.authorId)
+  }
+
+  /** Mirrors backend privacy_admits (issue #96): a private account's posts reach
+   * only the account itself and the people who follow it. A null viewer is a
+   * signed-out visitor, who follows nobody. */
+  private privacyAdmits(authorId: string, viewer: UserMock | null): boolean {
+    const author = this.users.find((u) => u.id === authorId)
+    if (!author?.isPrivate || viewer?.id === authorId) return true
+    return viewer !== null && viewer.following.has(authorId)
   }
 
   async getFeed(batch: number): Promise<FeedPost[]> {
@@ -1226,6 +1287,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
           !p.hidden &&
           !user.blocked.has(p.authorId) &&
           !user.blockedBy.has(p.authorId) &&
+          this.privacyAdmits(p.authorId, user) &&
           this.audienceAdmits(p, user.id),
       )
       .sort((a, b) => b.creationTime - a.creationTime)
@@ -1250,8 +1312,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }
 
-  /** Mirrors get_top_posts (issue #558): public, live, same-age-band posts
-   * created within the period, most likes first, then newest, then post id,
+  /** Mirrors get_top_posts (issue #558): public, live, same-age-band posts by
+   * public accounts, created within the period, most likes first, then newest, then post id,
    * capped at TOP_POSTS_LIMIT. */
   async getTopPosts(batch: number, period: TopPostPeriod): Promise<FeedPost[]> {
     const user = this.requireUser()
@@ -1261,6 +1323,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         (p) =>
           !p.hidden &&
           p.audience === 'public' &&
+          !this.users.find((u) => u.id === p.authorId)?.isPrivate &&
           p.creationTime >= since &&
           !user.blocked.has(p.authorId) &&
           !user.blockedBy.has(p.authorId) &&
@@ -1293,6 +1356,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       .filter((p) => p.authorId === target.id)
       .filter((p) => p.hiddenReason !== 'classifier_final')
       .filter((p) => (user.id === target.id ? true : !p.hidden))
+      .filter((p) => this.privacyAdmits(p.authorId, user))
       .filter((p) => this.audienceAdmits(p, user.id))
       .sort((a, b) => b.creationTime - a.creationTime)
     return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
@@ -1319,6 +1383,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       .filter((p) => p.hiddenReason !== 'classifier_final')
       .filter((p) => (p.authorId === user.id ? true : !p.hidden))
       .filter((p) => !user.blocked.has(p.authorId) && !user.blockedBy.has(p.authorId))
+      .filter((p) => this.privacyAdmits(p.authorId, user))
       .sort((a, b) => b.creationTime - a.creationTime)
     return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }
@@ -1327,8 +1392,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const user = this.requireUser()
     const post = this.findPost(postIdentifier)
     // Mirror can_view_post: a restricted post the viewer isn't in the audience
-    // for reads exactly like a missing one (issue #392).
-    if (post.authorId !== user.id && !this.audienceAdmits(post, user.id)) {
+    // for (issue #392), or a private account's post for a non-follower (issue
+    // #96), reads exactly like a missing one.
+    if (
+      post.authorId !== user.id &&
+      (!this.audienceAdmits(post, user.id) || !this.privacyAdmits(post.authorId, user))
+    ) {
       throw new ApiError(400, 'No post with that identifier')
     }
     const author = this.users.find((u) => u.id === post.authorId)
@@ -1381,6 +1450,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (post.hiddenReason === 'classifier_final') return false
     if (post.hidden) return false
     if (post.audience !== 'public') return false
+    if (!this.privacyAdmits(post.authorId, null)) return false
     return !this.isVerifiedMinor(post.authorId)
   }
 
@@ -1465,11 +1535,13 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     ).length
     // No is_following / follow_category / is_blocked (no viewer to have them)
     // and none of the owner-only photo-review fields.
+    // A private account shows its header but no counts (issue #96).
     return {
       username: target.username,
       post_count: postCount,
-      follower_count: target.followers.size,
-      following_count: target.following.size,
+      follower_count: target.isPrivate ? 0 : target.followers.size,
+      following_count: target.isPrivate ? 0 : target.following.size,
+      is_private: target.isPrivate,
       identity_is_verified: target.isVerified,
       profile_image_url: target.profileImageUrl,
       profile_image_original_url: target.profileImageUrl,
@@ -1577,7 +1649,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     audience?: PostAudience,
   ): Promise<CommentOnPostResponse> {
     const user = this.requireUser()
-    const post = this.findPost(postIdentifier)
+    const post = this.findReachablePost(postIdentifier, user)
     if (post.commentsDisabled) {
       throw new ApiError(403, 'Comments are disabled for this post')
     }
@@ -1617,7 +1689,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const thread = this.commentThreads.find(
       (t) => t.threadIdentifier === commentThreadIdentifier && t.postId === postIdentifier,
     )
-    if (!thread) {
+    // A thread on a private account's post reads as missing to a non-follower
+    // (issue #96).
+    if (!thread || !this.threadPostPrivacyAdmits(thread, user)) {
       throw new ApiError(400, 'Comment thread not found for the given post')
     }
     const post = this.findPost(thread.postId)
@@ -1666,6 +1740,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     category?: FollowCategory,
   ): Promise<CommentThreadRef[]> {
     const user = this.requireUser()
+    // A private account's post reads as missing to a non-follower (issue #96),
+    // as the backend's can_view_post check makes it.
+    this.findReachablePost(postIdentifier, user)
     const threads = this.commentThreads
       .filter((t) => t.postId === postIdentifier)
       .filter((t) => this.visibleComments(t, user, category).length > 0)
@@ -1683,7 +1760,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const thread = this.commentThreads.find(
       (t) => t.threadIdentifier === commentThreadIdentifier,
     )
-    if (!thread) {
+    // A thread on a private account's post reads as missing to a non-follower
+    // (issue #96).
+    if (!thread || !this.threadPostPrivacyAdmits(thread, user)) {
       throw new ApiError(400, 'No comment thread with that identifier')
     }
     const visible = this.visibleComments(thread, user, category).sort(
@@ -1715,7 +1794,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     commentIdentifier: string,
   ): Promise<MessageResponse> {
     const user = this.requireUser()
-    const comment = this.findComment(postIdentifier, commentThreadIdentifier, commentIdentifier)
+    const comment = this.findReachableComment(
+      postIdentifier,
+      commentThreadIdentifier,
+      commentIdentifier,
+      user,
+    )
     if (comment.authorId === user.id) {
       throw new ApiError(400, 'Cannot like own comment')
     }
@@ -1732,7 +1816,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     commentIdentifier: string,
   ): Promise<MessageResponse> {
     const user = this.requireUser()
-    const comment = this.findComment(postIdentifier, commentThreadIdentifier, commentIdentifier)
+    const comment = this.findReachableComment(
+      postIdentifier,
+      commentThreadIdentifier,
+      commentIdentifier,
+      user,
+    )
     if (!comment.likes.has(user.id)) {
       throw new ApiError(400, 'Comment not liked yet')
     }
@@ -1786,7 +1875,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     reason: string,
   ): Promise<MessageResponse> {
     const user = this.requireUser()
-    const comment = this.findComment(postIdentifier, commentThreadIdentifier, commentIdentifier)
+    const comment = this.findReachableComment(
+      postIdentifier,
+      commentThreadIdentifier,
+      commentIdentifier,
+      user,
+    )
     if (comment.authorId === user.id) {
       throw new ApiError(400, 'Cannot report own comment')
     }
@@ -1804,7 +1898,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     commentIdentifier: string,
   ): Promise<MessageResponse> {
     const user = this.requireUser()
-    const comment = this.findComment(postIdentifier, commentThreadIdentifier, commentIdentifier)
+    const comment = this.findReachableComment(
+      postIdentifier,
+      commentThreadIdentifier,
+      commentIdentifier,
+      user,
+    )
     if (!comment.reports.has(user.id)) {
       throw new ApiError(400, 'Comment not reported yet')
     }
@@ -1850,10 +1949,123 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       throw new ApiError(400, 'Already following user')
     }
     const followCategory = category ?? 'following'
+    // A private account (issue #96) gets a request, not a follow.
+    if (target.isPrivate) {
+      // A block in either direction refuses the request, like the backend.
+      // ...or the two accounts being in different age bands, like the backend.
+      if (
+        target.blocked.has(user.id) ||
+        user.blocked.has(target.id) ||
+        !this.inSameAgeBand(user, target)
+      ) {
+        throw new ApiError(400, 'User does not exist')
+      }
+      if (target.followRequests.has(user.id)) {
+        throw new ApiError(400, 'Follow already requested')
+      }
+      target.followRequests.set(user.id, followCategory)
+      this.followRequestIds.set(`${target.id}|${user.id}`, this.nextFollowRequestId++)
+      return { message: 'Follow requested', follow_category: null, follow_request_pending: true }
+    }
     user.following.add(target.id)
     user.followCategories.set(target.id, followCategory)
     target.followers.add(user.id)
-    return { message: 'User followed', follow_category: followCategory }
+    return { message: 'User followed', follow_category: followCategory, follow_request_pending: false }
+  }
+
+  /** Approve one pending request: the requester becomes a follower with the
+   * category they asked for. */
+  /** Whether two accounts share an age band (issue #329), mirroring
+   * visibility.in_same_age_band: verified minors on one side, everyone else on
+   * the other. */
+  private inSameAgeBand(a: UserMock, b: UserMock): boolean {
+    return this.isVerifiedMinor(a.id) === this.isVerifiedMinor(b.id)
+  }
+
+  private approveRequest(owner: UserMock, requester: UserMock): void {
+    const category = owner.followRequests.get(requester.id) ?? 'following'
+    owner.followRequests.delete(requester.id)
+    requester.following.add(owner.id)
+    requester.followCategories.set(owner.id, category)
+    owner.followers.add(requester.id)
+  }
+
+  /** The requester behind an incoming request, or the backend's 400s. */
+  private requireIncomingRequest(owner: UserMock, username: string): UserMock {
+    const requester = this.findUserByName(username)
+    // A requester who has since moved into the other age band reads as missing,
+    // like the backend, so their request can't become a cross-band follow.
+    if (!requester || !this.inSameAgeBand(owner, requester)) {
+      throw new ApiError(400, 'User does not exist')
+    }
+    if (!owner.followRequests.has(requester.id)) {
+      throw new ApiError(400, 'No follow request from user')
+    }
+    return requester
+  }
+
+  async getFollowRequests(after?: number): Promise<FollowRequestRow[]> {
+    const user = this.requireUser()
+    // Newest first and keyset-paginated by request id, like the backend;
+    // cross-band requesters are hidden there too.
+    return [...user.followRequests.keys()]
+      .map((id) => ({
+        requester: this.users.find((u) => u.id === id),
+        requestId: this.followRequestIds.get(`${user.id}|${id}`) ?? 0,
+      }))
+      .filter(
+        (row): row is { requester: UserMock; requestId: number } =>
+          row.requester !== undefined && this.inSameAgeBand(user, row.requester),
+      )
+      .filter((row) => after === undefined || row.requestId < after)
+      .sort((a, b) => b.requestId - a.requestId)
+      .slice(0, FOLLOW_REQUEST_BATCH_SIZE)
+      .map(({ requester, requestId }) => ({
+        username: requester.username,
+        identity_is_verified: requester.isVerified,
+        request_id: requestId,
+        ...this.authorAvatarFields(requester.id),
+      }))
+  }
+
+  async approveFollowRequest(username: string): Promise<MessageResponse> {
+    const user = this.requireUser()
+    this.approveRequest(user, this.requireIncomingRequest(user, username))
+    return { message: 'Follow request approved' }
+  }
+
+  async denyFollowRequest(username: string): Promise<MessageResponse> {
+    const user = this.requireUser()
+    const requester = this.requireIncomingRequest(user, username)
+    user.followRequests.delete(requester.id)
+    return { message: 'Follow request denied' }
+  }
+
+  async cancelFollowRequest(username: string): Promise<MessageResponse> {
+    const user = this.requireUser()
+    const target = this.findUserByName(username)
+    if (!target) {
+      throw new ApiError(400, 'User does not exist')
+    }
+    if (!target.followRequests.delete(user.id)) {
+      throw new ApiError(400, 'No follow request to cancel')
+    }
+    return { message: 'Follow request cancelled' }
+  }
+
+  async setAccountPrivacy(isPrivate: boolean): Promise<{ is_private: boolean }> {
+    const user = this.requireUser()
+    user.isPrivate = isPrivate
+    // Going public approves everyone still waiting, like the backend.
+    if (!isPrivate) {
+      for (const requesterId of [...user.followRequests.keys()]) {
+        const requester = this.users.find((u) => u.id === requesterId)
+        // A requester now in the other age band is dropped, not approved.
+        if (requester && this.inSameAgeBand(user, requester)) this.approveRequest(user, requester)
+        else user.followRequests.delete(requesterId)
+      }
+    }
+    return { is_private: isPrivate }
   }
 
   async unfollowUser(username: string): Promise<MessageResponse> {
@@ -1910,6 +2122,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     target.following.delete(user.id)
     target.followCategories.delete(user.id)
     user.followers.delete(target.id)
+    // ...and drops pending follow requests both ways (issue #96).
+    user.followRequests.delete(target.id)
+    target.followRequests.delete(user.id)
     return { message: 'User blocked' }
   }
 
@@ -1937,8 +2152,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       }))
   }
 
-  /** Mirrors get_top_users (issue #562): same-age-band, unblocked accounts with
-   * at least one follower, most followers first then by username, capped at
+  /** Mirrors get_top_users (issue #562): public, same-age-band, unblocked
+   * accounts with at least one follower, most followers first then by username, capped at
    * TOP_USERS_LIMIT. Followers are counted within the viewer's age band, as the
    * profile header counts them; the stub has no ban model, so bans don't apply. */
   async getTopUsers(batch: number): Promise<TopUser[]> {
@@ -1946,7 +2161,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const viewerIsMinor = user.isVerified && !user.isAdult
     const inBand = (id: string) => this.isVerifiedMinor(id) === viewerIsMinor
     const ranked = this.users
-      .filter((u) => inBand(u.id) && !user.blocked.has(u.id) && !user.blockedBy.has(u.id))
+      .filter(
+        (u) => !u.isPrivate && inBand(u.id) && !user.blocked.has(u.id) && !user.blockedBy.has(u.id),
+      )
       .map((u) => ({ u, count: [...u.followers].filter(inBand).length }))
       .filter(({ count }) => count > 0)
       .sort((a, b) => b.count - a.count || a.u.username.localeCompare(b.u.username))
@@ -1978,16 +2195,21 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       throw new ApiError(400, 'User not found')
     }
     const isBlockedBy = user.blockedBy.has(target.id)
-    const postCount = isBlockedBy ? 0 : this.posts.filter((p) => p.authorId === target.id).length
+    // A private account shows a non-follower no counts (issue #96); zeroed
+    // exactly like a blocker's.
+    const hideCounts = isBlockedBy || !this.privacyAdmits(target.id, user)
+    const postCount = hideCounts ? 0 : this.posts.filter((p) => p.authorId === target.id).length
     const isFollowing = isBlockedBy ? false : user.following.has(target.id)
     const liveAvatar = isBlockedBy ? null : target.profileImageUrl
     const details: ProfileDetails = {
       username: target.username,
       post_count: postCount,
-      follower_count: isBlockedBy ? 0 : target.followers.size,
-      following_count: isBlockedBy ? 0 : target.following.size,
+      follower_count: hideCounts ? 0 : target.followers.size,
+      following_count: hideCounts ? 0 : target.following.size,
       is_following: isFollowing,
       follow_category: isFollowing ? (user.followCategories.get(target.id) ?? 'following') : null,
+      is_private: target.isPrivate,
+      follow_request_pending: !isBlockedBy && target.followRequests.has(user.id),
       is_blocked: user.blocked.has(target.id),
       identity_is_verified: target.isVerified,
       is_adult: target.isAdult,
@@ -2002,6 +2224,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       details.profile_image_status = target.profileImageStatus
       details.profile_image_reason_code = target.profileImageReasonCode
       details.pending_profile_image_url = target.pendingProfileImageUrl
+      // Counted like the list: cross-band requesters are hidden from both.
+      details.follow_request_count = [...target.followRequests.keys()].filter((id) => {
+        const requester = this.users.find((u) => u.id === id)
+        return requester !== undefined && this.inSameAgeBand(target, requester)
+      }).length
     }
     return details
   }

@@ -192,6 +192,10 @@ final class RealAPI: Networking {
         let bio: String
     }
 
+    private struct SetPrivacyBody: Encodable {
+        let is_private: Bool
+    }
+
     private struct SetInterestsBody: Encodable {
         let categories: [String]
         let freeform: [String]
@@ -942,6 +946,54 @@ final class RealAPI: Networking {
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmentFollowing],
             method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    // MARK: - Private accounts & follow requests (issue #96)
+
+    func getFollowRequests(sessionManagementToken: String, after: Int?) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmentFollowRequests],
+            method: .get,
+            authToken: sessionManagementToken,
+            queryItems: after.map { [URLQueryItem(name: GVOAppConstants.queryKeyAfter, value: String($0))] }
+        )
+    }
+
+    func approveFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, username,
+                           GVOAppConstants.pathSegmentFollowRequest, GVOAppConstants.pathSegmentApprove],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func denyFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, username,
+                           GVOAppConstants.pathSegmentFollowRequest, GVOAppConstants.pathSegmentDeny],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func cancelFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, username,
+                           GVOAppConstants.pathSegmentFollowRequest, GVOAppConstants.pathSegmentCancel],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func setAccountPrivacy(sessionManagementToken: String, isPrivate: Bool) async throws -> Data {
+        let requestBody = try encode(SetPrivacyBody(is_private: isPrivate))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmenProfile, GVOAppConstants.pathSegmentPrivate],
+            method: .post,
+            body: requestBody,
             authToken: sessionManagementToken
         )
     }

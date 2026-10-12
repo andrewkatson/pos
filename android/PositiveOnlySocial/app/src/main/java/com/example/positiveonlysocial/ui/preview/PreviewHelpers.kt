@@ -685,6 +685,35 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun getFollowRequests(token: String, after: Long?): Response<List<User>> {
+        if (after != null) return Response.success(emptyList())
+        return Response.success(
+            listOf(
+                User(username = "requester_1", identityIsVerified = true),
+                User(username = "requester_2", identityIsVerified = false)
+            )
+        )
+    }
+
+    override suspend fun approveFollowRequest(token: String, username: String): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "Follow request approved", error = null))
+    }
+
+    override suspend fun denyFollowRequest(token: String, username: String): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "Follow request denied", error = null))
+    }
+
+    override suspend fun cancelFollowRequest(token: String, username: String): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "Follow request cancelled", error = null))
+    }
+
+    override suspend fun setAccountPrivacy(
+        token: String,
+        request: SetAccountPrivacyRequest
+    ): Response<SetAccountPrivacyResponse> {
+        return Response.success(SetAccountPrivacyResponse(isPrivate = request.isPrivate))
+    }
+
     override suspend fun getProfileDetails(
         token: String,
         username: String
