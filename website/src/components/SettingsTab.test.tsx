@@ -65,7 +65,7 @@ beforeEach(() => {
   mockDisableTotp.mockReset().mockResolvedValue({ totp_enabled: false })
   mockGetCurrentUser
     .mockReset()
-    .mockResolvedValue({ username: 'ada', email: 'ada@example.com' })
+    .mockResolvedValue({ username: 'ada', email: 'ada@example.com', is_private: false })
   mockChangePassword.mockReset().mockResolvedValue({ message: 'ok' })
   mockSetPrivacy.mockReset().mockResolvedValue({ is_private: true })
   // Default: no notification types, so the Notifications section stays hidden
@@ -379,4 +379,12 @@ test('opens the follow requests page (#96)', async () => {
   renderTab()
   await userEvent.click(screen.getByRole('button', { name: 'Follow Requests' }))
   expect(screen.getByText('Follow requests page')).toBeInTheDocument()
+})
+
+test('the private account toggle stays disabled when the backend omits the setting', async () => {
+  mockGetCurrentUser.mockResolvedValue({ username: 'ada', email: 'ada@example.com' })
+  renderTab()
+  await screen.findByText('ada@example.com')
+
+  expect(screen.getByRole('button', { name: /Private account/ })).toBeDisabled()
 })

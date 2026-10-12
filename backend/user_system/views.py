@@ -4235,12 +4235,18 @@ def follow_user(request, username_to_follow):
         # the same row lock, so an account cannot go private between the check
         # and the write (gaining an unapproved follower) or go public between
         # them (stranding a request no one will ever need to approve).
-        user_to_follow_obj = get_user_model().objects.select_for_update(no_key=True).get(pk=user_to_follow_obj.pk)
+        #
+        # Both accounts are locked, in primary-key order like every other lock in
+        # this flow, and re-read fresh: either one may have verified into the
+        # other age band since `request.user` and the first lookup were loaded,
+        # and the band check below must see the rows the write happens under.
+        _lock_users(request.user, user_to_follow_obj)
+        caller = get_user_model().objects.get(pk=request.user.pk)
+        user_to_follow_obj = get_user_model().objects.get(pk=user_to_follow_obj.pk)
 
-        # Re-check the age band on the locked, fresh row (issue #329): the
-        # target may have verified into the other band since the check above,
-        # and neither a follow nor a request may cross bands.
-        if not in_same_age_band(request.user, user_to_follow_obj):
+        # Re-check the age band on the locked, fresh rows (issue #329): neither a
+        # follow nor a request may cross bands.
+        if not in_same_age_band(caller, user_to_follow_obj):
             return log_and_return_json("follow_user", {'error': "User does not exist"}, status=400)
 
         # Re-check the edge under the lock: an approval (which holds the same
@@ -4529,7 +4535,11 @@ def _incoming_follow_request(request, endpoint, username):
     if not is_valid_pattern(username, Patterns.username):
         return None, log_and_return_json(endpoint, {'error': "Invalid username"}, status=400)
     requester = get_user_with_username(username)
-    if requester is None or not in_same_age_band(request.user, requester):
+    # Compare against a fresh read of the owner, not the `request.user` loaded at
+    # authentication: callers lock the owner first, and an identity verification
+    # may have changed its band in between.
+    owner = get_user_model().objects.get(pk=request.user.pk)
+    if requester is None or not in_same_age_band(owner, requester):
         return None, log_and_return_json(endpoint, {'error': "User does not exist"}, status=400)
     follow_request = FollowRequest.objects.filter(user_from=requester, user_to=request.user).first()
     if follow_request is None:
@@ -4656,15 +4666,22 @@ def cancel_follow_request(request, username):
     if not is_valid_pattern(username, Patterns.username):
         return log_and_return_json("cancel_follow_request", {'error': "Invalid username"}, status=400)
     target_user = get_user_with_username(username)
-    if target_user is None or not in_same_age_band(request.user, target_user):
+    if target_user is None:
         return log_and_return_json("cancel_follow_request", {'error': "User does not exist"}, status=400)
     with transaction.atomic():
         # Lock the owner, as approving (one at a time or all at once when going
         # public) does, so a cancellation that reports success can never be
         # followed by that same request turning into a follow edge.
         _lock_users(target_user)
+        # Withdrawing your own request works even if one of you has since
+        # verified into the other age band — otherwise the request would be
+        # stuck, since the owner can no longer see or answer it. Only a
+        # cross-band target with *no* request from the caller reads as missing,
+        # so this can't confirm such an account exists.
         deleted_count, _ = FollowRequest.objects.filter(user_from=request.user, user_to=target_user).delete()
     if deleted_count == 0:
+        if not in_same_age_band(request.user, target_user):
+            return log_and_return_json("cancel_follow_request", {'error': "User does not exist"}, status=400)
         return log_and_return_json("cancel_follow_request", {'error': "No follow request to cancel"}, status=400)
     logger.info(f"Follow request cancelled: target_user_id: {target_user.id} by user_id: {request.user.id}")
     return log_and_return_json("cancel_follow_request", {'message': 'Follow request cancelled'})

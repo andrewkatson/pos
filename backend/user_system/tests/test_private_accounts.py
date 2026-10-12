@@ -15,6 +15,7 @@ from ..constants import (
 )
 from ..models import FollowRequest, PositiveOnlySocialUser, Tag, UserBan, UserFollow
 from ..visibility import PUBLIC_VIEWER, can_view_post, privacy_admits, visible_comments, visible_posts
+from ..visibility import in_same_age_band as real_in_same_age_band
 
 
 class PrivateAccountTestBase(RelationshipCategoryTestBase):
@@ -197,6 +198,54 @@ class FollowRequestDecisionTests(PrivateAccountTestBase):
         response = self._request_action('cancel', self.local_username, self.viewer_header)
 
         self.assertEqual(response.status_code, 200)
+        self.assertFalse(FollowRequest.objects.exists())
+
+    def test_cancel_still_works_after_a_band_change(self):
+        """A requester who verified into the other band can still withdraw
+        their request; the owner can no longer see or answer it."""
+        self._follow(self.local_username, self.viewer_header)
+        self.viewer.identity_is_verified = True
+        self.viewer.is_adult = False
+        self.viewer.save(update_fields=['identity_is_verified', 'is_adult'])
+
+        response = self._request_action('cancel', self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(FollowRequest.objects.exists())
+
+    def test_cancel_with_no_request_to_a_cross_band_account_reads_as_missing(self):
+        self.viewer.identity_is_verified = True
+        self.viewer.is_adult = False
+        self.viewer.save(update_fields=['identity_is_verified', 'is_adult'])
+
+        response = self._request_action('cancel', self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "User does not exist")
+
+    def test_caller_band_rechecked_on_a_fresh_read(self):
+        """The caller verified as a minor after authentication loaded them: the
+        locked re-read of the caller refuses a request to the adult account."""
+        self.author.identity_is_verified = True
+        self.author.is_adult = True
+        self.author.save(update_fields=['identity_is_verified', 'is_adult'])
+        stale_caller = PositiveOnlySocialUser.objects.get(pk=self.viewer.pk)
+        self.viewer.identity_is_verified = True
+        self.viewer.is_adult = False
+        self.viewer.save(update_fields=['identity_is_verified', 'is_adult'])
+
+        calls = []
+
+        def first_check_sees_stale_caller(a, b):
+            # Only the pre-lock check sees the caller as loaded before verifying.
+            calls.append(a)
+            return real_in_same_age_band(stale_caller if len(calls) == 1 else a, b)
+
+        with patch('user_system.views.in_same_age_band', side_effect=first_check_sees_stale_caller):
+            response = self._follow(self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "User does not exist")
         self.assertFalse(FollowRequest.objects.exists())
 
     def test_cancel_without_request_fails(self):

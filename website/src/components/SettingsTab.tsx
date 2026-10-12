@@ -104,7 +104,7 @@ function SettingsTab() {
   }
 
   async function togglePrivacy() {
-    if (!currentUser || savingPrivacy) return
+    if (currentUser?.is_private === undefined || savingPrivacy) return
     const next = !(currentUser.is_private ?? false)
     setErrorMessage(null)
     // Optimistic: flip immediately, revert on failure (like the notification rows).
@@ -191,7 +191,9 @@ function SettingsTab() {
           type="button"
           className="settings-row settings-row--toggle"
           aria-pressed={currentUser?.is_private ?? false}
-          disabled={!currentUser || savingPrivacy}
+          // Disabled until the backend reports the setting: an older backend omits
+          // is_private and may not have the endpoint (iOS and Android do the same).
+          disabled={currentUser?.is_private === undefined || savingPrivacy}
           onClick={() => void togglePrivacy()}
         >
           <span>Private account</span>
