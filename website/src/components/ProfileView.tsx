@@ -167,12 +167,23 @@ function ProfileView({
   // the fail-closed private state a follow just applied by restoring a stale
   // public grid and counts.
   const loadGeneration = useRef(0)
+  // Profile (header/relationship) loads also track their own generation, which
+  // a confirmed follow, follow request or cancel bumps on its own: an older
+  // profile response can't then flip the button back, while the posts load in
+  // flight is left alone.
+  const profileGeneration = useRef(0)
 
   const loadProfile = useCallback(async () => {
     const generation = loadGeneration.current
+    const profileGen = profileGeneration.current
     try {
       const details = await fetchProfile()
-      if (!isMounted.current || generation !== loadGeneration.current) return
+      if (
+        !isMounted.current ||
+        generation !== loadGeneration.current ||
+        profileGen !== profileGeneration.current
+      )
+        return
       setProfile(details)
       applyRelationship(details)
       setLoadFailed(false)
@@ -273,13 +284,20 @@ function ProfileView({
   function refresh() {
     // Supersede any load still in flight: only this refresh's responses apply.
     loadGeneration.current += 1
+    profileGeneration.current += 1
     const generation = loadGeneration.current
+    const profileGen = profileGeneration.current
     setIsLoadingPosts(true)
     // A manual refresh grants a fresh reconcile-poll budget (#282).
     pollAttempts.current = 0
     fetchProfile()
       .then(details => {
-        if (!isMounted.current || generation !== loadGeneration.current) return
+        if (
+          !isMounted.current ||
+          generation !== loadGeneration.current ||
+          profileGen !== profileGeneration.current
+        )
+          return
         setProfile(details)
         applyRelationship(details)
       })
@@ -395,6 +413,8 @@ function ProfileView({
         // "Requested" → withdraw the pending request (issue #96).
         try {
           await apiClient.cancelFollowRequest(username)
+          // Supersede an older profile load so it can't put "Requested" back.
+          profileGeneration.current += 1
           setFollowRequestPending(false)
         } catch {
           // Most likely the owner already answered the request (or went public
@@ -447,9 +467,12 @@ function ProfileView({
           refresh()
         } else if (filedRequest) {
           // A private account: the call filed a request, nothing changes until
-          // the owner approves it (issue #96).
+          // the owner approves it (issue #96). Supersede an older profile load
+          // so it can't flip the button back to Follow.
+          profileGeneration.current += 1
           setFollowRequestPending(true)
         } else {
+          profileGeneration.current += 1
           setIsFollowing(true)
           setFollowCategory('following')
           setProfile(p => (p ? { ...p, follow_category: 'following', follower_count: p.follower_count + 1 } : p))

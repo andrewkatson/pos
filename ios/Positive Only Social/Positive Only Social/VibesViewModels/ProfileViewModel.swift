@@ -540,8 +540,17 @@ class ProfileViewModel: ObservableObject {
                 } else {
                     let data = try await api.followUser(sessionManagementToken: token, username: user.username, category: nil)
                     let filedRequest = (try? JSONDecoder().decode(FollowResponse.self, from: data))?.followRequestPending ?? false
+                    // A details load that started before this call may still
+                    // land and flip the button back; supersede it (issue #96).
+                    detailsRefreshGeneration += 1
                     // The server has the final word on whether the account is
                     // private (it may have changed since the profile loaded).
+                    if filedRequest == expectsRequest {
+                        // Confirmed as expected: re-apply it in case an older
+                        // load already landed before the response.
+                        followRequestPending = filedRequest
+                        isFollowing = !filedRequest
+                    }
                     if filedRequest != expectsRequest {
                         // The owner changed their privacy since this profile
                         // loaded, so the cached privacy, counts and grid are all
@@ -627,6 +636,10 @@ class ProfileViewModel: ObservableObject {
                     return
                 }
                 _ = try await api.cancelFollowRequest(sessionManagementToken: userSession.sessionToken, username: user.username)
+                // Confirmed: supersede any older details load so it can't put
+                // "Requested" back, and re-apply the cancelled state.
+                detailsRefreshGeneration += 1
+                followRequestPending = false
             } catch {
                 // Most likely the owner already answered the request (or went
                 // public and approved it) while this profile was open, so the

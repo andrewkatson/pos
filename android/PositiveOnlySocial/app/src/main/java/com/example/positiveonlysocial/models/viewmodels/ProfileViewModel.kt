@@ -690,6 +690,7 @@ class ProfileViewModel(
                             // The account went public and the server just created
                             // the follow: apply that now, so a failed reload can't
                             // leave it showing Requested (whose cancel can't work).
+                            loadGeneration++
                             _profileDetails.value = currentProfile.copy(
                                 isPrivate = false,
                                 isFollowing = true,
@@ -700,6 +701,21 @@ class ProfileViewModel(
                             _followCategory.value = FollowCategory.FOLLOWING
                         }
                         refreshProfile(username)
+                    } else {
+                        // Confirmed as expected. A profile load that started before
+                        // this call may still land and undo it (flipping the button
+                        // back), so supersede it and re-apply the confirmed state.
+                        loadGeneration++
+                        _profileDetails.value = if (filedRequest) {
+                            currentProfile.copy(followRequestPending = true)
+                        } else {
+                            currentProfile.copy(
+                                isFollowing = true,
+                                followCategory = FollowCategory.FOLLOWING.value,
+                                followerCount = currentProfile.followerCount + 1
+                            )
+                        }
+                        _isFollowing.value = !filedRequest
                     }
                 }
             } catch (e: Exception) {
@@ -739,6 +755,11 @@ class ProfileViewModel(
                     // leaves "Requested" rather than a guess.
                     _profileDetails.value = currentProfile
                     refreshProfile(username)
+                } else {
+                    // Confirmed: supersede any older profile load so it can't put
+                    // "Requested" back, and re-apply the cancelled state.
+                    loadGeneration++
+                    _profileDetails.value = currentProfile.copy(followRequestPending = false)
                 }
             } catch (e: Exception) {
                 _profileDetails.value = currentProfile

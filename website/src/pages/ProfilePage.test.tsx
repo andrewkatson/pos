@@ -676,3 +676,22 @@ test('a follow that reveals the account went public shows Following even if the 
   expect(await screen.findByRole('button', { name: 'Following' })).toBeInTheDocument()
   expect(screen.queryByText('This account is private')).not.toBeInTheDocument()
 })
+
+test('a stale profile load landing after a follow request keeps Requested', async () => {
+  let resolveStale: (details: ProfileDetails) => void = () => {}
+  mockGetProfile
+    .mockResolvedValueOnce(privateProfile)
+    .mockImplementationOnce(() => new Promise(resolve => (resolveStale = resolve)))
+  mockGetPosts.mockResolvedValue([])
+  mockFollow.mockResolvedValue({ message: 'Follow requested', follow_category: null, follow_request_pending: true })
+  renderProfile()
+  await screen.findByText('This account is private')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' })) // stalls
+  await userEvent.click(screen.getByRole('button', { name: 'Follow' }))
+  expect(await screen.findByRole('button', { name: 'Requested' })).toBeInTheDocument()
+
+  resolveStale(privateProfile) // the pre-request profile: no pending request
+  await waitFor(() => expect(mockGetProfile).toHaveBeenCalledTimes(2))
+  expect(screen.getByRole('button', { name: 'Requested' })).toBeInTheDocument()
+})

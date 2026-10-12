@@ -404,6 +404,33 @@ class PrivateAccountViewModelTest {
         assertTrue(viewModel.userPosts.value.isEmpty())
     }
 
+    @Test
+    fun `a stale refresh landing after a follow request keeps Requested`() = runTest {
+        val api: PositiveOnlySocialAPI = mock()
+        val private = ProfileDetailsResponse("author", 0, 0, 0, isFollowing = false, isPrivate = true)
+        val staleProfile = CompletableDeferred<Response<ProfileDetailsResponse>>()
+        var profileCalls = 0
+        api.stub {
+            onBlocking { getProfileDetails("token123", "author") } doSuspendableAnswer {
+                if (++profileCalls == 2) staleProfile.await() else Response.success(private)
+            }
+            onBlocking { getPostsForUser(eq("token123"), eq("author"), any()) } doSuspendableAnswer {
+                Response.success(emptyList())
+            }
+            onBlocking { followUser("token123", "author") } doSuspendableAnswer {
+                Response.success(GenericResponse("Follow requested", null, null, followRequestPending = true))
+            }
+        }
+        val viewModel = ProfileViewModel(api, keychainFor("token123", "viewer"))
+        viewModel.fetchProfile("author")
+        viewModel.refreshProfile("author") // stalls
+
+        viewModel.toggleFollow("author")
+        staleProfile.complete(Response.success(private)) // pre-request: no pending request
+
+        assertEquals(true, viewModel.profileDetails.value!!.followRequestPending)
+    }
+
     // --- FollowRequestsViewModel ---
 
     private val requesters = listOf(User("alice", true), User("bob", false))
