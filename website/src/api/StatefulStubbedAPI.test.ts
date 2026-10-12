@@ -1341,3 +1341,18 @@ test('follow requests page by request-id cursor, unaffected by answering rows', 
   const older = await api.getFollowRequests(first[1].request_id)
   expect(older.map((r) => r.username)).toEqual(['r1'])
 })
+
+test('a request across age bands is refused up front', async () => {
+  const api = new StatefulStubbedAPI()
+  await api.register({
+    username: 'author',
+    email: 'author@example.com',
+    password: 'password123',
+    date_of_birth: '1980-01-01',
+  })
+  await api.setAccountPrivacy(true)
+  await register(api, 'viewer')
+  await api.verifyIdentity(`${new Date().getFullYear() - 16}-01-01`) // viewer is a minor
+
+  await expect(api.followUser('author')).rejects.toThrow('User does not exist')
+})

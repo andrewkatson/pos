@@ -66,9 +66,13 @@ final class FollowRequestsViewModel: ObservableObject {
     func load() async {
         let generation = decisionGeneration
         fullLoadGeneration += 1
+        // This invocation's own full-load generation: when loads overlap (the
+        // initial .task and a pull-to-refresh), only the newest updates state.
+        let loadGeneration = fullLoadGeneration
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
+        // A superseded load leaves the loading flag to the newer one.
+        defer { if loadGeneration == fullLoadGeneration { isLoading = false } }
         do {
             guard let session = try loadSession() else {
                 NSLog("%@", "No active session found — cannot load follow requests")
@@ -76,7 +80,7 @@ final class FollowRequestsViewModel: ObservableObject {
             }
             let data = try await api.getFollowRequests(sessionManagementToken: session.sessionToken, after: nil)
             let page = try JSONDecoder().decode([User].self, from: data)
-            guard generation == decisionGeneration else { return }
+            guard generation == decisionGeneration, loadGeneration == fullLoadGeneration else { return }
             requests = page
             nextCursor = requests.last?.requestId
             canLoadMore = !requests.isEmpty
@@ -86,7 +90,7 @@ final class FollowRequestsViewModel: ObservableObject {
                 NSLog("%@", "Follow requests load cancelled")
             } else {
                 NSLog("%@", "Error loading follow requests: \(error)")
-                errorMessage = error.userFacingMessage
+                if loadGeneration == fullLoadGeneration { errorMessage = error.userFacingMessage }
             }
         }
     }

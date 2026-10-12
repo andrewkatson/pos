@@ -1456,7 +1456,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // A private account (issue #96) gets a request, not a follow.
         if (target.isPrivate) {
             // A block in either direction refuses the request, like the backend.
-            if (target.blocked.contains(user.id) || user.blocked.contains(target.id)) {
+            // A block in either direction, or the two accounts being in
+            // different age bands, reads as a missing account, like the backend.
+            if (target.blocked.contains(user.id) || user.blocked.contains(target.id) ||
+                !inSameAgeBand(user, target)) {
                 return error(400, "User does not exist")
             }
             if (target.followRequests.containsKey(user.id)) return error(400, "Follow already requested")

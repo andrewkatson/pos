@@ -1915,7 +1915,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     // A private account (issue #96) gets a request, not a follow.
     if (target.isPrivate) {
       // A block in either direction refuses the request, like the backend.
-      if (target.blocked.has(user.id) || user.blocked.has(target.id)) {
+      // ...or the two accounts being in different age bands, like the backend.
+      if (
+        target.blocked.has(user.id) ||
+        user.blocked.has(target.id) ||
+        !this.inSameAgeBand(user, target)
+      ) {
         throw new ApiError(400, 'User does not exist')
       }
       if (target.followRequests.has(user.id)) {

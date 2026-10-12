@@ -182,6 +182,16 @@ struct Positive_Only_SocialTests_PrivateAccounts {
         #expect(try await profile(authorToken, of: "privateAuthor").followRequestCount == 0)
     }
 
+    @Test func requestAcrossAgeBandsIsRefusedUpFront() async throws {
+        let (_, _, viewerToken, _) = try await privateAuthorAndViewer()
+        let minorYear = Calendar.current.component(.year, from: Date()) - 16
+        _ = try await stubAPI.verifyIdentity(sessionManagementToken: viewerToken, dateOfBirth: "\(minorYear)-01-01")
+
+        await #expect(throws: (any Error).self) {
+            _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "privateAuthor")
+        }
+    }
+
     @Test func goingPublicApprovesPendingRequests() async throws {
         let (authorToken, _, viewerToken, _) = try await privateAuthorAndViewer()
         _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "privateAuthor")

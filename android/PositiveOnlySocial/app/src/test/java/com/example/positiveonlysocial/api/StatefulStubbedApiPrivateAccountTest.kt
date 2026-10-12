@@ -191,4 +191,14 @@ class StatefulStubbedApiPrivateAccountTest {
         assertEquals(listOf("viewer"), second.map { it.username })
         assertTrue(api.getFollowRequests(authorToken, second.last().requestId).body()!!.isEmpty())
     }
+
+    @Test
+    fun `a request across age bands is refused up front`() = runTest {
+        val api = StatefulStubbedAPI()
+        val (_, viewerToken) = privateAuthorAndViewer(api) // both registered as adults
+        val minorYear = java.time.LocalDate.now().year - 16
+        api.verifyIdentity(viewerToken, com.example.positiveonlysocial.data.model.IdentityVerificationRequest("$minorYear-01-01"))
+
+        assertFalse(api.followUser(viewerToken, "author").isSuccessful)
+    }
 }
