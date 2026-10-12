@@ -4714,7 +4714,8 @@ def set_account_privacy(request):
     has nothing left to approve and those people asked to follow."""
     logger.info("Endpoint set_account_privacy invoked by IP or User")
     data = _get_json_body(request)
-    if data is None:
+    # Valid JSON need not be an object ([] or false would fail .get below).
+    if not isinstance(data, dict):
         return log_and_return_json("set_account_privacy", {'error': "Invalid JSON data"}, status=400)
     is_private = data.get(Fields.is_private)
     if not isinstance(is_private, bool):

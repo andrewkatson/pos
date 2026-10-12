@@ -122,8 +122,10 @@ caller's leftover request, so unfollowing later can't be undone by the
 conversion catching up. Only requesters still in the owner's
 age band are approved, checked with their rows locked so a concurrent identity
 verification can't slip past; anyone who has since verified into the other band
-— or whose row is mid-update at that moment — has their request dropped instead,
-and as the account is now public they can simply follow. Blocking drops any pending request
+has their request dropped instead, and as the account is now public they can
+simply follow. A requester whose row is mid-update at that moment is skipped
+rather than decided: their request stays pending for a later chunk, and if a
+whole chunk is busy the job stops and the sweep picks it up. Blocking drops any pending request
 in either direction, alongside the follow edges.
 
 The privacy rule lives in `visibility.py` (`privacy_admits`, and `_privacy_q` in

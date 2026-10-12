@@ -208,7 +208,10 @@ def convert_follow_requests_job(owner_id):
     """RQ entry point: convert a bounded number of rounds, then enqueue a
     continuation if requests remain, so no single job's runtime grows with the
     backlog (and an exhausted job can't strand the rest)."""
-    if not convert_follow_requests(owner_id, max_rounds=FOLLOW_REQUEST_CHUNKS_PER_JOB):
+    done, stalled = _convert_follow_requests(owner_id, max_rounds=FOLLOW_REQUEST_CHUNKS_PER_JOB)
+    # A stalled run (every remaining requester's row busy) isn't continued at
+    # once, which could spin; sweep_classifications retries it later.
+    if not done and not stalled:
         enqueue_follow_request_conversion(owner_id)
 
 
@@ -227,34 +230,53 @@ def convert_follow_requests(owner_id, max_rounds=None):
     one at a time is already refused. Each chunk's requesters are row-locked
     before their band is read, so a verification can't move one across between
     the check and the insert; a requester whose row is busy right now (SKIP
-    LOCKED — the owner is already locked, so waiting could deadlock) is treated
-    as ineligible. Every request in the chunk is deleted either way: the
-    ineligible ones are hidden from the owner's list and could never be
+    LOCKED — the owner is already locked, so waiting could deadlock) is left
+    pending for a later round, continuation or sweep rather than decided now.
+    Every request whose requester was locked is deleted, followed or not: the
+    cross-band ones are hidden from the owner's list and could never be
     approved, and the account is public now, so anyone dropped can just follow.
 
     `max_rounds` caps the chunks processed; returns True when nothing is left to
-    convert (or the owner is gone or private again), False if the cap was hit
-    with requests remaining."""
+    convert (or the owner is gone or private again), False if requests remain —
+    because the cap was hit, or because every requester left in a chunk was
+    busy."""
+    done, _ = _convert_follow_requests(owner_id, max_rounds)
+    return done
+
+
+def _lock_free_requesters(requester_ids):
+    """Row-lock whichever of these accounts aren't locked by someone else right
+    now (SKIP LOCKED), returning their ids; the busy ones are left out."""
+    return set(
+        PositiveOnlySocialUser.objects.select_for_update(no_key=True, skip_locked=True)
+        .filter(pk__in=requester_ids).order_by('pk').values_list('pk', flat=True)
+    )
+
+
+def _convert_follow_requests(owner_id, max_rounds=None):
+    """convert_follow_requests, also reporting whether it stopped because a
+    whole chunk's requesters were busy (no progress possible right now)."""
     rounds = 0
     while max_rounds is None or rounds < max_rounds:
         rounds += 1
         with transaction.atomic():
             locked_owner = PositiveOnlySocialUser.objects.select_for_update(no_key=True).filter(pk=owner_id).first()
             if locked_owner is None:
-                return True  # account deleted since; its requests cascaded away
+                return True, False  # account deleted since; its requests cascaded away
             if locked_owner.is_private:
-                return True
+                return True, False
             chunk = list(
                 FollowRequest.objects.filter(user_to=locked_owner).order_by('pk')
                 .values_list('pk', 'user_from_id', 'category')[:FOLLOW_REQUEST_BULK_BATCH_SIZE]
             )
             if not chunk:
-                return True
+                return True, False
             requester_ids = [requester_id for _, requester_id, _ in chunk]
-            locked_ids = list(
-                PositiveOnlySocialUser.objects.select_for_update(no_key=True, skip_locked=True)
-                .filter(pk__in=requester_ids).order_by('pk').values_list('pk', flat=True)
-            )
+            locked_ids = _lock_free_requesters(requester_ids)
+            if not locked_ids:
+                # Every requester in the chunk is busy: the same chunk would be
+                # read again, so stop and let a later run pick it up.
+                return False, True
             eligible = set(
                 same_age_band_users(PositiveOnlySocialUser.objects.filter(pk__in=locked_ids), locked_owner)
                 .values_list('pk', flat=True)
@@ -264,9 +286,11 @@ def convert_follow_requests(owner_id, max_rounds=None):
                  for _, requester_id, category in chunk if requester_id in eligible],
                 ignore_conflicts=True,
             )
-            FollowRequest.objects.filter(pk__in=[pk for pk, _, _ in chunk]).delete()
+            # A busy requester's request stays pending for a later run.
+            FollowRequest.objects.filter(
+                pk__in=[pk for pk, requester_id, _ in chunk if requester_id in locked_ids]).delete()
     # Out of rounds: done only if nothing is left.
-    return not FollowRequest.objects.filter(user_to_id=owner_id).exists()
+    return not FollowRequest.objects.filter(user_to_id=owner_id).exists(), False
 
 
 def categorize_post(post_identifier):

@@ -455,6 +455,13 @@ class AccountPrivacySettingTests(PrivateAccountTestBase):
         enqueued = queue.return_value.enqueue.call_args
         self.assertEqual(enqueued.args, ('user_system.tasks.convert_follow_requests_job', str(self.author.pk)))
 
+    def test_privacy_rejects_json_that_is_not_an_object(self):
+        for body in ('[]', 'false', '"x"'):
+            response = self.client.post(reverse('set_account_privacy'), data=body,
+                                        content_type='application/json', **self.author_header)
+            self.assertEqual(response.status_code, 400, body)
+            self.assertEqual(response.json()['error'], "Invalid JSON data", body)
+
     def test_inline_conversion_failure_still_reports_the_committed_change(self):
         self._follow(self.local_username, self.viewer_header)
         with patch('user_system.tasks.convert_follow_requests', side_effect=RuntimeError('db hiccup')), \
@@ -550,6 +557,32 @@ class AccountPrivacySettingTests(PrivateAccountTestBase):
         tasks.convert_follow_requests(str(self.author.pk))
 
         self.assertFalse(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
+
+    def test_conversion_keeps_requests_from_busy_requesters_pending(self):
+        """A requester whose row another transaction holds is skipped, not
+        dropped: their request stays for a later run, which approves it."""
+        from .. import tasks
+        fans = [PositiveOnlySocialUser.objects.get(
+            username=self.make_user_with_prefix(prefix=f'busy{i}')[Fields.username]) for i in range(2)]
+        for fan in fans:
+            FollowRequest.objects.create(user_from=fan, user_to=self.author)
+        PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(is_private=False)
+        busy = fans[0].pk
+
+        with patch('user_system.tasks._lock_free_requesters',
+                   side_effect=lambda ids: {pk for pk in ids if pk != busy}), \
+                patch('user_system.tasks.enqueue_follow_request_conversion') as enqueue:
+            tasks.convert_follow_requests_job(str(self.author.pk))
+
+        self.assertTrue(UserFollow.objects.filter(user_from=fans[1], user_to=self.author).exists())
+        self.assertTrue(FollowRequest.objects.filter(user_from=fans[0], user_to=self.author).exists())
+        # Only the busy row is left, so the job stops rather than spin on it.
+        enqueue.assert_not_called()
+
+        tasks.convert_follow_requests(str(self.author.pk))  # the sweep's later run
+
+        self.assertTrue(UserFollow.objects.filter(user_from=fans[0], user_to=self.author).exists())
+        self.assertFalse(FollowRequest.objects.exists())
 
     def test_going_private_keeps_existing_followers(self):
         self._set_private(False, self.author_header)
