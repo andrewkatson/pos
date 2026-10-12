@@ -430,6 +430,9 @@ struct MockedAPI: Networking {
 
     func getTopUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
         struct Row: Encodable { let username: String; let identity_is_verified: Bool; let follower_count: Int }
+        // One page only: TopUsersViewModel pages past repeat-only pages, so the
+        // same rows on every batch would make a preview request forever.
+        guard batch == 0 else { return try JSONEncoder().encode([Row]()) }
         return try JSONEncoder().encode([
             Row(username: "popular_pal", identity_is_verified: true, follower_count: 1200),
             Row(username: "coffee_addict", identity_is_verified: false, follower_count: 45),
