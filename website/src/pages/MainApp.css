@@ -427,9 +427,21 @@
   font-weight: 600;
 }
 
-/* Follower count on the most-followed board (issue #562), pushed to the right. */
+/* A username that may share its row with other content: truncated with an
+   ellipsis rather than pushing that content off the row. Usernames run up to
+   150 characters. */
+.user-list__name--truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Follower count on the most-followed board (issue #562), pushed to the right
+   and never squeezed by a long username. */
 .user-list__count {
   margin-left: auto;
+  flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
 

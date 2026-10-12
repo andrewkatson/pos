@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -473,19 +474,30 @@ fun TopUsersBoard(
                         size = 32.dp,
                         blurHash = user.authorProfileImageBlurHash
                     )
-                    Text(
-                        text = user.username,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (user.identityIsVerified) {
-                        Icon(
-                            Icons.Filled.CheckCircle,
-                            contentDescription = "Verified",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
+                    // Usernames run up to 150 characters: the name takes the
+                    // free width and truncates, keeping the badge beside it and
+                    // the follower count on the row.
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = user.username,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
+                        if (user.identityIsVerified) {
+                            Icon(
+                                Icons.Filled.CheckCircle,
+                                contentDescription = "Verified",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
-                    Spacer(Modifier.weight(1f))
                     Text(
                         text = if (user.followerCount == 1) "1 follower" else "%,d followers".format(user.followerCount),
                         fontSize = 13.sp,

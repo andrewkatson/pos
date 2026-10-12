@@ -111,7 +111,9 @@ function TopUsersBoard() {
                 username={user.username}
                 size="sm"
               />
-              <span className="user-list__name">{user.username}</span>
+              <span className="user-list__name user-list__name--truncate" title={user.username}>
+                {user.username}
+              </span>
               {user.identity_is_verified && (
                 <span className="verified-badge" aria-label="Verified">
                   ✓

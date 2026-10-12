@@ -490,7 +490,11 @@ struct TopUsersList: View {
                             blurHash: row.user.authorProfileImageBlurHash,
                             size: 28
                         )
+                        // Usernames run up to 150 characters: truncate rather
+                        // than squeeze the follower count.
                         Text(row.user.username)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                         if row.user.identityIsVerified {
                             Image(systemName: "checkmark.seal.fill")
                                 .foregroundColor(.blue)
@@ -499,6 +503,7 @@ struct TopUsersList: View {
                         Spacer()
                         Text(row.followerCount == 1 ? "1 follower" : "\(row.followerCount.formatted()) followers")
                             .font(.subheadline)
+                            .fixedSize()
                             .monospacedDigit()
                             .foregroundColor(.secondary)
                     }
