@@ -46,6 +46,7 @@ fun FollowRequestsScreen(
         val decidingUsernames by viewModel.decidingUsernames.collectAsState()
         val hasLoaded by viewModel.hasLoaded.collectAsState()
         val canLoadMore by viewModel.canLoadMore.collectAsState()
+        val isLoadingMore by viewModel.isLoadingMore.collectAsState()
 
         LaunchedEffect(Unit) { viewModel.load() }
 
@@ -71,7 +72,9 @@ fun FollowRequestsScreen(
             }
         ) { padding ->
             LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
-                if (hasLoaded && requests.isEmpty() && !isLoading) {
+                // Empty only once paging has ended: answering every loaded row
+                // can leave older pages still to fetch.
+                if (hasLoaded && requests.isEmpty() && !isLoading && !canLoadMore) {
                     item {
                         Text(
                             text = "No one is waiting to follow you.",
@@ -123,9 +126,21 @@ fun FollowRequestsScreen(
                         }
                     }
                     HorizontalDivider()
-                    // Infinite scroll: reaching the last row fetches the next page.
-                    if (user.username == requests.lastOrNull()?.username && canLoadMore) {
+                }
+                // The pager sits after the rows rather than inside the last one,
+                // so it survives every loaded row being answered. Scrolling it
+                // into view fetches the next page; the button retries a failed
+                // fetch.
+                if (hasLoaded && canLoadMore) {
+                    item(key = "loadMore") {
                         LaunchedEffect(requests.size) { viewModel.loadMore() }
+                        TextButton(
+                            onClick = { viewModel.loadMore() },
+                            enabled = !isLoadingMore,
+                            modifier = Modifier.fillMaxWidth().padding(8.dp).testTag("loadMoreFollowRequestsButton")
+                        ) {
+                            Text("Load more")
+                        }
                     }
                 }
             }

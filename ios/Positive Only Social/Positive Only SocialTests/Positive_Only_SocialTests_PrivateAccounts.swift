@@ -472,6 +472,26 @@ struct Positive_Only_SocialTests_PrivateAccounts {
         #expect(sut.canLoadMore == false, "An empty page ends the list")
     }
 
+    @Test func answeringEveryLoadedRowKeepsOlderPagesReachable() async throws {
+        let (authorToken, author, viewerToken, _) = try await privateAuthorAndViewer()
+        let (otherToken, _) = try await registerUser(username: "olderFan")
+        _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "privateAuthor")
+        _ = try await stubAPI.followUser(sessionManagementToken: otherToken, username: "privateAuthor")
+        stubAPI.followRequestPageSize = 1
+        let account = try signIn(author, token: authorToken)
+        let sut = FollowRequestsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+        await sut.load()
+
+        await sut.approve(username: "olderFan")
+
+        // No rows left, but the pager stays (the view shows it, not the empty
+        // state), and it still reaches the older request.
+        #expect(sut.requests.isEmpty)
+        #expect(sut.canLoadMore == true)
+        await sut.loadMore()
+        #expect(sut.requests.map(\.username) == ["curiousViewer"])
+    }
+
     @Test func requesterWhoVerifiedAsAMinorCannotBeApproved() async throws {
         let (authorToken, _, viewerToken, _) = try await privateAuthorAndViewer()
         _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "privateAuthor")

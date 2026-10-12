@@ -17,7 +17,10 @@ struct FollowRequestsView: View {
 
     var body: some View {
         List {
-            if viewModel.hasLoaded && viewModel.requests.isEmpty && !viewModel.isLoading {
+            // Empty only once paging has ended: answering every loaded row can
+            // leave older pages still to fetch.
+            if viewModel.hasLoaded && viewModel.requests.isEmpty && !viewModel.isLoading
+                && !viewModel.canLoadMore {
                 Text("No one is waiting to follow you.").foregroundColor(.gray)
             }
             ForEach(viewModel.requests) { user in
@@ -49,12 +52,18 @@ struct FollowRequestsView: View {
                     .accessibilityIdentifier("DenyFollowRequestButton")
                 }
                 .disabled(viewModel.decidingUsernames.contains(user.username))
-                .onAppear {
-                    // Infinite scroll: reaching the last row fetches the next page.
-                    if user.id == viewModel.requests.last?.id {
-                        Task { await viewModel.loadMore() }
-                    }
+            }
+            // The pager sits after the rows rather than on the last one, so it
+            // survives every loaded row being answered. Scrolling it into view
+            // fetches the next page; tapping retries a failed fetch.
+            if viewModel.hasLoaded && viewModel.canLoadMore {
+                Button("Load more") {
+                    Task { await viewModel.loadMore() }
                 }
+                .disabled(viewModel.isLoadingMore)
+                .frame(maxWidth: .infinity)
+                .onAppear { Task { await viewModel.loadMore() } }
+                .accessibilityIdentifier("LoadMoreFollowRequestsButton")
             }
         }
         .navigationTitle("Follow Requests")

@@ -573,6 +573,59 @@ class PrivateAccountViewModelTest {
     }
 
     @Test
+    fun `a stale full load can't restore a row answered while it was in flight`() = runTest {
+        val api: PositiveOnlySocialAPI = mock()
+        val staleReply = CompletableDeferred<Response<List<User>>>()
+        api.stub { onBlocking { getFollowRequests("token123", null) } doSuspendableAnswer { staleReply.await() } }
+        whenever(api.approveFollowRequest("token123", "alice"))
+            .thenReturn(Response.success(GenericResponse("Follow request approved", null)))
+        val viewModel = FollowRequestsViewModel(api, keychainFor("token123", "owner"))
+
+        viewModel.load() // stalls
+        viewModel.approve("alice")
+        staleReply.complete(Response.success(requesters)) // still lists alice
+
+        assertFalse(viewModel.requests.value.any { it.username == "alice" })
+    }
+
+    @Test
+    fun `an older overlapping full load is dropped for the newer one`() = runTest {
+        val api: PositiveOnlySocialAPI = mock()
+        val staleReply = CompletableDeferred<Response<List<User>>>()
+        var calls = 0
+        api.stub {
+            onBlocking { getFollowRequests("token123", null) } doSuspendableAnswer {
+                if (++calls == 1) staleReply.await() else Response.success(listOf(User("bob", false, requestId = 8)))
+            }
+        }
+        val viewModel = FollowRequestsViewModel(api, keychainFor("token123", "owner"))
+
+        viewModel.load() // stalls
+        viewModel.load()
+        staleReply.complete(Response.success(listOf(User("alice", true, requestId = 9), User("bob", false, requestId = 8))))
+
+        assertEquals(listOf("bob"), viewModel.requests.value.map { it.username })
+        assertFalse(viewModel.isLoading.value)
+    }
+
+    @Test
+    fun `a page in flight is dropped when a full load replaces the list`() = runTest {
+        val api: PositiveOnlySocialAPI = mock()
+        val pageReply = CompletableDeferred<Response<List<User>>>()
+        whenever(api.getFollowRequests("token123", null))
+            .thenReturn(Response.success(listOf(User("alice", true, requestId = 9))))
+        api.stub { onBlocking { getFollowRequests("token123", 9L) } doSuspendableAnswer { pageReply.await() } }
+        val viewModel = FollowRequestsViewModel(api, keychainFor("token123", "owner"))
+        viewModel.load()
+
+        viewModel.loadMore() // stalls
+        viewModel.load()
+        pageReply.complete(Response.success(listOf(User("carol", false, requestId = 7))))
+
+        assertEquals(listOf("alice"), viewModel.requests.value.map { it.username })
+    }
+
+    @Test
     fun `a failed load is not reported as loaded`() = runTest {
         val api: PositiveOnlySocialAPI = mock()
         val errorBody = "{\"error\":\"boom\"}".toResponseBody("application/json".toMediaTypeOrNull())

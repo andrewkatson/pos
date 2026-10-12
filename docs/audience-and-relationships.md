@@ -81,8 +81,12 @@ Following a private account takes a **follow request**:
 - The owner lists incoming requests, newest first, with
   `GET /users/follow-requests/` — 30 per page; each row carries its
   `request_id`, and `?after=<request_id>` fetches the next, older page, a cursor
-  rather than an offset so answering rows while paging can't skip one; the
-  clients load more as the list scrolls. It lists their own requests only — there
+  rather than an offset so answering rows while paging can't skip one. The
+  website fetches the next page with a "Load more" button; iOS and Android
+  fetch it when a "Load more" row at the end of the list scrolls into view, and
+  that row's button retries a failed fetch. The control stays until a page
+  comes back empty, even if every loaded row has been answered, and only then
+  does the list say nobody is waiting. It lists their own requests only — there
   is no username parameter — and leaves out shadow-banned and cross-age-band
   requesters, as the follower list does. The owner answers each with
   `POST /users/<username>/follow-request/approve/` or `.../deny/`. Approving

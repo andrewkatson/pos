@@ -64,10 +64,20 @@ class FollowRequestsViewModel(
     private val _canLoadMore = MutableStateFlow(false)
     val canLoadMore: StateFlow<Boolean> = _canLoadMore.asStateFlow()
     private val _isLoadingMore = MutableStateFlow(false)
+    val isLoadingMore: StateFlow<Boolean> = _isLoadingMore.asStateFlow()
     // Keyset cursor: the oldest request id loaded so far, kept even if that row
     // is answered meanwhile, so answering rows can't shift a later request out
     // of the next page.
     private var nextCursor: Long? = null
+
+    // Responses can land out of order (issue #96): the screen's LaunchedEffect
+    // restarts a load on a configuration change while this retained view
+    // model's first one is still running. A full load is dropped if a newer one
+    // has started or a decision completed while it was in flight (it may still
+    // list the answered row), and a page is dropped if a full load has started
+    // since — mirroring the iOS view model.
+    private var fullLoadGeneration = 0
+    private var decisionGeneration = 0
 
     /**
      * Usernames with an approve/deny in flight, so each row's buttons disable
@@ -87,6 +97,8 @@ class FollowRequestsViewModel(
 
     /** Loads (or reloads) the incoming requests, newest first. */
     fun load() {
+        val loadGeneration = ++fullLoadGeneration
+        val decisionsAtStart = decisionGeneration
         _isLoading.value = true
         _errorMessage.value = null
         viewModelScope.launch {
@@ -97,7 +109,9 @@ class FollowRequestsViewModel(
                     return@launch
                 }
                 val response = api.getFollowRequests(userSession.sessionToken, null)
+                if (loadGeneration != fullLoadGeneration) return@launch
                 if (response.isSuccessful) {
+                    if (decisionsAtStart != decisionGeneration) return@launch
                     val page = response.body() ?: emptyList()
                     _requests.value = page
                     nextCursor = page.lastOrNull()?.requestId
@@ -107,10 +121,12 @@ class FollowRequestsViewModel(
                     _errorMessage.value = ApiErrors.messageFor(response, fallback = "Request failed. Please try again.")
                 }
             } catch (e: Exception) {
-                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Request failed. Please try again.")
+                if (loadGeneration == fullLoadGeneration) {
+                    _errorMessage.value = ApiErrors.messageFor(e, fallback = "Request failed. Please try again.")
+                }
                 Log.e(TAG, "Error loading follow requests", e)
             } finally {
-                _isLoading.value = false
+                if (loadGeneration == fullLoadGeneration) _isLoading.value = false
             }
         }
     }
@@ -122,10 +138,14 @@ class FollowRequestsViewModel(
     fun loadMore() {
         if (!_canLoadMore.value || _isLoadingMore.value || _isLoading.value) return
         _isLoadingMore.value = true
+        val loadGeneration = fullLoadGeneration
         viewModelScope.launch {
             try {
                 val userSession = session() ?: return@launch
                 val response = api.getFollowRequests(userSession.sessionToken, nextCursor)
+                // A full load since replaced the list and cursor this page
+                // continued from.
+                if (loadGeneration != fullLoadGeneration) return@launch
                 if (response.isSuccessful) {
                     val page = response.body() ?: emptyList()
                     val shown = _requests.value.map { it.username }.toSet()
@@ -162,6 +182,7 @@ class FollowRequestsViewModel(
                 }
                 val response = call(userSession.sessionToken)
                 if (response.isSuccessful) {
+                    decisionGeneration++
                     _requests.value = _requests.value.filterNot { it.username == username }
                     FollowRequestEvents.notifyDecision()
                 } else {
