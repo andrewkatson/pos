@@ -341,6 +341,33 @@ test('the People board ranks the most-followed accounts and opens a profile (#56
   expect(screen.getByText('Profile page')).toBeInTheDocument()
 })
 
+test('People "Load more" skips past a page of nothing but repeats (#562)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([])
+  const row = (username: string, follower_count: number) => ({
+    username,
+    identity_is_verified: false,
+    follower_count,
+  })
+  const pages: Record<number, ReturnType<typeof row>[]> = {
+    0: [row('alpha', 9), row('bravo', 8)],
+    1: [row('alpha', 9), row('bravo', 8)],
+    2: [row('charlie', 7)],
+  }
+  mockGetTopUsers.mockImplementation(batch => Promise.resolve(pages[batch] ?? []))
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await userEvent.click(screen.getByRole('tab', { name: 'People' }))
+  await screen.findByRole('button', { name: /bravo/ })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  // One click reaches page 2's new account instead of stalling on page 1.
+  expect(await screen.findByRole('button', { name: /charlie/ })).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: /alpha/ })).toHaveLength(1)
+  expect(mockGetTopUsers.mock.calls.map(([batch]) => batch)).toEqual([0, 1, 2])
+})
+
 test('switching back to Posts shows the post board again (#562)', async () => {
   mockGetFeed.mockResolvedValue([])
   mockGetTop.mockResolvedValue([

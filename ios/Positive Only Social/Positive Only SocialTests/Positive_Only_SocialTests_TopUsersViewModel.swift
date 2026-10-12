@@ -79,6 +79,46 @@ struct Positive_Only_SocialTests_TopUsersViewModel {
         #expect(stubAPI.getTopUsersCallCount == 3)
     }
 
+    @Test func testFetchTopUsers_RepeatOnlyPage_DoesNotStall() async throws {
+        stubAPI.pageSize = 2
+        let sut = TopUsersViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "topUsersRepeatOnly")
+        for name in ["alpha", "bravo", "charlie", "delta", "echo"] {
+            _ = try await registerUserAndGetToken(username: name)
+        }
+        var fans: [String] = []
+        for index in 1...4 {
+            fans.append(try await registerUserAndGetToken(username: "fan\(index)"))
+        }
+        func follow(_ fanIndices: [Int], _ username: String) async throws {
+            for index in fanIndices {
+                _ = try await stubAPI.followUser(sessionManagementToken: fans[index], username: username)
+            }
+        }
+        // alpha 3, bravo 2, then charlie / delta / echo on 1 each (by name)
+        try await follow([0, 1, 2], "alpha")
+        try await follow([0, 1], "bravo")
+        try await follow([0], "charlie")
+        try await follow([0], "delta")
+        try await follow([0], "echo")
+        try signIn(fans[3], username: "fan4", account: "topUsersRepeatOnly")
+
+        // Page 0: alpha, bravo
+        sut.fetchTopUsers()
+        await yield()
+        #expect(sut.topUsers.map(\.user.username) == ["alpha", "bravo"])
+
+        // charlie and delta climb to 4, so page 1 is alpha, bravo again
+        try await follow([1, 2, 3], "charlie")
+        try await follow([1, 2, 3], "delta")
+
+        // One fetch walks past the repeat-only page to echo on page 2
+        sut.fetchTopUsers()
+        await yield()
+        #expect(sut.topUsers.map(\.user.username) == ["alpha", "bravo", "echo"])
+        #expect(stubAPI.getTopUsersCallCount == 3)
+        #expect(sut.isLoadingNextPage == false)
+    }
+
     @Test func testTopUserDecodesFlatRow() throws {
         let json = #"[{"username":"star","identity_is_verified":true,"follower_count":12}]"#
         let rows = try JSONDecoder().decode([TopUser].self, from: Data(json.utf8))
