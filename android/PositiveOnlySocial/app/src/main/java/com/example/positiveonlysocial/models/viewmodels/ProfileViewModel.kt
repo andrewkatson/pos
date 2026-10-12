@@ -327,6 +327,7 @@ class ProfileViewModel(
         if (_isLoading.value || _isRefreshing.value || !canLoadMore) return
 
         _isLoading.value = true
+        val generation = loadGeneration
 
         viewModelScope.launch {
             try {
@@ -337,6 +338,10 @@ class ProfileViewModel(
                 }
 
                 val response = api.getPostsForUser(userSession.sessionToken, username, currentPage)
+                // Superseded (issue #96): an unfollow/block or privacy change
+                // cleared the grid since this page was requested, so it must not
+                // repopulate it.
+                if (generation != loadGeneration) return@launch
 
                 if (response.isSuccessful) {
                     val newPosts = response.body() ?: emptyList()

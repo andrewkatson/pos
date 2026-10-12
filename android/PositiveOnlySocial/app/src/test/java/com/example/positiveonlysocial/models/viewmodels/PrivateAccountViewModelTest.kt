@@ -26,6 +26,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.doSuspendableAnswer
 import org.mockito.kotlin.never
@@ -369,6 +370,38 @@ class PrivateAccountViewModelTest {
         assertTrue(viewModel.isFollowing.value)
         assertEquals(false, profile.followRequestPending)
         assertEquals(false, profile.isPrivate)
+    }
+
+    @Test
+    fun `a load-more page in flight can't repopulate a grid an unfollow cleared`() = runTest {
+        val api: PositiveOnlySocialAPI = mock()
+        val followed = ProfileDetailsResponse("author", 2, 1, 0, isFollowing = true, isPrivate = true)
+        val locked = followed.copy(isFollowing = false, postCount = 0, followerCount = 0)
+        val post = { id: String -> com.example.positiveonlysocial.data.model.Post(
+            postIdentifier = id, imageUrl = "a.jpg", authorUsername = "author", caption = "hi") }
+        whenever(api.getProfileDetails("token123", "author"))
+            .thenReturn(Response.success(followed), Response.success(locked))
+        val secondPage = CompletableDeferred<Response<List<com.example.positiveonlysocial.data.model.Post>>>()
+        var postsCalls = 0
+        api.stub {
+            onBlocking { getPostsForUser(eq("token123"), eq("author"), any()) } doSuspendableAnswer {
+                when (++postsCalls) {
+                    1 -> Response.success(listOf(post("p1")))
+                    2 -> secondPage.await() // load-more, stalled
+                    else -> Response.success(emptyList()) // the reload after unfollow
+                }
+            }
+        }
+        whenever(api.unfollowUser("token123", "author"))
+            .thenReturn(Response.success(GenericResponse("User unfollowed", null)))
+        val viewModel = ProfileViewModel(api, keychainFor("token123", "viewer"))
+        viewModel.fetchProfile("author")
+
+        viewModel.fetchUserPosts("author") // stalls
+        viewModel.toggleFollow("author") // unfollow clears the grid
+        secondPage.complete(Response.success(listOf(post("p2"))))
+
+        assertTrue(viewModel.userPosts.value.isEmpty())
     }
 
     // --- FollowRequestsViewModel ---
