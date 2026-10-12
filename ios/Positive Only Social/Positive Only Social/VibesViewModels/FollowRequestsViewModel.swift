@@ -35,7 +35,7 @@ final class FollowRequestsViewModel: ObservableObject {
     /// row is answered meanwhile, so answering rows can't shift a later request
     /// out of the next page.
     private var nextCursor: Int?
-    /// Bumped by every approve/deny that succeeds. A load or page that started
+    /// Bumped by every approve/deny that succeeds. A full load that started
     /// before a decision drops its response, so a pull-to-refresh overlapping a
     /// decision can't put the answered row back.
     private var decisionGeneration = 0
@@ -90,14 +90,16 @@ final class FollowRequestsViewModel: ObservableObject {
     /// (answering rows shifts later pages up). An empty page ends the list.
     func loadMore() async {
         guard canLoadMore, !isLoadingMore, !isLoading else { return }
-        let generation = decisionGeneration
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
             guard let session = try loadSession() else { return }
             let data = try await api.getFollowRequests(sessionManagementToken: session.sessionToken, after: nextCursor)
             let page = try JSONDecoder().decode([User].self, from: data)
-            guard generation == decisionGeneration else { return }
+            // No generation check here, unlike load(): this page holds only
+            // requests older than the cursor, so it can't contain a row answered
+            // meanwhile — and dropping it could strand the rest of the backlog
+            // when the answered row was the last one on screen.
             let shown = Set(requests.map(\.username))
             requests.append(contentsOf: page.filter { !shown.contains($0.username) })
             if let last = page.last?.requestId { nextCursor = last }

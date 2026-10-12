@@ -237,6 +237,7 @@ class ProfileViewModel: ObservableObject {
         guard !isLoading, canLoadMore else { return }
         
         isLoading = true
+        let generation = postsGeneration
         
         Task {
             do {
@@ -253,6 +254,12 @@ class ProfileViewModel: ObservableObject {
                     batch: batch
                 )
                 let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
+                // Superseded (issue #96): a newer authoritative reload owns the grid.
+                guard generation == postsGeneration else {
+                    isLoading = false
+                    runQueuedPostsRefresh()
+                    return
+                }
                 
                 if newPosts.isEmpty {
                     // No more posts to load
@@ -269,7 +276,30 @@ class ProfileViewModel: ObservableObject {
             }
             
             isLoading = false
+            runQueuedPostsRefresh()
         }
+    }
+
+    // A page-0 reload asked for while another post load was in flight (issue
+    // #96); it runs as soon as that load finishes instead of being skipped.
+    private var postsRefreshQueued = false
+    // Bumped to supersede in-flight post loads: a load that started in an older
+    // generation drops its results, so it can't refill a grid a newer
+    // authoritative reload (or the fail-closed private state) has replaced.
+    private var postsGeneration = 0
+
+    private func runQueuedPostsRefresh() {
+        guard postsRefreshQueued else { return }
+        postsRefreshQueued = false
+        Task { await refreshUserPosts() }
+    }
+
+    /// The authoritative page-0 reload after a privacy/relationship change:
+    /// supersedes any post load in flight, and queues behind it rather than
+    /// being skipped.
+    private func reloadPostsAuthoritatively() async {
+        postsGeneration += 1
+        await refreshUserPosts()
     }
     
     /// Pull-to-refresh: resets pagination and reloads the user's posts from the
@@ -277,10 +307,19 @@ class ProfileViewModel: ObservableObject {
     /// backend. `async` so SwiftUI's `.refreshable` keeps the spinner visible
     /// until the new posts have actually loaded.
     func refreshUserPosts() async {
-        guard !isLoading else { return }
+        guard !isLoading else {
+            // Don't drop it: run once the load in flight finishes.
+            postsRefreshQueued = true
+            return
+        }
         isLoading = true
-        // Reset the loading flag on every exit path so it can't be left stuck on.
-        defer { isLoading = false }
+        let generation = postsGeneration
+        // Reset the loading flag on every exit path so it can't be left stuck on,
+        // then run any reload queued meanwhile.
+        defer {
+            isLoading = false
+            runQueuedPostsRefresh()
+        }
 
         do {
             guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
@@ -294,6 +333,8 @@ class ProfileViewModel: ObservableObject {
                 batch: 0
             )
             let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
+            // Superseded (issue #96): a newer authoritative reload owns the grid.
+            guard generation == postsGeneration else { return }
 
             // Replace the list and reset pagination so the next infinite-scroll
             // fetch continues from page 1.
@@ -500,7 +541,7 @@ class ProfileViewModel: ObservableObject {
                             applyLockedPendingState()
                         }
                         await refreshProfileDetails()
-                        await refreshUserPosts()
+                        await reloadPostsAuthoritatively()
                     }
                 }
             } catch {
@@ -535,6 +576,9 @@ class ProfileViewModel: ObservableObject {
             details.followingCount = 0
             profileDetails = details
         }
+        // Supersede any post load in flight, so it can't refill the grid while
+        // the authoritative reload is pending.
+        postsGeneration += 1
         userPosts = []
     }
 
@@ -563,7 +607,7 @@ class ProfileViewModel: ObservableObject {
                 // "Requested" rather than a guess.
                 followRequestPending = true
                 await refreshProfileDetails()
-                await refreshUserPosts()
+                await reloadPostsAuthoritatively()
             }
             isBusy = false
         }
