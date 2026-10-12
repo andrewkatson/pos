@@ -624,6 +624,10 @@ class ProfileViewModel(
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 if (userSession == null) {
                     Log.e(TAG, "No active session found — cannot toggle follow")
+                    // No call was made, so undo the optimistic follow/request.
+                    _profileDetails.value = currentProfile
+                    _isFollowing.value = isFollowing
+                    _followCategory.value = FollowCategory.from(currentProfile.followCategory)
                     _errorMessage.value = "Not logged in."
                     return@launch
                 }

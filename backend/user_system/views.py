@@ -4237,6 +4237,12 @@ def follow_user(request, username_to_follow):
         # them (stranding a request no one will ever need to approve).
         user_to_follow_obj = get_user_model().objects.select_for_update(no_key=True).get(pk=user_to_follow_obj.pk)
 
+        # Re-check the age band on the locked, fresh row (issue #329): the
+        # target may have verified into the other band since the check above,
+        # and neither a follow nor a request may cross bands.
+        if not in_same_age_band(request.user, user_to_follow_obj):
+            return log_and_return_json("follow_user", {'error': "User does not exist"}, status=400)
+
         # Re-check the edge under the lock: an approval (which holds the same
         # lock) may have turned a pending request into a follow since the check
         # above, and filing a fresh request on top of it would leave both.

@@ -103,6 +103,22 @@ class FollowPrivateAccountTests(PrivateAccountTestBase):
         self.assertFalse(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
         self.assertTrue(FollowRequest.objects.filter(user_from=self.viewer, user_to=self.author).exists())
 
+    def test_age_band_rechecked_on_the_locked_row(self):
+        """The target verified as a minor after the view's first lookup: the
+        locked re-read sees it and refuses the follow, like a missing account."""
+        stale = PositiveOnlySocialUser.objects.get(pk=self.author.pk)
+        self.author.identity_is_verified = True
+        self.author.is_adult = False
+        self.author.save(update_fields=['identity_is_verified', 'is_adult'])
+
+        with patch('user_system.views.get_user_with_username', return_value=stale):
+            response = self._follow(self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "User does not exist")
+        self.assertFalse(FollowRequest.objects.exists())
+        self.assertFalse(UserFollow.objects.exists())
+
     def test_request_to_an_account_you_blocked_is_refused(self):
         self.viewer.blocked.add(self.author)
 

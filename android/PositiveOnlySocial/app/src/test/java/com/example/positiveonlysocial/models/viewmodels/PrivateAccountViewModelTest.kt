@@ -308,6 +308,28 @@ class PrivateAccountViewModelTest {
         assertTrue(viewModel.userPosts.value.isEmpty())
     }
 
+    @Test
+    fun `a follow with no session rolls back the optimistic state`() = runTest {
+        val api: PositiveOnlySocialAPI = mock()
+        val public = ProfileDetailsResponse("author", 0, 10, 5, isFollowing = false, isPrivate = false)
+        whenever(api.getProfileDetails("token123", "author")).thenReturn(Response.success(public))
+        whenever(api.getPostsForUser("token123", "author", 0)).thenReturn(Response.success(emptyList()))
+        var signedIn = true
+        val keychain: KeychainHelperProtocol = mock()
+        whenever(keychain.load(any<Class<UserSession>>(), any(), any())).thenAnswer {
+            if (signedIn) UserSession("token123", "viewer", "1", false, null, null) else null
+        }
+        val viewModel = ProfileViewModel(api, keychain)
+        viewModel.fetchProfile("author")
+
+        signedIn = false // the session expires before the tap
+        viewModel.toggleFollow("author")
+
+        assertFalse(viewModel.isFollowing.value)
+        assertEquals(10, viewModel.profileDetails.value!!.followerCount)
+        assertEquals("Not logged in.", viewModel.errorMessage.value)
+    }
+
     // --- FollowRequestsViewModel ---
 
     private val requesters = listOf(User("alice", true), User("bob", false))
