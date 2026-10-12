@@ -103,13 +103,17 @@ change (a block, a shadow ban, a hidden post) already has; nothing new is
 *served* after the switch. `follow_user` and `set_account_privacy` take a row lock
 on the account, so a follow racing a privacy change is decided against the
 setting it is actually written under. Switching **private off** approves every pending request, since
-a public account has nothing left to approve. The setting commits and the
-request returns at once; the backlog is converted by a background job
-(`tasks.convert_follow_requests`, run inline when there is no Redis queue) in
-bounded chunks, each its own short transaction, so neither the request nor the
-owner's row is held for the whole of it (if they go private again part-way, the
-rest simply stay pending; until it finishes, requests left on the now-public
-account are harmless, since following directly works). Only requesters still in the owner's
+a public account has nothing left to approve. Once the setting commits, the
+first chunk of up to 500 requests converts before the response, so a typical
+account's requests (and its counts) are settled by the time the client reloads.
+A larger backlog continues in background jobs (`tasks.convert_follow_requests_job`,
+run inline when there is no Redis queue), each a bounded number of chunks that
+enqueues a continuation while work remains, and every chunk is its own short
+transaction. If an enqueue fails or a job dies, the 15-minute
+`sweep_classifications` timer re-enqueues any public account that still has
+pending requests. If the owner goes private again part-way, the rest simply stay
+pending; until conversion finishes, requests left on a public account are
+harmless, since following directly works. Only requesters still in the owner's
 age band are approved, checked with their rows locked so a concurrent identity
 verification can't slip past; anyone who has since verified into the other band
 — or whose row is mid-update at that moment — has their request dropped instead,

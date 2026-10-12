@@ -76,9 +76,12 @@ REPORT_REVIEW_JOB_PATH = 'user_system.tasks.review_reported_content'
 # #96). Background work so set_account_privacy returns promptly however large
 # the backlog; retried like classification, and idempotent, so a rerun simply
 # continues where an interrupted one stopped.
-FOLLOW_REQUEST_CONVERSION_JOB_PATH = 'user_system.tasks.convert_follow_requests'
+FOLLOW_REQUEST_CONVERSION_JOB_PATH = 'user_system.tasks.convert_follow_requests_job'
 # Requests converted per round (one short transaction each).
 FOLLOW_REQUEST_BULK_BATCH_SIZE = 500
+# Rounds one job runs before handing the rest to a continuation job, so every
+# job finishes well inside JOB_TIMEOUT_SECONDS however large the backlog.
+FOLLOW_REQUEST_CHUNKS_PER_JOB = 20
 RETRY_INTERVALS_SECONDS = [60, 300, 900]
 
 # RQ kills jobs that exceed this. Worst case is two sequential cascades of
@@ -169,14 +172,15 @@ def enqueue_follow_request_conversion(owner_id):
     follows (issue #96). Mirrors enqueue_classification's eager/queue split: in
     eager mode (no Redis) it runs inline; otherwise it is enqueued on_commit, so
     the worker sees the committed privacy change. A failure is logged and
-    leaves the requests pending, which is harmless on a public account; toggling
-    public again re-runs it."""
+    leaves the requests pending, which is harmless on a public account until
+    sweep_classifications re-enqueues it."""
     owner_id = str(owner_id)
     if settings.CLASSIFICATION_EAGER:
         try:
             convert_follow_requests(owner_id)
         except Exception:
-            logger.exception("Eager follow-request conversion failed for user %s.", owner_id)
+            logger.exception("Eager follow-request conversion failed for user %s; the sweep will retry it.",
+                             owner_id)
         return
 
     def _enqueue():
@@ -189,12 +193,23 @@ def enqueue_follow_request_conversion(owner_id):
                 job_timeout=JOB_TIMEOUT_SECONDS,
             )
         except Exception:
-            logger.exception("Failed to enqueue follow-request conversion for user %s.", owner_id)
+            # Not lost: sweep_classifications re-enqueues any public account
+            # that still has pending requests.
+            logger.exception("Failed to enqueue follow-request conversion for user %s; the sweep will retry it.",
+                             owner_id)
 
     transaction.on_commit(_enqueue)
 
 
-def convert_follow_requests(owner_id):
+def convert_follow_requests_job(owner_id):
+    """RQ entry point: convert a bounded number of rounds, then enqueue a
+    continuation if requests remain, so no single job's runtime grows with the
+    backlog (and an exhausted job can't strand the rest)."""
+    if not convert_follow_requests(owner_id, max_rounds=FOLLOW_REQUEST_CHUNKS_PER_JOB):
+        enqueue_follow_request_conversion(owner_id)
+
+
+def convert_follow_requests(owner_id, max_rounds=None):
     """Turn every pending request to `owner` into the follow edge it asked for
     (issue #96), one bounded chunk per committed transaction: each round locks
     the owner, reads at most FOLLOW_REQUEST_BULK_BATCH_SIZE requests,
@@ -212,20 +227,26 @@ def convert_follow_requests(owner_id):
     LOCKED — the owner is already locked, so waiting could deadlock) is treated
     as ineligible. Every request in the chunk is deleted either way: the
     ineligible ones are hidden from the owner's list and could never be
-    approved, and the account is public now, so anyone dropped can just follow."""
-    while True:
+    approved, and the account is public now, so anyone dropped can just follow.
+
+    `max_rounds` caps the chunks processed; returns True when nothing is left to
+    convert (or the owner is gone or private again), False if the cap was hit
+    with requests remaining."""
+    rounds = 0
+    while max_rounds is None or rounds < max_rounds:
+        rounds += 1
         with transaction.atomic():
             locked_owner = PositiveOnlySocialUser.objects.select_for_update(no_key=True).filter(pk=owner_id).first()
             if locked_owner is None:
-                return  # account deleted since; its requests cascaded away
+                return True  # account deleted since; its requests cascaded away
             if locked_owner.is_private:
-                return
+                return True
             chunk = list(
                 FollowRequest.objects.filter(user_to=locked_owner).order_by('pk')
                 .values_list('pk', 'user_from_id', 'category')[:FOLLOW_REQUEST_BULK_BATCH_SIZE]
             )
             if not chunk:
-                return
+                return True
             requester_ids = [requester_id for _, requester_id, _ in chunk]
             locked_ids = list(
                 PositiveOnlySocialUser.objects.select_for_update(no_key=True, skip_locked=True)
@@ -241,6 +262,8 @@ def convert_follow_requests(owner_id):
                 ignore_conflicts=True,
             )
             FollowRequest.objects.filter(pk__in=[pk for pk, _, _ in chunk]).delete()
+    # Out of rounds: done only if nothing is left.
+    return not FollowRequest.objects.filter(user_to_id=owner_id).exists()
 
 
 def categorize_post(post_identifier):

@@ -415,21 +415,62 @@ class AccountPrivacySettingTests(PrivateAccountTestBase):
         self.assertFalse(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
         self.assertFalse(FollowRequest.objects.exists())
 
-    def test_going_public_enqueues_the_conversion_in_queue_mode(self):
-        """With a queue configured, going public returns once the setting has
-        committed and leaves the backlog to a background job."""
-        self._follow(self.local_username, self.viewer_header)
+    def test_going_public_converts_first_chunk_inline_and_queues_the_rest(self):
+        """With a queue configured, going public converts one chunk before
+        returning and leaves the rest of the backlog to a background job."""
+        for i in range(3):
+            fan = PositiveOnlySocialUser.objects.get(
+                username=self.make_user_with_prefix(prefix=f'queued{i}')[Fields.username])
+            FollowRequest.objects.create(user_from=fan, user_to=self.author)
         from django.test import override_settings
         with override_settings(CLASSIFICATION_EAGER=False), \
+                patch('user_system.tasks.FOLLOW_REQUEST_BULK_BATCH_SIZE', 2), \
                 patch('user_system.tasks._queue') as queue, \
                 self.captureOnCommitCallbacks(execute=True):
             response = self._set_private(False, self.author_header)
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(UserFollow.objects.filter(user_to=self.author).count(), 2)
+        self.assertEqual(FollowRequest.objects.filter(user_to=self.author).count(), 1)
         enqueued = queue.return_value.enqueue.call_args
-        self.assertEqual(enqueued.args, ('user_system.tasks.convert_follow_requests', str(self.author.pk)))
-        # Not converted inline: the request waits for the worker.
-        self.assertTrue(FollowRequest.objects.filter(user_to=self.author).exists())
+        self.assertEqual(enqueued.args, ('user_system.tasks.convert_follow_requests_job', str(self.author.pk)))
+
+    def test_small_backlog_needs_no_background_job(self):
+        self._follow(self.local_username, self.viewer_header)
+        from django.test import override_settings
+        with override_settings(CLASSIFICATION_EAGER=False), \
+                patch('user_system.tasks._queue') as queue, \
+                self.captureOnCommitCallbacks(execute=True):
+            self._set_private(False, self.author_header)
+
+        queue.return_value.enqueue.assert_not_called()
+        self.assertTrue(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
+
+    def test_job_stops_after_its_rounds_and_enqueues_a_continuation(self):
+        from .. import tasks
+        for i in range(3):
+            fan = PositiveOnlySocialUser.objects.get(
+                username=self.make_user_with_prefix(prefix=f'job{i}')[Fields.username])
+            FollowRequest.objects.create(user_from=fan, user_to=self.author)
+        PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(is_private=False)
+
+        with patch('user_system.tasks.FOLLOW_REQUEST_BULK_BATCH_SIZE', 1), \
+                patch('user_system.tasks.FOLLOW_REQUEST_CHUNKS_PER_JOB', 2), \
+                patch('user_system.tasks.enqueue_follow_request_conversion') as enqueue:
+            tasks.convert_follow_requests_job(str(self.author.pk))
+
+        self.assertEqual(UserFollow.objects.filter(user_to=self.author).count(), 2)
+        enqueue.assert_called_once_with(str(self.author.pk))
+
+    def test_sweep_requeues_public_accounts_with_pending_requests(self):
+        from django.core.management import call_command
+        FollowRequest.objects.create(user_from=self.viewer, user_to=self.author)
+        PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(is_private=False)
+
+        with patch('user_system.tasks.enqueue_follow_request_conversion') as enqueue:
+            call_command('sweep_classifications', stdout=__import__('io').StringIO())
+
+        enqueue.assert_called_once_with(self.author.pk)
 
     def test_going_public_works_through_a_backlog_in_chunks(self):
         for i in range(5):

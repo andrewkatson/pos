@@ -4682,12 +4682,14 @@ def set_account_privacy(request):
         user = get_user_model().objects.select_for_update(no_key=True).get(pk=request.user.pk)
         user.is_private = is_private
         user.save(update_fields=['is_private'])
-    # Converting the backlog is background work (tasks.convert_follow_requests),
-    # queued once the setting has committed, so this request returns promptly
-    # however large the backlog. Requests still waiting on a now-public account
-    # are harmless meanwhile: they grant no visibility, and following directly
-    # simply works.
-    if not is_private:
+    # Convert the pending backlog once the setting has committed: the first
+    # chunk inline, so a typical account's requests are all approved (and its
+    # counts correct) by the time the client reloads; anything beyond that is
+    # background work (tasks.convert_follow_requests_job), so this request stays
+    # bounded however large the backlog. Requests still waiting on a now-public
+    # account are harmless meanwhile: they grant no visibility, and following
+    # directly simply works.
+    if not is_private and not tasks.convert_follow_requests(user.pk, max_rounds=1):
         tasks.enqueue_follow_request_conversion(user.pk)
     logger.info(f"Account privacy set to {is_private} for user_id: {user.id}")
     return log_and_return_json("set_account_privacy", {Fields.is_private: is_private})
