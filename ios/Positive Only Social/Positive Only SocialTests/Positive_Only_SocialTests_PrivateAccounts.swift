@@ -439,6 +439,26 @@ struct Positive_Only_SocialTests_PrivateAccounts {
         #expect(try await profile(authorToken, of: "privateAuthor").followerCount == 0)
     }
 
+    @Test func followRequestsPageSupersededByAFullLoadIsDropped() async throws {
+        let (authorToken, author, viewerToken, _) = try await privateAuthorAndViewer()
+        let (otherToken, _) = try await registerUser(username: "earlierFan")
+        _ = try await stubAPI.followUser(sessionManagementToken: otherToken, username: "privateAuthor")
+        _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "privateAuthor")
+        stubAPI.followRequestPageSize = 1
+        let account = try signIn(author, token: authorToken)
+        let sut = FollowRequestsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+        await sut.load()
+
+        // A pull-to-refresh starts while the next page is still loading.
+        async let more: Void = sut.loadMore()
+        await Task.yield()
+        await sut.load()
+        await more
+
+        #expect(sut.requests.map(\.username) == ["curiousViewer"], "The old-cursor page isn't appended")
+        #expect(sut.canLoadMore == true, "Paging resumes from the refreshed list's cursor")
+    }
+
     @Test func followRequestsUnknownRequestSetsError() async throws {
         let (authorToken, author, viewerToken, _) = try await privateAuthorAndViewer()
         _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "privateAuthor")

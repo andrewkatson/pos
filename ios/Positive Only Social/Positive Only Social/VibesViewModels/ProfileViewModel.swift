@@ -437,6 +437,11 @@ class ProfileViewModel: ObservableObject {
     func fetchProfileDetails() {
         guard !isLoadingProfile else { return }
         isLoadingProfile = true
+        // Shares refreshProfileDetails()' generation (issue #96), so a slow
+        // initial response can't land after a newer refresh and restore stale
+        // privacy, request-count or follower state.
+        detailsRefreshGeneration += 1
+        let generation = detailsRefreshGeneration
         
         Task {
             do {
@@ -448,6 +453,10 @@ class ProfileViewModel: ObservableObject {
 
                 let responseData = try await api.getProfileDetails(sessionManagementToken: userSession.sessionToken, username: user.username)
                 let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: responseData)
+                guard generation == detailsRefreshGeneration else {
+                    isLoadingProfile = false
+                    return
+                }
                 
                 self.profileDetails = details
                 self.isFollowing = details.isFollowing // Set initial follow state

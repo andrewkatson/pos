@@ -39,6 +39,10 @@ final class FollowRequestsViewModel: ObservableObject {
     /// before a decision drops its response, so a pull-to-refresh overlapping a
     /// decision can't put the answered row back.
     private var decisionGeneration = 0
+    /// Bumped by every full load (pull-to-refresh). A next page requested with
+    /// the previous cursor is dropped once a full load has started, since the
+    /// refreshed list's cursor may differ and appending it could skip requests.
+    private var fullLoadGeneration = 0
     @Published var errorMessage: String?
     /// Usernames with an approve/deny in flight, so each row's buttons disable
     /// independently (several decisions may overlap).
@@ -61,6 +65,7 @@ final class FollowRequestsViewModel: ObservableObject {
     /// Loads (or reloads) the incoming requests, newest first.
     func load() async {
         let generation = decisionGeneration
+        fullLoadGeneration += 1
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -90,13 +95,17 @@ final class FollowRequestsViewModel: ObservableObject {
     /// (answering rows shifts later pages up). An empty page ends the list.
     func loadMore() async {
         guard canLoadMore, !isLoadingMore, !isLoading else { return }
+        let generation = fullLoadGeneration
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
             guard let session = try loadSession() else { return }
             let data = try await api.getFollowRequests(sessionManagementToken: session.sessionToken, after: nextCursor)
             let page = try JSONDecoder().decode([User].self, from: data)
-            // No generation check here, unlike load(): this page holds only
+            // Superseded by a pull-to-refresh: that full load owns the list and
+            // its cursor now.
+            guard generation == fullLoadGeneration else { return }
+            // No decision check here, unlike load(): this page holds only
             // requests older than the cursor, so it can't contain a row answered
             // meanwhile — and dropping it could strand the rest of the backlog
             // when the answered row was the last one on screen.
