@@ -1,5 +1,3 @@
-// xcode: set sdk=iOS
-
 //
 //  FollowRequestsView.swift
 //  Vibes
