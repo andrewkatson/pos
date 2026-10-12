@@ -128,3 +128,37 @@ test('load more fetches the next page and skips rows already shown', async () =>
   await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument())
 })
+
+test('answering every loaded row keeps older pages reachable', async () => {
+  mockGetRequests
+    .mockResolvedValueOnce([requests[0]])
+    .mockResolvedValueOnce([requests[1]])
+    .mockResolvedValue([])
+  renderPage()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Approve alice' }))
+  await waitFor(() => expect(screen.queryByRole('link', { name: 'alice' })).not.toBeInTheDocument())
+
+  // Not "nobody is waiting": bob is on the next page.
+  expect(screen.queryByText('No one is waiting to follow you.')).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  expect(await screen.findByRole('link', { name: 'bob' })).toBeInTheDocument()
+  expect(mockGetRequests).toHaveBeenLastCalledWith(9)
+})
+
+test('loads the list once even under StrictMode', async () => {
+  const { StrictMode } = await import('react')
+  mockGetRequests.mockResolvedValue(requests)
+  render(
+    <StrictMode>
+      <MemoryRouter initialEntries={['/follow-requests']}>
+        <Routes>
+          <Route path="/follow-requests" element={<FollowRequestsPage />} />
+        </Routes>
+      </MemoryRouter>
+    </StrictMode>,
+  )
+
+  expect(await screen.findByRole('link', { name: 'alice' })).toBeInTheDocument()
+  expect(mockGetRequests).toHaveBeenCalledTimes(1)
+})

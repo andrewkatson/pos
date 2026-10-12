@@ -211,7 +211,7 @@ struct ProfileBodyView: View {
 
             // A private account the viewer doesn't follow shows no counts
             // (issue #96); the backend zeroes them, so hide rather than show 0s.
-            if !viewModel.isLocked {
+            if !viewModel.hidesStats {
             HStack {
                 Spacer()
                 // The backend's authoritative post_count, not the loaded-grid

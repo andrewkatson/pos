@@ -66,6 +66,13 @@ class ProfileViewModel(
     private val _isFollowBusy = MutableStateFlow(false)
     val isFollowBusy: StateFlow<Boolean> = _isFollowBusy.asStateFlow()
 
+    // Set when an unfollow or block may have just revoked access to a profile
+    // whose privacy the cached payload can't vouch for (issue #96): the screen
+    // hides the counts until a fresh profile read clears it — indefinitely if
+    // that read fails, so stale counts never stand for a now-private account.
+    private val _awaitingRevalidation = MutableStateFlow(false)
+    val awaitingRevalidation: StateFlow<Boolean> = _awaitingRevalidation.asStateFlow()
+
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
@@ -198,6 +205,7 @@ class ProfileViewModel(
         currentPage = 0
         canLoadMore = true
         _userPosts.value = emptyList() // Clear old posts immediately
+        _awaitingRevalidation.value = false
         val generation = ++loadGeneration
 
         viewModelScope.launch {
@@ -221,6 +229,7 @@ class ProfileViewModel(
                 if (profileResponse.isSuccessful) {
                     val profile = profileResponse.body()
                     _profileDetails.value = profile
+                    _awaitingRevalidation.value = false
                     _isFollowing.value = profile?.isFollowing ?: false
                     _followCategory.value = FollowCategory.from(profile?.followCategory)
                     _isBlocked.value = profile?.isBlocked ?: false
@@ -289,6 +298,7 @@ class ProfileViewModel(
                 if (profileResponse.isSuccessful) {
                     val profile = profileResponse.body()
                     _profileDetails.value = profile
+                    _awaitingRevalidation.value = false
                     _isFollowing.value = profile?.isFollowing ?: false
                     _followCategory.value = FollowCategory.from(profile?.followCategory)
                     _isBlocked.value = profile?.isBlocked ?: false
@@ -652,11 +662,12 @@ class ProfileViewModel(
                 } else if (isFollowing) {
                     // Losing the follow edge may revoke access: the account may
                     // have gone private since this profile loaded, which the cached
-                    // isPrivate can't tell. Fail closed — drop the grid, superseding
-                    // any load in flight — and reload what the viewer may still see
-                    // (issue #96).
+                    // isPrivate can't tell. Fail closed — drop the grid and hide
+                    // the counts, superseding any load in flight — and reload what
+                    // the viewer may still see (issue #96).
                     loadGeneration++
                     _userPosts.value = emptyList()
+                    _awaitingRevalidation.value = true
                     refreshProfile(username)
                 } else {
                     // The server has the final word on whether the account is
@@ -871,6 +882,7 @@ class ProfileViewModel(
                     if (!currentBlockedStatus) {
                         loadGeneration++
                         _userPosts.value = emptyList()
+                        _awaitingRevalidation.value = true
                     }
                     refreshProfile(username)
                 }

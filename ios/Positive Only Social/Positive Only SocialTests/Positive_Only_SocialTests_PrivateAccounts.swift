@@ -290,6 +290,45 @@ struct Positive_Only_SocialTests_PrivateAccounts {
         #expect(sut.userPosts.isEmpty, "The stale public grid is replaced")
     }
 
+    @Test func unfollowingAnAccountThatWentPrivateHidesItsStats() async throws {
+        // Loaded as a public account the viewer follows; the owner goes private,
+        // so after the unfollow the counts are hidden, not left from the cache.
+        let (authorToken, author) = try await registerUser(username: "quietOne")
+        let (viewerToken, viewer) = try await registerUser(username: "exFollower")
+        _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "quietOne")
+        let account = try signIn(viewer, token: viewerToken)
+        let sut = ProfileViewModel(user: author, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.fetchProfileDetails()
+        await yield()
+        #expect(sut.hidesStats == false, "Pre-condition: a followed public profile shows its stats")
+
+        _ = try await stubAPI.setAccountPrivacy(sessionManagementToken: authorToken, isPrivate: true)
+        sut.toggleFollow()
+        await yield()
+
+        #expect(sut.isFollowing == false)
+        #expect(sut.hidesStats == true)
+    }
+
+    @Test func statsReturnOnceTheReloadAfterAnUnfollowOrBlockSucceeds() async throws {
+        let (_, author) = try await registerUser(username: "openBook")
+        let (viewerToken, viewer) = try await registerUser(username: "passerby")
+        _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "openBook")
+        let account = try signIn(viewer, token: viewerToken)
+        let sut = ProfileViewModel(user: author, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.fetchProfileDetails()
+        await yield()
+
+        sut.toggleFollow() // unfollow
+        await yield()
+        #expect(sut.awaitingRevalidation == false)
+        #expect(sut.hidesStats == false)
+
+        sut.toggleBlock()
+        await yield()
+        #expect(sut.awaitingRevalidation == false)
+    }
+
     @Test func answeringRequestsRefreshesTheOwnersProfile() async throws {
         let (authorToken, author, viewerToken, _) = try await privateAuthorAndViewer()
         _ = try await stubAPI.followUser(sessionManagementToken: viewerToken, username: "privateAuthor")

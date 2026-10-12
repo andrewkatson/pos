@@ -107,7 +107,7 @@ a public account has nothing left to approve. Once the setting commits, the
 first chunk of up to 500 requests converts before the response, so a typical
 account's requests (and its counts) are settled by the time the client reloads.
 A larger backlog continues in background jobs (`tasks.convert_follow_requests_job`,
-run inline when there is no Redis queue), each a bounded number of chunks that
+run inline under the same cap when there is no Redis queue), each a bounded number of chunks that
 enqueues a continuation while work remains, and every chunk is its own short
 transaction. If an enqueue fails or a job dies, the 15-minute
 `sweep_classifications` timer re-enqueues any public account that still has
@@ -141,7 +141,10 @@ post itself is.)
 
 On a private profile someone doesn't follow, the **counts are hidden** too: the
 backend zeroes `post_count`, `follower_count` and `following_count`, and the
-clients hide the stats row rather than show zeros. The header — name, photo,
+clients hide the stats row rather than show zeros. After an unfollow or a block
+the clients also hide the stats until a fresh profile read arrives (and keep
+them hidden if it fails), since the account may have gone private since the page
+loaded and the cached counts can no longer be vouched for. The header — name, photo,
 bio, join number — is still shown, and a 🔒 *This account is private* note stands
 in for the grid. The profile payload carries `is_private` for everyone,
 `follow_request_pending` for the viewer, and (owner only) `follow_request_count`.

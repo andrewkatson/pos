@@ -117,6 +117,10 @@ fun ProfileBody(
     // A private account the viewer doesn't follow (issue #96): no stats, and a
     // "this account is private" note in place of the grid.
     val isLocked = ProfileViewModel.isLocked(profileDetails, isOwnProfile, isFollowing)
+    // Counts also stay hidden while an unfollow or block waits for the server
+    // to say whether the viewer can still see them.
+    val awaitingRevalidation by viewModel.awaitingRevalidation.collectAsState()
+    val hideStats = isLocked || awaitingRevalidation
     val followRequestPending = profileDetails?.followRequestPending == true
     val isPhotoBusy by viewModel.isPhotoBusy.collectAsState()
     val photoErrorMessage by viewModel.photoErrorMessage.collectAsState()
@@ -415,7 +419,7 @@ fun ProfileBody(
 
             // The backend zeroes a locked profile's counts (issue #96), so hide
             // the row rather than show zeros.
-            if (!isLocked) Row(
+            if (!hideStats) Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {

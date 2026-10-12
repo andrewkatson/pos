@@ -170,14 +170,17 @@ def enqueue_post_categorization(post_identifier):
 def enqueue_follow_request_conversion(owner_id):
     """Schedule turning a newly public account's pending follow requests into
     follows (issue #96). Mirrors enqueue_classification's eager/queue split: in
-    eager mode (no Redis) it runs inline; otherwise it is enqueued on_commit, so
+    eager mode (no Redis) it runs inline, capped at the same number of chunks a
+    queued job processes, leaving any remainder to the sweep; otherwise it is enqueued on_commit, so
     the worker sees the committed privacy change. A failure is logged and
     leaves the requests pending, which is harmless on a public account until
     sweep_classifications re-enqueues it."""
     owner_id = str(owner_id)
     if settings.CLASSIFICATION_EAGER:
+        # Bounded like a queued job, so a huge backlog can't hold the request's
+        # worker indefinitely; sweep_classifications picks up any remainder.
         try:
-            convert_follow_requests(owner_id)
+            convert_follow_requests(owner_id, max_rounds=FOLLOW_REQUEST_CHUNKS_PER_JOB)
         except Exception:
             logger.exception("Eager follow-request conversion failed for user %s; the sweep will retry it.",
                              owner_id)

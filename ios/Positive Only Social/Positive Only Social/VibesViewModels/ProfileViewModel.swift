@@ -35,6 +35,15 @@ class ProfileViewModel: ObservableObject {
         !isOwnProfile && (profileDetails?.isPrivate ?? false) && !isFollowing
     }
 
+    /// Set when an unfollow or block may have just revoked access to a profile
+    /// whose privacy the cached payload can't vouch for (issue #96). Cleared by
+    /// the next fresh profile read — never by a failed one, so stale counts
+    /// can't stand for an account that has gone private.
+    @Published private(set) var awaitingRevalidation = false
+
+    /// The stats row is shown only when its counts are known to be readable.
+    var hidesStats: Bool { isLocked || awaitingRevalidation }
+
     /// Owner-only count of incoming follow requests, for the profile's
     /// "Follow Requests" entry (issue #96).
     var followRequestCount: Int { profileDetails?.followRequestCount ?? 0 }
@@ -424,6 +433,7 @@ class ProfileViewModel: ObservableObject {
             guard generation == detailsRefreshGeneration else { return }
 
             self.profileDetails = details
+            self.awaitingRevalidation = false
             self.isFollowing = details.isFollowing
             self.followCategory = details.followCategory.flatMap(FollowCategory.init(rawValue:)) ?? .following
             self.isBlocked = details.isBlocked
@@ -459,6 +469,7 @@ class ProfileViewModel: ObservableObject {
                 }
                 
                 self.profileDetails = details
+                self.awaitingRevalidation = false
                 self.isFollowing = details.isFollowing // Set initial follow state
                 self.followCategory = details.followCategory.flatMap(FollowCategory.init(rawValue:)) ?? .following
                 self.isBlocked = details.isBlocked // Set initial block state
@@ -530,11 +541,12 @@ class ProfileViewModel: ObservableObject {
                     let _ = try await api.unfollowUser(sessionManagementToken: token, username: user.username)
                     // Losing the follow edge may revoke access: the account may
                     // have gone private since this profile loaded, which the
-                    // cached isPrivate can't tell. Fail closed — drop the grid,
-                    // superseding any load in flight — and reload what the viewer
-                    // may still see (issue #96).
+                    // cached isPrivate can't tell. Fail closed — drop the grid and
+                    // hide the counts, superseding any load in flight — and reload
+                    // what the viewer may still see (issue #96).
                     postsGeneration += 1
                     userPosts = []
+                    awaitingRevalidation = true
                     await refreshProfileDetails()
                     await reloadPostsAuthoritatively()
                 } else {
@@ -720,6 +732,7 @@ class ProfileViewModel: ObservableObject {
                 if !previousBlockState {
                     postsGeneration += 1
                     userPosts = []
+                    awaitingRevalidation = true
                 }
                 await refreshProfileDetails()
                 await reloadPostsAuthoritatively()

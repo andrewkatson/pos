@@ -709,3 +709,34 @@ test('following before the profile header loads still loads it', async () => {
   expect(await screen.findByText('11')).toBeInTheDocument()
   expect(mockGetProfile).toHaveBeenCalledTimes(2)
 })
+
+test('unfollowing hides the counts until a fresh read, and keeps them hidden if it fails', async () => {
+  // The cached profile says public, but the owner may have gone private since:
+  // after the unfollow the counts can't be vouched for until the server says.
+  mockGetProfile
+    .mockResolvedValueOnce({ ...baseProfile, is_following: true })
+    .mockRejectedValue(new Error('offline'))
+  mockGetPosts.mockResolvedValueOnce([]).mockRejectedValue(new Error('offline'))
+  renderProfile()
+  expect(await screen.findByText('Followers')).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Following' }))
+
+  await waitFor(() => expect(mockUnfollow).toHaveBeenCalledWith('bob'))
+  await waitFor(() => expect(mockGetProfile).toHaveBeenCalledTimes(2))
+  expect(screen.queryByText('Followers')).not.toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: 'Follow' })).toBeInTheDocument()
+})
+
+test('the counts return once the reload after an unfollow succeeds', async () => {
+  mockGetProfile
+    .mockResolvedValueOnce({ ...baseProfile, is_following: true })
+    .mockResolvedValue({ ...baseProfile, follower_count: 9 })
+  renderProfile()
+  expect(await screen.findByText('Followers')).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Following' }))
+
+  expect(await screen.findByText('9')).toBeInTheDocument()
+  expect(screen.getByText('Followers')).toBeInTheDocument()
+})

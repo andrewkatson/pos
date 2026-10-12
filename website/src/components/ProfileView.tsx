@@ -152,9 +152,16 @@ function ProfileView({
     [isSignedIn, username],
   )
 
+  // Set when an unfollow or block may have just revoked access to a profile
+  // whose privacy the cached payload can't vouch for (issue #96): the stats
+  // stay hidden until a fresh profile read clears it.
+  const [awaitingRevalidation, setAwaitingRevalidation] = useState(false)
+
   // The viewer's relationship flags, from a signed-in payload; the public one
   // carries none, and a visitor with no account follows and blocks nobody.
   const applyRelationship = useCallback((details: LoadedProfile) => {
+    // A fresh server read settles any revalidation an unfollow or block began.
+    setAwaitingRevalidation(false)
     setIsFollowing(details.is_following ?? false)
     setFollowRequestPending(details.follow_request_pending ?? false)
     setFollowCategory(details.follow_category ?? 'following')
@@ -193,7 +200,12 @@ function ProfileView({
       // tab has no other way back from this, since it can't be navigated away
       // from and re-entered like the pushed profile route can. A superseded
       // load's failure is ignored, like its success: a newer load owns the view.
-      if (isMounted.current && generation === loadGeneration.current) setLoadFailed(true)
+      if (
+        isMounted.current &&
+        generation === loadGeneration.current &&
+        profileGen === profileGeneration.current
+      )
+        setLoadFailed(true)
     }
   }, [fetchProfile, applyRelationship])
 
@@ -431,9 +443,11 @@ function ProfileView({
         setIsFollowing(false)
         // Losing the follow edge may revoke access: the account may have gone
         // private since this page loaded, which the cached is_private can't
-        // tell. Fail closed — drop the grid now — and let the reload below
-        // bring back whatever the viewer may still see (issue #96).
+        // tell. Fail closed — drop the grid and hide the counts until a fresh
+        // profile read (indefinitely if the reload fails) — and let the reload
+        // below bring back whatever the viewer may still see (issue #96).
         setPosts([])
+        setAwaitingRevalidation(true)
         // Clear the relationship category so in-memory state matches the API
         // contract (follow_category is null when not following) and doesn't go
         // stale for any later UI that reads it.
@@ -532,7 +546,10 @@ function ProfileView({
       // A block removes any follow edge and hides each side's posts from the
       // other, so the cached grid can't stand: fail closed and reload (issue
       // #96). Unblocking reloads too, to bring the grid back.
-      if (nowBlocked) setPosts([])
+      if (nowBlocked) {
+        setPosts([])
+        setAwaitingRevalidation(true)
+      }
       refresh()
     } catch {
       /* state is only updated after a successful call, so nothing to revert */
@@ -545,6 +562,10 @@ function ProfileView({
   // #96): the backend serves it no posts and zeroed counts, so the view hides
   // the stats and shows a "this account is private" note in place of the grid.
   const isLocked = !isOwnProfile && !!profile?.is_private && !isFollowing
+  // Counts are shown only when known to be readable: not on a locked profile,
+  // nor while an unfollow or block waits for the server to say whether the
+  // viewer can still see them.
+  const hideStats = isLocked || awaitingRevalidation
 
   if (loadFailed) {
     return (
@@ -693,7 +714,7 @@ function ProfileView({
           </button>
         )}
 
-        {!isLocked && (
+        {!hideStats && (
           <div className="profile-stats">
             <div>
               <span className="profile-stat__count">{profile?.post_count ?? posts.length}</span>

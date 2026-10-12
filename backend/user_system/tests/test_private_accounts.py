@@ -248,6 +248,26 @@ class FollowRequestDecisionTests(PrivateAccountTestBase):
         self.assertEqual(response.json()['error'], "User does not exist")
         self.assertFalse(FollowRequest.objects.exists())
 
+    def test_cancel_band_decision_reads_the_locked_rows(self):
+        """Both accounts verify into different bands while the cancel waits for
+        its locks: the decision uses the fresh rows, so the now cross-band
+        account reads as missing rather than confirming it exists."""
+        from .. import views
+        real_lock_users = views._lock_users
+
+        def verify_while_waiting(*users):
+            PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(
+                identity_is_verified=True, is_adult=True)
+            PositiveOnlySocialUser.objects.filter(pk=self.viewer.pk).update(
+                identity_is_verified=True, is_adult=False)
+            real_lock_users(*users)
+
+        with patch('user_system.views._lock_users', side_effect=verify_while_waiting):
+            response = self._request_action('cancel', self.local_username, self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], "User does not exist")
+
     def test_cancel_without_request_fails(self):
         response = self._request_action('cancel', self.local_username, self.viewer_header)
 
@@ -495,6 +515,24 @@ class AccountPrivacySettingTests(PrivateAccountTestBase):
 
         self.assertEqual(UserFollow.objects.filter(user_to=self.author).count(), 5)
         self.assertFalse(FollowRequest.objects.exists())
+
+    def test_eager_conversion_is_bounded_and_leaves_the_rest_to_the_sweep(self):
+        """Without a queue the remainder still runs inline, but capped at a
+        job's worth of chunks, so a huge backlog can't hold the request."""
+        for i in range(5):
+            fan = PositiveOnlySocialUser.objects.get(
+                username=self.make_user_with_prefix(prefix=f'eager{i}')[Fields.username])
+            FollowRequest.objects.create(user_from=fan, user_to=self.author)
+        from django.test import override_settings
+        with override_settings(CLASSIFICATION_EAGER=True), \
+                patch('user_system.tasks.FOLLOW_REQUEST_BULK_BATCH_SIZE', 1), \
+                patch('user_system.tasks.FOLLOW_REQUEST_CHUNKS_PER_JOB', 2):
+            response = self._set_private(False, self.author_header)
+
+        self.assertEqual(response.status_code, 200)
+        # One chunk inline before responding, then one job's worth (two chunks).
+        self.assertEqual(UserFollow.objects.filter(user_to=self.author).count(), 3)
+        self.assertEqual(FollowRequest.objects.filter(user_to=self.author).count(), 2)
 
     def test_going_private_keeps_existing_followers(self):
         self._set_private(False, self.author_header)

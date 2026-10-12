@@ -4637,17 +4637,22 @@ def cancel_follow_request(request, username):
     with transaction.atomic():
         # Lock the owner, as approving (one at a time or all at once when going
         # public) does, so a cancellation that reports success can never be
-        # followed by that same request turning into a follow edge.
-        _lock_users(target_user)
+        # followed by that same request turning into a follow edge. The caller
+        # is locked too (both in primary-key order), so the age-band decision
+        # below reads rows an identity verification can't change underneath it.
+        _lock_users(request.user, target_user)
+        caller = get_user_model().objects.get(pk=request.user.pk)
+        target_user = get_user_model().objects.get(pk=target_user.pk)
         # Withdrawing your own request works even if one of you has since
         # verified into the other age band — otherwise the request would be
         # stuck, since the owner can no longer see or answer it. Only a
         # cross-band target with *no* request from the caller reads as missing,
         # so this can't confirm such an account exists.
-        deleted_count, _ = FollowRequest.objects.filter(user_from=request.user, user_to=target_user).delete()
+        deleted_count, _ = FollowRequest.objects.filter(user_from=caller, user_to=target_user).delete()
+        cross_band = deleted_count == 0 and not in_same_age_band(caller, target_user)
+    if cross_band:
+        return log_and_return_json("cancel_follow_request", {'error': "User does not exist"}, status=400)
     if deleted_count == 0:
-        if not in_same_age_band(request.user, target_user):
-            return log_and_return_json("cancel_follow_request", {'error': "User does not exist"}, status=400)
         return log_and_return_json("cancel_follow_request", {'error': "No follow request to cancel"}, status=400)
     logger.info(f"Follow request cancelled: target_user_id: {target_user.id} by user_id: {request.user.id}")
     return log_and_return_json("cancel_follow_request", {'message': 'Follow request cancelled'})

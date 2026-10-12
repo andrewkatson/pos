@@ -353,6 +353,44 @@ class PrivateAccountViewModelTest {
     }
 
     @Test
+    fun `an unfollow hides the counts until a fresh read, and keeps them hidden if it fails`() = runTest {
+        val api: PositiveOnlySocialAPI = mock()
+        val following = ProfileDetailsResponse("author", 3, 10, 5, isFollowing = true, isPrivate = false)
+        val offline = "{\"error\":\"offline\"}".toResponseBody("application/json".toMediaTypeOrNull())
+        whenever(api.getProfileDetails("token123", "author"))
+            .thenReturn(Response.success(following), Response.error(500, offline))
+        whenever(api.getPostsForUser("token123", "author", 0))
+            .thenReturn(Response.success(emptyList()), Response.error(500, offline))
+        whenever(api.unfollowUser("token123", "author"))
+            .thenReturn(Response.success(GenericResponse("User unfollowed", null)))
+        val viewModel = ProfileViewModel(api, keychainFor("token123", "viewer"))
+        viewModel.fetchProfile("author")
+        assertFalse(viewModel.awaitingRevalidation.value)
+
+        viewModel.toggleFollow("author")
+
+        // The reload failed, so nothing vouches for the cached public counts.
+        assertTrue(viewModel.awaitingRevalidation.value)
+        assertFalse(viewModel.isFollowing.value)
+    }
+
+    @Test
+    fun `the counts return once the reload after an unfollow or block succeeds`() = runTest {
+        val api = StatefulStubbedAPI()
+        register(api, "author")
+        val viewerToken = register(api, "viewer")
+        api.followUser(viewerToken, "author")
+        val viewModel = ProfileViewModel(api, keychainFor(viewerToken, "viewer"))
+        viewModel.fetchProfile("author")
+
+        viewModel.toggleFollow("author") // unfollow
+        assertFalse(viewModel.awaitingRevalidation.value)
+
+        viewModel.toggleBlock("author")
+        assertFalse(viewModel.awaitingRevalidation.value)
+    }
+
+    @Test
     fun `a follow that reveals the account went public shows following even if the reload fails`() = runTest {
         val api: PositiveOnlySocialAPI = mock()
         val private = ProfileDetailsResponse("author", 0, 0, 0, isFollowing = false, isPrivate = true)

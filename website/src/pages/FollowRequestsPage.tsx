@@ -61,7 +61,13 @@ function FollowRequestsView() {
     }
   }, [])
 
+  // Load once per mount. StrictMode re-runs this effect in development, and a
+  // second initial load landing after the owner answered a row would put that
+  // row back.
+  const startedLoad = useRef(false)
   useEffect(() => {
+    if (startedLoad.current) return
+    startedLoad.current = true
     void Promise.resolve().then(load)
   }, [load])
 
@@ -139,7 +145,9 @@ function FollowRequestsView() {
           </div>
         ) : (
           <section className="settings-group">
-            {hasLoaded && requests.length === 0 && (
+            {/* Empty only once paging has ended: answering every loaded row
+                can leave older pages still to fetch. */}
+            {hasLoaded && requests.length === 0 && !canLoadMore && (
               <p className="muted">No one is waiting to follow you.</p>
             )}
             <div className="user-list">
@@ -181,7 +189,7 @@ function FollowRequestsView() {
                 </div>
               ))}
             </div>
-            {canLoadMore && requests.length > 0 && (
+            {hasLoaded && canLoadMore && (
               <button
                 type="button"
                 className="load-more"
