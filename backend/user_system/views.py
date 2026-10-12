@@ -3101,6 +3101,17 @@ def _comments_locked_for_update(post):
             .first())
 
 
+def _post_author_still_admits(post, viewer):
+    """Re-check the post author's privacy for `viewer` under the author's row
+    lock (issue #96). Call inside the same transaction as
+    _comments_locked_for_update, just before creating a comment/reply:
+    set_account_privacy takes this lock, so an owner going private while the
+    classifier ran is either seen here or waits until the comment is committed.
+    The lock is only held for the insert, never across classification."""
+    author = get_user_model().objects.select_for_update(no_key=True).get(pk=post.author_id)
+    return privacy_admits(author, viewer)
+
+
 @csrf_exempt
 @api_login_required
 @ratelimit(key='user', rate='20/h', block=True)
@@ -3176,6 +3187,9 @@ def comment_on_post(request, post_identifier):
         if locked:
             logger.warning(f"Comment on post failed: Comments disabled for post {post_identifier}")
             return log_and_return_json("comment_on_post", {'error': "Comments are disabled for this post"}, status=403)
+        # The author may have gone private while the classifier ran (issue #96).
+        if not _post_author_still_admits(post, request.user):
+            return log_and_return_json("comment_on_post", {'error': "No post with that identifier"}, status=400)
 
         # Create a new thread for this top-level comment
         comment_thread = post.commentthread_set.create()
@@ -3286,6 +3300,9 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
         if locked:
             logger.warning(f"Reply to comment failed: Comments disabled for post {post_identifier}")
             return log_and_return_json("reply_to_comment_thread", {'error': "Comments are disabled for this post"}, status=403)
+        # The author may have gone private while the classifier ran (issue #96).
+        if not _post_author_still_admits(comment_thread.post, request.user):
+            return log_and_return_json("reply_to_comment_thread", {'error': "Comment thread not found for the given post"}, status=400)
 
         new_comment = comment_thread.comment_set.create(
             author=request.user, body=comment_text, body_formatting=body_formatting,

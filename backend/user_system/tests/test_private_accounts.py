@@ -530,6 +530,27 @@ class PrivatePostVisibilityTests(PrivateAccountTestBase):
         tag_ids = {p[Fields.post_identifier] for p in self.client.get(tag_url, **self.viewer_header).json()}
         self.assertIn(self.post_id, tag_ids)
 
+    def test_going_private_during_classification_blocks_the_comment(self):
+        """The author goes private while the comment is being classified: the
+        locked re-check before the insert refuses it."""
+        self.author.is_private = False
+        self.author.save(update_fields=['is_private'])
+        from ..classifiers import text_classifier
+        real_classify = text_classifier.is_text_positive
+
+        def classify_then_go_private(*args, **kwargs):
+            PositiveOnlySocialUser.objects.filter(pk=self.author.pk).update(is_private=True)
+            return real_classify(*args, **kwargs)
+
+        with patch.object(text_classifier, 'is_text_positive', side_effect=classify_then_go_private):
+            response = self.client.post(
+                reverse('comment_on_post', kwargs={'post_identifier': self.post_id}),
+                data=json.dumps({Fields.comment_text: POSITIVE_CAPTION}),
+                content_type='application/json', **self.viewer_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(self.post.commentthread_set.exists())
+
     def test_non_follower_cannot_like_or_report(self):
         like = self.client.post(
             reverse('like_post', kwargs={'post_identifier': self.post_id}), **self.viewer_header)
