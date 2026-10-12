@@ -121,6 +121,11 @@ class ProfileViewModelTest {
         assertFalse(viewModel.isBlocked.value)
         assertTrue(viewModel.isFollowing.value)
 
+        // A block now reloads the profile (issue #96), so the server reports the
+        // block and the severed follow from here on.
+        whenever(api.getProfileDetails(any(), eq(userId))).thenReturn(
+            Response.success(mockProfileDetailsResponse.copy(isBlocked = true, isFollowing = false)))
+
         // Act - Block
         viewModel.toggleBlock(userId)
 
@@ -131,6 +136,8 @@ class ProfileViewModelTest {
         
         // Simulate API response for unblocking
         whenever(api.toggleBlock(any(), any())).thenReturn(Response.success(GenericResponse("Success", "None")))
+        whenever(api.getProfileDetails(any(), eq(userId))).thenReturn(
+            Response.success(mockProfileDetailsResponse.copy(isBlocked = false, isFollowing = false)))
         
         // Act - Unblock
         viewModel.toggleBlock(userId)

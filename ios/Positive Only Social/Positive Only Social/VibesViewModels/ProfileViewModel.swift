@@ -519,9 +519,15 @@ class ProfileViewModel: ObservableObject {
 
                 if wasFollowing {
                     let _ = try await api.unfollowUser(sessionManagementToken: token, username: user.username)
-                    // Unfollowing a private account locks it again: its posts
-                    // are no longer the viewer's to see.
-                    if profileDetails?.isPrivate == true { userPosts = [] }
+                    // Losing the follow edge may revoke access: the account may
+                    // have gone private since this profile loaded, which the
+                    // cached isPrivate can't tell. Fail closed — drop the grid,
+                    // superseding any load in flight — and reload what the viewer
+                    // may still see (issue #96).
+                    postsGeneration += 1
+                    userPosts = []
+                    await refreshProfileDetails()
+                    await reloadPostsAuthoritatively()
                 } else {
                     let data = try await api.followUser(sessionManagementToken: token, username: user.username, category: nil)
                     let filedRequest = (try? JSONDecoder().decode(FollowResponse.self, from: data))?.followRequestPending ?? false
@@ -671,6 +677,15 @@ class ProfileViewModel: ObservableObject {
                 let token = userSession.sessionToken
 
                 let _ = try await api.toggleBlock(sessionManagementToken: token, username: user.username)
+                // A block removes any follow edge and hides each side's posts
+                // from the other, so the cached grid can't stand: fail closed and
+                // reload (issue #96). Unblocking reloads to bring it back.
+                if !previousBlockState {
+                    postsGeneration += 1
+                    userPosts = []
+                }
+                await refreshProfileDetails()
+                await reloadPostsAuthoritatively()
             } catch {
                 NSLog("%@", "Error toggling block: \(error)")
                 revertBlock(previousBlockState: previousBlockState, previousFollowState: previousFollowState)

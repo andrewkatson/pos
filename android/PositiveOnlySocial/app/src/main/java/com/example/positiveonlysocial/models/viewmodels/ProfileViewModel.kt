@@ -645,9 +645,14 @@ class ProfileViewModel(
                     _followCategory.value = FollowCategory.from(currentProfile.followCategory)
                     _errorMessage.value = "Failed to update follow status"
                 } else if (isFollowing) {
-                    // Unfollowing a private account locks it again: its posts are
-                    // no longer the viewer's to see.
-                    if (currentProfile.isPrivate == true) _userPosts.value = emptyList()
+                    // Losing the follow edge may revoke access: the account may
+                    // have gone private since this profile loaded, which the cached
+                    // isPrivate can't tell. Fail closed — drop the grid, superseding
+                    // any load in flight — and reload what the viewer may still see
+                    // (issue #96).
+                    loadGeneration++
+                    _userPosts.value = emptyList()
+                    refreshProfile(username)
                 } else {
                     // The server has the final word on whether the account is
                     // private (it may have changed since the profile loaded).
@@ -811,6 +816,15 @@ class ProfileViewModel(
                         _isFollowing.value = currentProfile.isFollowing
                     }
                     _errorMessage.value = "Failed to update block status"
+                } else {
+                    // A block removes any follow edge and hides each side's posts
+                    // from the other, so the cached grid can't stand: fail closed
+                    // and reload (issue #96). Unblocking reloads to bring it back.
+                    if (!currentBlockedStatus) {
+                        loadGeneration++
+                        _userPosts.value = emptyList()
+                    }
+                    refreshProfile(username)
                 }
             } catch (e: Exception) {
                 // Revert on error, including the optimistic unfollow side-effect.

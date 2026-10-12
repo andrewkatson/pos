@@ -330,6 +330,25 @@ class PrivateAccountViewModelTest {
         assertEquals("Not logged in.", viewModel.errorMessage.value)
     }
 
+    @Test
+    fun `unfollowing an account that went private meanwhile clears the grid`() = runTest {
+        val api = StatefulStubbedAPI()
+        val authorToken = register(api, "author")
+        api.makePost(authorToken, CreatePostRequest(imageUrl = "a.jpg", caption = "hello"))
+        val viewerToken = register(api, "viewer")
+        api.followUser(viewerToken, "author")
+        val viewModel = ProfileViewModel(api, keychainFor(viewerToken, "viewer"))
+        viewModel.fetchProfile("author")
+        assertEquals(1, viewModel.userPosts.value.size)
+
+        api.setAccountPrivacy(authorToken, SetAccountPrivacyRequest(true)) // after the page loaded
+        viewModel.toggleFollow("author")
+
+        assertTrue(viewModel.userPosts.value.isEmpty())
+        assertEquals(true, viewModel.profileDetails.value!!.isPrivate)
+        assertFalse(viewModel.isFollowing.value)
+    }
+
     // --- FollowRequestsViewModel ---
 
     private val requesters = listOf(User("alice", true), User("bob", false))

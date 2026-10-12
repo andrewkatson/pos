@@ -406,10 +406,11 @@ function ProfileView({
       } else if (wasFollowing) {
         await apiClient.unfollowUser(username)
         setIsFollowing(false)
-        // Unfollowing a private account locks it again: its posts are no
-        // longer the viewer's to see, so drop them rather than wait for a
-        // refresh to do it.
-        if (profile?.is_private) setPosts([])
+        // Losing the follow edge may revoke access: the account may have gone
+        // private since this page loaded, which the cached is_private can't
+        // tell. Fail closed — drop the grid now — and let the reload below
+        // bring back whatever the viewer may still see (issue #96).
+        setPosts([])
         // Clear the relationship category so in-memory state matches the API
         // contract (follow_category is null when not following) and doesn't go
         // stale for any later UI that reads it.
@@ -417,6 +418,7 @@ function ProfileView({
         setProfile(p =>
           p ? { ...p, follow_category: null, follower_count: Math.max(0, p.follower_count - 1) } : p,
         )
+        refresh()
       } else {
         const response = await apiClient.followUser(username)
         const filedRequest = response.follow_request_pending ?? false
@@ -489,6 +491,11 @@ function ProfileView({
           p ? { ...p, follow_category: null, follower_count: Math.max(0, p.follower_count - 1) } : p,
         )
       }
+      // A block removes any follow edge and hides each side's posts from the
+      // other, so the cached grid can't stand: fail closed and reload (issue
+      // #96). Unblocking reloads too, to bring the grid back.
+      if (nowBlocked) setPosts([])
+      refresh()
     } catch {
       /* state is only updated after a successful call, so nothing to revert */
     } finally {

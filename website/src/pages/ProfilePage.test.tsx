@@ -641,3 +641,21 @@ test('an older profile load failing after a newer refresh succeeded is ignored',
   expect(screen.queryByText("Couldn't load bob's profile.")).not.toBeInTheDocument()
   expect(screen.getByText('10')).toBeInTheDocument()
 })
+
+test('unfollowing an account that went private meanwhile fails closed and reloads', async () => {
+  // Loaded as a public account we follow; the owner has since gone private, so
+  // unfollowing revokes access even though the cached profile says public.
+  const post = { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'bob', caption: 'hi' }
+  mockGetProfile
+    .mockResolvedValueOnce({ ...baseProfile, is_following: true })
+    .mockResolvedValue(privateProfile)
+  mockGetPosts.mockResolvedValueOnce([post]).mockResolvedValue([])
+  renderProfile()
+  await screen.findByRole('button', { name: 'Post by bob' })
+
+  await userEvent.click(screen.getByRole('button', { name: 'Following' }))
+
+  await waitFor(() => expect(mockUnfollow).toHaveBeenCalledWith('bob'))
+  expect(await screen.findByText('This account is private')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Post by bob' })).not.toBeInTheDocument()
+})
