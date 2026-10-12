@@ -66,7 +66,7 @@ from .cloudfront import sign_compressed_url, sign_original_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_source_bucket_url, \
     strip_query_and_fragment
 from .tags import set_post_tags
-from .visibility import audience_admits, can_view_post, in_same_age_band, privacy_admits, same_age_band_users, \
+from .visibility import audience_admits, can_view_post, in_same_age_band, privacy_admits, \
     searchable_users, \
     visible_comment_threads, visible_comments, visible_posts, PUBLIC_VIEWER
 
@@ -4575,57 +4575,6 @@ def _approve_follow_request(follow_request):
         follow_request.delete()
 
 
-# Requests converted per round when going public turns them into follows.
-FOLLOW_REQUEST_BULK_BATCH_SIZE = 500
-
-
-def _approve_all_follow_requests(owner):
-    """Turn every pending request to `owner` into the follow edge it asked for
-    (issue #96), one bounded chunk per committed transaction: each round locks
-    the owner, reads at most FOLLOW_REQUEST_BULK_BATCH_SIZE requests,
-    bulk-creates their follows and deletes them. Memory stays flat and no single
-    transaction (or hold on the owner's row) grows with the backlog. If the
-    owner goes private again part-way through, the rest stay pending, which is
-    exactly right for a private account. ignore_conflicts keeps an edge that
-    already exists, just as _approve_follow_request's get_or_create does.
-
-    Only requesters still in the owner's age band are approved (issue #329): a
-    requester can verify into the other band after asking, and approving them
-    one at a time is already refused. Each chunk's requesters are row-locked
-    before their band is read, so a verification can't move one across between
-    the check and the insert; a requester whose row is busy right now (SKIP
-    LOCKED — the owner is already locked, so waiting could deadlock) is treated
-    as ineligible. Every request in the chunk is deleted either way: the
-    ineligible ones are hidden from the owner's list and could never be
-    approved, and the account is public now, so anyone dropped can just follow."""
-    while True:
-        with transaction.atomic():
-            locked_owner = get_user_model().objects.select_for_update(no_key=True).get(pk=owner.pk)
-            if locked_owner.is_private:
-                return
-            chunk = list(
-                FollowRequest.objects.filter(user_to=locked_owner).order_by('pk')
-                .values_list('pk', 'user_from_id', 'category')[:FOLLOW_REQUEST_BULK_BATCH_SIZE]
-            )
-            if not chunk:
-                return
-            requester_ids = [requester_id for _, requester_id, _ in chunk]
-            locked_ids = list(
-                get_user_model().objects.select_for_update(no_key=True, skip_locked=True)
-                .filter(pk__in=requester_ids).order_by('pk').values_list('pk', flat=True)
-            )
-            eligible = set(
-                same_age_band_users(get_user_model().objects.filter(pk__in=locked_ids), locked_owner)
-                .values_list('pk', flat=True)
-            )
-            UserFollow.objects.bulk_create(
-                [UserFollow(user_from_id=requester_id, user_to=locked_owner, category=category)
-                 for _, requester_id, category in chunk if requester_id in eligible],
-                ignore_conflicts=True,
-            )
-            FollowRequest.objects.filter(pk__in=[pk for pk, _, _ in chunk]).delete()
-
-
 @csrf_exempt
 @api_login_required
 @ratelimit(key='user', rate='60/m', block=True)
@@ -4733,12 +4682,13 @@ def set_account_privacy(request):
         user = get_user_model().objects.select_for_update(no_key=True).get(pk=request.user.pk)
         user.is_private = is_private
         user.save(update_fields=['is_private'])
-    # Converting the backlog runs after the setting has committed, a chunk per
-    # short transaction, so the owner's row is never held across the whole of
-    # it. Requests waiting between chunks on a now-public account are harmless:
-    # they grant no visibility, and following directly simply works.
+    # Converting the backlog is background work (tasks.convert_follow_requests),
+    # queued once the setting has committed, so this request returns promptly
+    # however large the backlog. Requests still waiting on a now-public account
+    # are harmless meanwhile: they grant no visibility, and following directly
+    # simply works.
     if not is_private:
-        _approve_all_follow_requests(user)
+        tasks.enqueue_follow_request_conversion(user.pk)
     logger.info(f"Account privacy set to {is_private} for user_id: {user.id}")
     return log_and_return_json("set_account_privacy", {Fields.is_private: is_private})
 

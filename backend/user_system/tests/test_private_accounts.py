@@ -415,13 +415,29 @@ class AccountPrivacySettingTests(PrivateAccountTestBase):
         self.assertFalse(UserFollow.objects.filter(user_from=self.viewer, user_to=self.author).exists())
         self.assertFalse(FollowRequest.objects.exists())
 
+    def test_going_public_enqueues_the_conversion_in_queue_mode(self):
+        """With a queue configured, going public returns once the setting has
+        committed and leaves the backlog to a background job."""
+        self._follow(self.local_username, self.viewer_header)
+        from django.test import override_settings
+        with override_settings(CLASSIFICATION_EAGER=False), \
+                patch('user_system.tasks._queue') as queue, \
+                self.captureOnCommitCallbacks(execute=True):
+            response = self._set_private(False, self.author_header)
+
+        self.assertEqual(response.status_code, 200)
+        enqueued = queue.return_value.enqueue.call_args
+        self.assertEqual(enqueued.args, ('user_system.tasks.convert_follow_requests', str(self.author.pk)))
+        # Not converted inline: the request waits for the worker.
+        self.assertTrue(FollowRequest.objects.filter(user_to=self.author).exists())
+
     def test_going_public_works_through_a_backlog_in_chunks(self):
         for i in range(5):
             fan = PositiveOnlySocialUser.objects.get(
                 username=self.make_user_with_prefix(prefix=f'chunk{i}')[Fields.username])
             FollowRequest.objects.create(user_from=fan, user_to=self.author)
 
-        with patch('user_system.views.FOLLOW_REQUEST_BULK_BATCH_SIZE', 2):
+        with patch('user_system.tasks.FOLLOW_REQUEST_BULK_BATCH_SIZE', 2):
             self._set_private(False, self.author_header)
 
         self.assertEqual(UserFollow.objects.filter(user_to=self.author).count(), 5)
