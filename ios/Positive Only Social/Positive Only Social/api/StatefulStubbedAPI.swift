@@ -2336,11 +2336,15 @@ final class StatefulStubbedAPI: Networking {
         // Count posts where the authorId matches the profile user
         let postCount = posts.filter { $0.authorId == profileUser.id }.count
         
-        // Count follows where 'userToId' matches the profile user
-        let followerCount = userFollows.filter { $0.userToId == profileUser.id }.count
-        
-        // Count follows where 'userFromId' matches the profile user
-        let followingCount = userFollows.filter { $0.userFromId == profileUser.id }.count
+        // Follower/following counts leave out accounts in the other age band,
+        // as the backend's do (issue #398), so a profile header agrees with the
+        // most-followed board (issue #562).
+        let viewerIsMinor = isVerifiedMinor(requestingUser)
+        let inViewerBand: (UUID) -> Bool = { id in
+            self.isVerifiedMinor(self.users.first { $0.id == id }) == viewerIsMinor
+        }
+        let followerCount = userFollows.filter { $0.userToId == profileUser.id && inViewerBand($0.userFromId) }.count
+        let followingCount = userFollows.filter { $0.userFromId == profileUser.id && inViewerBand($0.userToId) }.count
         
         // 4. Check if the requesting user is following the profile user, and
         //    with which relationship category (issue #392).

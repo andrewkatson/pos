@@ -66,6 +66,12 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private val TOP_USERS_BATCH_SIZE = 10
     private val TOP_USERS_LIMIT = 100
 
+    /** How many of these accounts are in the given age band. Follower/following
+     * counts leave out the other band, as the backend's do (issue #398), so a
+     * profile header agrees with the most-followed board (issue #562). */
+    private fun countInBand(ids: Collection<String>, viewerIsMinor: Boolean): Int =
+        ids.count { id -> isVerifiedMinor(users.find { it.id == id }) == viewerIsMinor }
+
     /** Mirrors visibility.is_minor: verified and not adult (issue #329). */
     private fun isVerifiedMinor(user: UserMock?): Boolean =
         user != null && user.isVerified && !user.isAdult
@@ -1760,8 +1766,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(ProfileDetailsResponse(
             username = target.username,
             postCount = if (hideCounts) 0 else postCount,
-            followerCount = if (hideCounts) 0 else target.followers.size,
-            followingCount = if (hideCounts) 0 else target.following.size,
+            followerCount = if (hideCounts) 0 else countInBand(target.followers, isVerifiedMinor(user)),
+            followingCount = if (hideCounts) 0 else countInBand(target.following, isVerifiedMinor(user)),
             isFollowing = isFollowing,
             followCategory = followCategory,
             isBlocked = isBlocked,

@@ -1255,6 +1255,22 @@ test('top users rank by followers and leave out the unfollowed', async () => {
   ])
 })
 
+test('a follower who verifies into the other age band drops from board and profile alike', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'star')
+  await register(api, 'fan1')
+  await api.followUser('star')
+  await register(api, 'fan2')
+  await api.followUser('star')
+  await api.verifyIdentity(`${new Date().getFullYear() - 16}-01-01`) // fan2 is a minor now
+
+  await register(api, 'viewer')
+  const [row] = await api.getTopUsers(0)
+  expect(row.username).toBe('star')
+  expect(row.follower_count).toBe(1)
+  expect((await api.getProfile('star')).follower_count).toBe(row.follower_count)
+})
+
 test('top users leave out private accounts', async () => {
   const api = new StatefulStubbedAPI()
   await register(api, 'secret')

@@ -133,6 +133,30 @@ struct Positive_Only_SocialTests_TopUsersViewModel {
         #expect(try JSONDecoder().decode([TopUser].self, from: data).map(\.user.username) == ["open"])
     }
 
+    @Test func testFollowerWhoVerifiesAsMinor_DropsFromBoardAndProfileAlike() async throws {
+        stubAPI.pageSize = 10
+        _ = try await registerUserAndGetToken(username: "star")
+        let fan1 = try await registerUserAndGetToken(username: "fan1")
+        _ = try await stubAPI.followUser(sessionManagementToken: fan1, username: "star")
+        let fan2 = try await registerUserAndGetToken(username: "fan2")
+        _ = try await stubAPI.followUser(sessionManagementToken: fan2, username: "star")
+        let sixteen = Calendar.current.date(byAdding: .year, value: -16, to: Date())!
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        _ = try await stubAPI.verifyIdentity(sessionManagementToken: fan2, dateOfBirth: formatter.string(from: sixteen))
+
+        let viewer = try await registerUserAndGetToken(username: "viewer")
+        let board = try JSONDecoder().decode(
+            [TopUser].self, from: try await stubAPI.getTopUsers(sessionManagementToken: viewer, batch: 0))
+        #expect(board.map(\.user.username) == ["star"])
+        #expect(board.first?.followerCount == 1)
+
+        struct Profile: Decodable { let follower_count: Int }
+        let profile = try JSONDecoder().decode(
+            Profile.self, from: try await stubAPI.getProfileDetails(sessionManagementToken: viewer, username: "star"))
+        #expect(profile.follower_count == board.first?.followerCount)
+    }
+
     @Test func testTopUserDecodesFlatRow() throws {
         let json = #"[{"username":"star","identity_is_verified":true,"follower_count":12}]"#
         let rows = try JSONDecoder().decode([TopUser].self, from: Data(json.utf8))
