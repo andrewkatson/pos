@@ -10,12 +10,17 @@ import Combine
 /// right now (issue #562).
 @MainActor
 final class TopUsersViewModel: ObservableObject {
+    // State the view observes.
+    @Published var topUsers: [TopUser] = []
+    @Published var isLoadingNextPage = false
+
+    // Dependencies.
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
     private let keychainService = GVOAppConstants.keychainService
-    @Published var topUsers: [TopUser] = []
-    @Published var isLoadingNextPage = false
+
+    // Pagination state.
     private var canLoadMore = true
     private var currentPage = 0
 
