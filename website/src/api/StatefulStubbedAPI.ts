@@ -94,6 +94,9 @@ const FOLLOW_REQUEST_BATCH_SIZE = 30
 // The Top posts windows and depth, matching backend/user_system/constants.py.
 const TOP_POST_PERIOD_DAYS: Record<TopPostPeriod, number> = { day: 1, week: 7, month: 30, year: 365 }
 const TOP_POSTS_LIMIT = 100
+// Hidden reasons meaning the classifier hasn't approved a post (pending or
+// rejected); such posts never rank, even for their author.
+const TOP_POST_UNAPPROVED_REASONS = ['pending_classification', 'classifier', 'classifier_final']
 // The most-followed board's batch size and depth, matching the backend.
 const TOP_USERS_BATCH_SIZE = 10
 const TOP_USERS_LIMIT = 100
@@ -1321,7 +1324,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     const ranked = this.posts
       .filter(
         (p) =>
-          !p.hidden &&
+          // As get_top_posts: posts the classifier hasn't approved never rank,
+          // and other hidden (report-hidden) posts only for their own author,
+          // the visible_posts rule.
+          !TOP_POST_UNAPPROVED_REASONS.includes(p.hiddenReason) &&
+          (p.authorId === user.id || !p.hidden) &&
           p.audience === 'public' &&
           !this.users.find((u) => u.id === p.authorId)?.isPrivate &&
           p.creationTime >= since &&

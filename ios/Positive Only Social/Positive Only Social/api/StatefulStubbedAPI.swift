@@ -1480,7 +1480,10 @@ final class StatefulStubbedAPI: Networking {
         let since = Date().addingTimeInterval(-Double(days) * 24 * 60 * 60)
         let ranked = posts
             .filter { post in
-                !post.isHidden &&
+                // As get_top_posts: unapproved posts never rank, and other hidden
+                // (report-hidden) posts only for their own author.
+                !Self.topPostUnapprovedReasons.contains(post.hiddenReason) &&
+                (post.authorId == currentUser.id || !post.isHidden) &&
                 post.audience == PostAudience.public.rawValue &&
                 !(users.first { $0.id == post.authorId }?.isPrivate ?? false) &&
                 post.createdDate >= since &&
@@ -1508,6 +1511,8 @@ final class StatefulStubbedAPI: Networking {
     // The Top posts windows and depth, matching backend/user_system/constants.py.
     private static let topPostPeriodDays = ["day": 1, "week": 7, "month": 30, "year": 365]
     private static let topPostsLimit = 100
+    // Hidden reasons meaning the classifier hasn't approved a post.
+    private static let topPostUnapprovedReasons: Set<String> = ["pending_classification", "classifier", "classifier_final"]
 
     /// Mirrors visibility.is_minor: verified and not adult (issue #329).
     private func isVerifiedMinor(_ user: MockUser?) -> Bool {

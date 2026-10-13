@@ -10,6 +10,7 @@ from ..constants import (
     FOLLOW_CATEGORY_FAMILY,
     HIDDEN_REASON_CLASSIFIER,
     HIDDEN_REASON_PENDING_CLASSIFICATION,
+    HIDDEN_REASON_REPORTS,
     POST_AUDIENCE_FAMILY,
     POST_AUDIENCE_PUBLIC,
     POST_BATCH_SIZE,
@@ -169,6 +170,17 @@ class GetTopPostsTests(PositiveOnlySocialTestCase):
         own_live = self._post(author=self.viewer)
 
         self.assertEqual(self._ids(), [own_live])
+
+    def test_own_report_hidden_post_ranks_only_for_its_author(self):
+        # A report-hidden post already passed classification, so it is left to
+        # visible_posts: its author still sees it ranked (report-hiding stays
+        # invisible to them, as everywhere else) while nobody else does.
+        own_hidden = self._post(author=self.viewer, likes=2, hidden=True, hidden_reason=HIDDEN_REASON_REPORTS)
+        self.assertEqual(self._ids(), [own_hidden])
+
+        other_header = {'HTTP_AUTHORIZATION': f"Bearer {self.make_user_with_prefix(prefix='other')[Fields.session_management_token]}"}
+        response = self._get(header=other_header)
+        self.assertEqual(response.json(), [])
 
     def test_shadow_banned_author_excluded(self):
         self._post(likes=3)
