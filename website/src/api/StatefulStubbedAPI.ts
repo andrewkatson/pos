@@ -71,6 +71,7 @@ import type {
   SetInterestsResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
+  TopPostPeriod,
   TwoFactorSetupResponse,
   AuthorAvatarFields,
   UserSearchResult,
@@ -88,6 +89,13 @@ const POST_BATCH_SIZE = 10
 const COMMENT_BATCH_SIZE = 10
 const LIKE_BATCH_SIZE = 10
 const FOLLOW_REQUEST_BATCH_SIZE = 30
+
+// The Top posts windows and depth, matching backend/user_system/constants.py.
+const TOP_POST_PERIOD_DAYS: Record<TopPostPeriod, number> = { day: 1, week: 7, month: 30, year: 365 }
+const TOP_POSTS_LIMIT = 100
+// Hidden reasons meaning the classifier hasn't approved a post (pending or
+// rejected); such posts never rank, even for their author.
+const TOP_POST_UNAPPROVED_REASONS = ['pending_classification', 'classifier', 'classifier_final']
 
 // The stub has no clock-based TOTP; this fixed code is the one the stub
 // accepts, mirroring the fixed codes in the iOS/Android stubs.
@@ -1301,6 +1309,38 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       )
       .sort((a, b) => b.creationTime - a.creationTime)
     return this.batch(visible, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
+  }
+
+  /** Mirrors get_top_posts (issue #558): public, live, same-age-band posts by
+   * public accounts, created within the period, most likes first, then newest, then post id,
+   * capped at TOP_POSTS_LIMIT. */
+  async getTopPosts(batch: number, period: TopPostPeriod): Promise<FeedPost[]> {
+    const user = this.requireUser()
+    const since = Date.now() - TOP_POST_PERIOD_DAYS[period] * 24 * 60 * 60 * 1000
+    const ranked = this.posts
+      .filter(
+        (p) =>
+          // As get_top_posts: posts the classifier hasn't approved never rank,
+          // and other hidden (report-hidden) posts only for their own author,
+          // the visible_posts rule.
+          !TOP_POST_UNAPPROVED_REASONS.includes(p.hiddenReason) &&
+          (p.authorId === user.id || !p.hidden) &&
+          p.audience === 'public' &&
+          !this.users.find((u) => u.id === p.authorId)?.isPrivate &&
+          p.creationTime >= since &&
+          !user.blocked.has(p.authorId) &&
+          !user.blockedBy.has(p.authorId) &&
+          // Same age band only (issue #329), as visible_posts enforces.
+          this.isVerifiedMinor(p.authorId) === (user.isVerified && !user.isAdult),
+      )
+      .sort(
+        (a, b) =>
+          b.likes.size - a.likes.size ||
+          b.creationTime - a.creationTime ||
+          (a.postIdentifier < b.postIdentifier ? -1 : a.postIdentifier > b.postIdentifier ? 1 : 0),
+      )
+      .slice(0, TOP_POSTS_LIMIT)
+    return this.batch(ranked, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
   }
 
   async getPostsForUser(username: string, batch: number): Promise<FeedPost[]> {

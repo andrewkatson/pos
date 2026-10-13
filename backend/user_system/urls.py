@@ -121,6 +121,9 @@ urlpatterns = [
     # GET /feed/followed/<int:batch>/ (Token in header)
     path('feed/followed/<int:batch>/', views.get_posts_for_followed_users, name='get_posts_for_followed_users'),
 
+    # GET /feed/top/<int:batch>/?period=day|week|month|year (Token in header)
+    path('feed/top/<int:batch>/', views.get_top_posts, name='get_top_posts'),
+
     # GET /users/<str:username>/posts/<int:batch>/ (Token in header)
     path('users/<str:username>/posts/<int:batch>/', views.get_posts_for_user, name='get_posts_for_user'),
 

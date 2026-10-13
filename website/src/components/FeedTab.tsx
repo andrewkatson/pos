@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
-import type { FeedPost, FollowCategory } from '../api/types'
+import type { FeedPost, FollowCategory, TopPostPeriod } from '../api/types'
 import { profilePathFor } from '../utils/profilePath'
 import PostThumbnail from './PostThumbnail'
 import PostActionBar from './PostActionBar'
@@ -10,7 +10,7 @@ import { usePostActions } from './usePostActions'
 import Avatar from './Avatar'
 import { captionFontClass } from './textFormatting'
 
-type FeedType = 'forYou' | 'following'
+type FeedType = 'forYou' | 'following' | 'top'
 /** 'all' is the whole following feed; the others narrow it by group (#392). */
 type FeedGroup = 'all' | FollowCategory
 
@@ -23,9 +23,23 @@ const GROUP_OPTIONS: { value: FeedGroup; label: string }[] = [
   { value: 'family', label: 'Family' },
 ]
 
+const FEED_OPTIONS: { value: FeedType; label: string }[] = [
+  { value: 'forYou', label: 'For You' },
+  { value: 'following', label: 'Following' },
+  { value: 'top', label: 'Top' },
+]
+
+const PERIOD_OPTIONS: { value: TopPostPeriod; label: string }[] = [
+  { value: 'day', label: 'Today' },
+  { value: 'week', label: 'This week' },
+  { value: 'month', label: 'This month' },
+  { value: 'year', label: 'This year' },
+]
+
 /**
- * The "Feed" tab with a For You / Following segmented control. Each feed loads
- * independently and supports pagination. Mirrors iOS FeedView (ForYou +
+ * The "Feed" tab with a For You / Following / Top segmented control. Each feed
+ * loads independently and supports pagination. Top is the scoreboard of the
+ * most-liked public posts across the app over a chosen period (issue #558). Mirrors iOS FeedView (ForYou +
  * Following feeds, infinite scroll, tap author → profile, tap image → detail).
  *
  * Each post carries the same like / report / delete controls as the profile
@@ -35,6 +49,7 @@ function FeedTab() {
   const navigate = useNavigate()
   const [selected, setSelected] = useState<FeedType>('forYou')
   const [group, setGroup] = useState<FeedGroup>('all')
+  const [period, setPeriod] = useState<TopPostPeriod>('week')
 
   // Track mount state so async loads that resolve after the tab is switched
   // away (HomePage unmounts inactive tabs) don't set state on an unmounted view.
@@ -65,36 +80,81 @@ function FeedTab() {
     })
 
   const fetcher = useCallback(
-    (batch: number) =>
-      selected === 'forYou'
-        ? apiClient.getFeed(batch)
-        : apiClient.getFollowedFeed(batch, group === 'all' ? undefined : group),
-    [selected, group],
+    (batch: number) => {
+      if (selected === 'forYou') return apiClient.getFeed(batch)
+      if (selected === 'top') return apiClient.getTopPosts(batch, period)
+      return apiClient.getFollowedFeed(batch, group === 'all' ? undefined : group)
+    },
+    [selected, group, period],
   )
+
+  // Bumped on every from-scratch load. A response from an older generation —
+  // say a Week page still in flight after the user picked Year, or a For You
+  // page after switching to Top — is dropped instead of overwriting or being
+  // appended to the newer feed.
+  const loadGeneration = useRef(0)
+  // Ids already in the list, kept in step with `posts` so a page load can tell
+  // synchronously whether a page added anything new.
+  const listedIds = useRef(new Set<string>())
 
   const loadFeed = useCallback(
     async (pageToLoad: number, replace: boolean) => {
+      if (replace) loadGeneration.current += 1
+      const generation = loadGeneration.current
+      const isCurrent = () => isMounted.current && generation === loadGeneration.current
       try {
-        const newPosts = await fetcher(pageToLoad)
-        if (!isMounted.current) return
-        if (replace) {
-          setPosts(newPosts)
-          setCanLoadMore(newPosts.length > 0)
-          setPage(newPosts.length > 0 ? 1 : 0)
-        } else if (newPosts.length === 0) {
-          setCanLoadMore(false)
-        } else {
-          setPosts(prev => [...prev, ...newPosts])
-          setPage(prev => prev + 1)
+        let nextPage = pageToLoad
+        for (;;) {
+          const newPosts = await fetcher(nextPage)
+          if (!isCurrent()) return
+          if (replace) {
+            listedIds.current = new Set(newPosts.map(post => post.post_identifier))
+            setPosts(newPosts)
+            setCanLoadMore(newPosts.length > 0)
+            setPage(newPosts.length > 0 ? 1 : 0)
+            break
+          }
+          if (newPosts.length === 0) {
+            setCanLoadMore(false)
+            break
+          }
+          // Live OFFSET paging can repeat a post whose rank moved between
+          // requests (Top especially); drop repeats so keys stay unique.
+          const unseen = newPosts.filter(post => !listedIds.current.has(post.post_identifier))
+          nextPage += 1
+          setPage(nextPage)
+          if (unseen.length > 0) {
+            unseen.forEach(post => listedIds.current.add(post.post_identifier))
+            setPosts(prev => [...prev, ...unseen])
+            break
+          }
+          // A page of nothing but repeats would make "Load more" look like it
+          // did nothing; keep going until a page adds something or comes back
+          // empty (the server stops the Top board at 100).
         }
       } catch {
-        if (isMounted.current) setCanLoadMore(false)
+        if (isCurrent()) setCanLoadMore(false)
       } finally {
-        if (isMounted.current) setIsLoading(false)
+        // A superseded load leaves the spinner to the load that replaced it.
+        if (isCurrent()) setIsLoading(false)
       }
     },
     [fetcher],
   )
+
+  // Switching feed, group or period clears the list up front, so the previous
+  // selection's posts never sit under the new one — ranked as if they were
+  // the new Top board — while it loads, or for good if that load fails.
+  function startSelectionChange() {
+    // Invalidate in-flight loads now, not when the reload starts: that waits
+    // for a render and a microtask, and an old response landing in between
+    // would otherwise repopulate the list just cleared below.
+    loadGeneration.current += 1
+    listedIds.current = new Set()
+    setIsLoading(true)
+    setPosts([])
+    setCanLoadMore(true)
+  }
 
   // Reload from scratch whenever the selected feed changes. Deferred to a
   // microtask so the fetch's setState calls don't run synchronously inside the
@@ -120,30 +180,24 @@ function FeedTab() {
       )}
 
       <div className="segmented" role="tablist" aria-label="Feed type">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={selected === 'forYou'}
-          className={`segmented__option${selected === 'forYou' ? ' segmented__option--active' : ''}`}
-          onClick={() => {
-            setIsLoading(true)
-            setSelected('forYou')
-          }}
-        >
-          For You
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={selected === 'following'}
-          className={`segmented__option${selected === 'following' ? ' segmented__option--active' : ''}`}
-          onClick={() => {
-            setIsLoading(true)
-            setSelected('following')
-          }}
-        >
-          Following
-        </button>
+        {FEED_OPTIONS.map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={selected === value}
+            className={`segmented__option${selected === value ? ' segmented__option--active' : ''}`}
+            onClick={() => {
+              // Re-selecting the current feed wouldn't change `selected`, so
+              // the reload effect wouldn't fire — guard against a stuck spinner.
+              if (value === selected) return
+              startSelectionChange()
+              setSelected(value)
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {selected === 'following' && (
@@ -158,11 +212,34 @@ function FeedTab() {
               // Re-selecting the current group wouldn't change `group`, so the
               // reload effect wouldn't fire — guard against a stuck spinner.
               if (next === group) return
-              setIsLoading(true)
+              startSelectionChange()
               setGroup(next)
             }}
           >
             {GROUP_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {selected === 'top' && (
+        <label className="feed-group-filter">
+          <span className="visually-hidden">Time period</span>
+          <select
+            className="select-input"
+            aria-label="Top posts time period"
+            value={period}
+            onChange={e => {
+              const next = e.target.value as TopPostPeriod
+              if (next === period) return
+              startSelectionChange()
+              setPeriod(next)
+            }}
+          >
+            {PERIOD_OPTIONS.map(opt => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>
@@ -188,9 +265,16 @@ function FeedTab() {
         <p className="muted">No posts here yet.</p>
       ) : (
         <div className="feed-list">
-          {posts.map(post => (
+          {posts.map((post, index) => (
             <article key={post.post_identifier}>
               <div className="author-line">
+                {/* The scoreboard position (issue #558). Deleting a row from
+                    Top shifts the ranks below it up, matching a refresh. */}
+                {selected === 'top' && (
+                  <span className="feed-post__rank" aria-label={`Rank ${index + 1}`}>
+                    #{index + 1}
+                  </span>
+                )}
                 <Avatar
                   src={post.author_profile_image_url}
                   originalSrc={post.author_profile_image_original_url}

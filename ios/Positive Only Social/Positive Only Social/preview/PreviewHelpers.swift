@@ -283,6 +283,16 @@ struct MockedAPI: Networking {
         return try encode(posts)
     }
 
+    func getTopPosts(sessionManagementToken: String, batch: Int, period: String) async throws -> Data {
+        // One page only: TopPostsViewModel pages past repeat-only pages, so the
+        // same rows on every batch would make a preview request forever.
+        guard batch == 0 else { return try encode([Post]()) }
+        let posts = [
+            Post(postIdentifier: "7", imageUrl: "https://picsum.photos/400/305", originalImageUrl: nil, caption: "Crowd favorite", authorUsername: "popular_pal")
+        ]
+        return try encode(posts)
+    }
+
     func getPostsForTag(sessionManagementToken: String, tag: String, batch: Int) async throws -> Data {
         let posts = [
             Post(postIdentifier: "6", imageUrl: "https://picsum.photos/400/304", originalImageUrl: nil, caption: "Tagged #\(tag)", authorUsername: "tag_fan", tags: [tag])

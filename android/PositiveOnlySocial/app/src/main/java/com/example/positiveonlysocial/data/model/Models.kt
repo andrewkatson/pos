@@ -698,6 +698,18 @@ enum class FollowCategory(val value: String, val displayName: String) {
 }
 
 /**
+ * Rolling window for the Top posts scoreboard (issue #558): posts created in the
+ * last day / 7 days / 30 days / 365 days, ranked by likes. Values match the
+ * backend's `period` query parameter.
+ */
+enum class TopPostPeriod(val value: String, val displayName: String) {
+    DAY("day", "Today"),
+    WEEK("week", "This week"),
+    MONTH("month", "This month"),
+    YEAR("year", "This year")
+}
+
+/**
  * Who may see a post. Nested circles from broadest to closest; raw values match
  * the backend.
  */

@@ -292,6 +292,10 @@ final class StatefulStubbedAPI: Networking {
     private var nextFollowRequestId = 1
     public private(set) var getPostsInFeedCallCount = 0
     public private(set) var getPostsForFollowedUsersCallCount = 0
+    public private(set) var getTopPostsCallCount = 0
+    /// The `period` of the most recent getTopPosts call, for asserting the
+    /// view model forwards the selected window (issue #558).
+    public private(set) var lastTopPostsPeriod: String?
     public private(set) var getPostsForUserCallCount = 0
     public private(set) var getUsersMatchingFragmentCallCount = 0
 
@@ -1455,6 +1459,64 @@ final class StatefulStubbedAPI: Networking {
 
         // 6. Return the serialized list
         return try createSerializedListResponse(fieldsList: fieldObjects)
+    }
+
+    /// Mirrors get_top_posts (issue #558): public, live, same-age-band posts by
+    /// public accounts, created within the period, most likes first, then newest, then post id,
+    /// capped at the top 100.
+    func getTopPosts(sessionManagementToken: String, batch: Int, period: String) async throws -> Data {
+        getTopPostsCallCount += 1
+        lastTopPostsPeriod = period
+        await simulateNetwork()
+
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 401)
+        }
+        guard let days = Self.topPostPeriodDays[period] else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+
+        let since = Date().addingTimeInterval(-Double(days) * 24 * 60 * 60)
+        let ranked = posts
+            .filter { post in
+                // As get_top_posts: unapproved posts never rank, and other hidden
+                // (report-hidden) posts only for their own author.
+                !Self.topPostUnapprovedReasons.contains(post.hiddenReason) &&
+                (post.authorId == currentUser.id || !post.isHidden) &&
+                post.audience == PostAudience.public.rawValue &&
+                !(users.first { $0.id == post.authorId }?.isPrivate ?? false) &&
+                post.createdDate >= since &&
+                !currentUser.blocked.contains(post.authorId) &&
+                !currentUser.blockedBy.contains(post.authorId) &&
+                // Same age band only (issue #329), as visible_posts enforces.
+                isVerifiedMinor(users.first { $0.id == post.authorId }) == isVerifiedMinor(currentUser)
+            }
+            .sorted {
+                if $0.likes.count != $1.likes.count { return $0.likes.count > $1.likes.count }
+                if $0.createdDate != $1.createdDate { return $0.createdDate > $1.createdDate }
+                return $0.postIdentifier < $1.postIdentifier
+            }
+            .prefix(Self.topPostsLimit)
+
+        let startIndex = batch * pageSize
+        guard startIndex < ranked.count else {
+            return try createSerializedListResponse(fieldsList: [PostListingFields]())
+        }
+        let endIndex = min(startIndex + pageSize, ranked.count)
+        let fieldObjects = Array(ranked)[startIndex..<endIndex].map { postListingFields(for: $0, viewer: currentUser) }
+        return try createSerializedListResponse(fieldsList: fieldObjects)
+    }
+
+    // The Top posts windows and depth, matching backend/user_system/constants.py.
+    private static let topPostPeriodDays = ["day": 1, "week": 7, "month": 30, "year": 365]
+    private static let topPostsLimit = 100
+    // Hidden reasons meaning the classifier hasn't approved a post.
+    private static let topPostUnapprovedReasons: Set<String> = ["pending_classification", "classifier", "classifier_final"]
+
+    /// Mirrors visibility.is_minor: verified and not adult (issue #329).
+    private func isVerifiedMinor(_ user: MockUser?) -> Bool {
+        guard let user else { return false }
+        return user.identityIsVerified && !user.isAdult
     }
 
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {

@@ -11,11 +11,13 @@ import SwiftUI
 enum FeedType: String, CaseIterable {
     case forYou = "For You"
     case following = "Following"
+    case top = "Top"
 }
 
 struct FeedView: View {
     @StateObject private var forYouViewModel: FeedViewModel
     @StateObject private var followingViewModel: FollowingFeedViewModel
+    @StateObject private var topViewModel: TopPostsViewModel
     // Powers the like / report / delete controls on each feed row (issue #267).
     @StateObject private var postActions: PostActionsViewModel
 
@@ -29,6 +31,7 @@ struct FeedView: View {
     init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         _forYouViewModel = StateObject(wrappedValue: FeedViewModel(api: api, keychainHelper: keychainHelper))
         _followingViewModel = StateObject(wrappedValue: FollowingFeedViewModel(api: api, keychainHelper: keychainHelper))
+        _topViewModel = StateObject(wrappedValue: TopPostsViewModel(api: api, keychainHelper: keychainHelper))
         _postActions = StateObject(wrappedValue: PostActionsViewModel(api: api, keychainHelper: keychainHelper))
 
         self.api = api
@@ -54,6 +57,8 @@ struct FeedView: View {
                     ForYouFeedView(viewModel: forYouViewModel, postActions: postActions)
                 case .following:
                     FollowingFeedView(viewModel: followingViewModel, postActions: postActions)
+                case .top:
+                    TopFeedView(viewModel: topViewModel, postActions: postActions)
                 }
             }
             .navigationTitle("Feed")
@@ -75,6 +80,8 @@ struct FeedView: View {
                      Task { await forYouViewModel.refreshFeed() }
                  case .following:
                      Task { await followingViewModel.refreshFeed() }
+                 case .top:
+                     Task { await topViewModel.refreshFeed() }
                  }
              }
         }
@@ -312,6 +319,120 @@ struct FollowingFeedView: View {
         .onAppear {
             if viewModel.followingPosts.isEmpty {
                 viewModel.fetchFollowingFeed()
+            }
+        }
+    }
+}
+
+
+/// The "Top" feed (issue #558): the most-liked public posts across the app over
+/// a chosen period, numbered by rank.
+struct TopFeedView: View {
+    @ObservedObject var viewModel: TopPostsViewModel
+    @ObservedObject var postActions: PostActionsViewModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Period", selection: Binding(
+                get: { viewModel.selectedPeriod },
+                set: { viewModel.selectPeriod($0) }
+            )) {
+                ForEach(TopPostPeriod.allCases) { period in
+                    Text(period.displayName).tag(period)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .accessibilityIdentifier("TopPeriodPicker")
+
+            feedScroll
+        }
+    }
+
+    private var feedScroll: some View {
+        ScrollView {
+            LazyVStack(spacing: 25) {
+                ForEach(Array(viewModel.topPosts.enumerated()), id: \.element.id) { index, post in
+                    VStack(alignment: .leading, spacing: 10) {
+
+                        HStack(spacing: 8) {
+                            // The scoreboard position.
+                            Text("#\(index + 1)")
+                                .font(.headline)
+                                .monospacedDigit()
+                                .foregroundStyle(Color.accentColor)
+                                .accessibilityLabel("Rank \(index + 1)")
+                                .accessibilityIdentifier("TopPostRank")
+                            ProfileAvatarView(
+                                imageUrl: post.authorProfileImageUrl,
+                                originalImageUrl: post.authorProfileImageOriginalUrl,
+                                blurHash: post.authorProfileImageBlurHash,
+                                size: 32
+                            )
+                            AuthorNameLink(
+                                username: post.authorUsername,
+                                isCurrentUser: postActions.state(for: post).isOwn
+                            ) {
+                                Text(post.authorUsername)
+                                    .font(.headline)
+                                    .fontWeight(.bold)
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal)
+
+                        NavigationLink(value: post) {
+                            Color(.systemGray5)
+                                .aspectRatio(1, contentMode: .fit)
+                                .overlay {
+                                    GridPostImage(
+                                        imageUrl: post.imageUrl,
+                                        originalImageUrl: post.originalImageUrl,
+                                        blurHash: post.blurHash,
+                                        caption: post.caption,
+                                        captionFont: post.captionFont,
+                                        backgroundColor: post.backgroundColor,
+                                        placeholderColor: Color(.systemGray5)
+                                    )
+                                }
+                                .clipped()
+                                .border(Color.gray, width: 0.5)
+                                .cornerRadius(15)
+                                .shadow(color: Color.black.opacity(0.4), radius: 10, x: 0, y: 0)
+                        }
+                        .onAppear {
+                            // Trigger for infinite scrolling
+                            if post.id == viewModel.topPosts.last?.id {
+                                viewModel.fetchTopPosts()
+                            }
+                        }
+                        .accessibilityIdentifier("TopPostImage")
+
+                        if post.imageUrl != nil {
+                            Text(post.caption)
+                                .font(TextFormatting.captionFont(post.captionFont, size: UIFont.preferredFont(forTextStyle: .body).pointSize))
+                                .padding(.horizontal)
+                                .accessibilityIdentifier("PostCaption")
+                        }
+
+                        PostActionBar(post: post, postActions: postActions, showsPostDetails: true)
+                            .padding(.horizontal)
+                    }
+                }
+
+                if viewModel.isLoadingNextPage {
+                    ProgressView().padding()
+                }
+            }
+            .padding(.top)
+        }
+        .refreshable {
+            await Task { await viewModel.refreshFeed() }.value
+        }
+        .onAppear {
+            if viewModel.topPosts.isEmpty {
+                viewModel.fetchTopPosts()
             }
         }
     }

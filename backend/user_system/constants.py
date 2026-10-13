@@ -397,6 +397,8 @@ class Fields:
     # list (`?after=<request_id>` returns older requests).
     request_id = "request_id"
     category = "category"
+    # Time window for the Top posts scoreboard (issue #558): one of TOP_POST_PERIODS.
+    period = "period"
     audience = "audience"
     # Whether the post's author has turned off commenting (issue #492) — set at
     # creation or toggled afterward via lock_comments/unlock_comments. Existing
@@ -492,6 +494,26 @@ LIKE_BATCH_SIZE = 30
 # Incoming follow requests per page (issue #96): a popular private account can
 # accumulate an unbounded backlog, so the list is paginated like likers.
 FOLLOW_REQUEST_BATCH_SIZE = 30
+
+# Top posts scoreboard (issue #558): the selectable windows, as rolling
+# lookbacks in days from now, and how deep the ranking goes. Batches past
+# TOP_POSTS_LIMIT come back empty — it is a "top N" board, not a second
+# endless feed. The limit caps what is returned, not the ranking work: each
+# request still filters the whole window and counts every candidate's likes
+# before slicing, which grows with the window (year especially). Pre-computing
+# the boards to bound that is issue #559.
+TOP_POST_PERIOD_DAY = "day"
+TOP_POST_PERIOD_WEEK = "week"
+TOP_POST_PERIOD_MONTH = "month"
+TOP_POST_PERIOD_YEAR = "year"
+TOP_POST_PERIOD_DAYS = {
+    TOP_POST_PERIOD_DAY: 1,
+    TOP_POST_PERIOD_WEEK: 7,
+    TOP_POST_PERIOD_MONTH: 30,
+    TOP_POST_PERIOD_YEAR: 365,
+}
+TOP_POST_DEFAULT_PERIOD = TOP_POST_PERIOD_WEEK
+TOP_POSTS_LIMIT = 100
 
 # Maximum lengths for user-authored text, counted as unicode code points
 # (Python's len() on a str is code-point based, so these limits are unicode

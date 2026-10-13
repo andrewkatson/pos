@@ -3,11 +3,13 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import FeedTab from './FeedTab'
+import type { FeedPost } from '../api/types'
 
 vi.mock('../api/client', () => ({
   apiClient: {
     getFeed: vi.fn(),
     getFollowedFeed: vi.fn(),
+    getTopPosts: vi.fn(),
     getPostLikers: vi.fn(),
     likePost: vi.fn(),
     unlikePost: vi.fn(),
@@ -24,6 +26,7 @@ vi.mock('../api/client', () => ({
 import { apiClient } from '../api/client'
 const mockGetFeed = vi.mocked(apiClient.getFeed)
 const mockGetFollowed = vi.mocked(apiClient.getFollowedFeed)
+const mockGetTop = vi.mocked(apiClient.getTopPosts)
 const mockLikePost = vi.mocked(apiClient.likePost)
 const mockSavePost = vi.mocked(apiClient.savePost)
 const mockDeletePost = vi.mocked(apiClient.deletePost)
@@ -48,6 +51,7 @@ function renderTab() {
 beforeEach(() => {
   mockGetFeed.mockReset()
   mockGetFollowed.mockReset()
+  mockGetTop.mockReset()
   mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockSavePost.mockReset().mockResolvedValue({ message: 'Post saved' })
   mockDeletePost.mockReset().mockResolvedValue({ message: 'ok' })
@@ -188,6 +192,138 @@ test('the group filter is hidden on the For You feed (#392)', () => {
   expect(
     screen.queryByLabelText('Filter following feed by group'),
   ).not.toBeInTheDocument()
+})
+
+test('shows the Top scoreboard for this week by default, ranked (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'best' },
+    { post_identifier: 'p2', image_url: 'http://img/2.jpg', author_username: 'bob', caption: 'next' },
+  ])
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalledWith(0, 'week'))
+  expect(await screen.findByLabelText('Rank 1')).toHaveTextContent('#1')
+  expect(screen.getByLabelText('Rank 2')).toHaveTextContent('#2')
+  expect(screen.getByLabelText('Top posts time period')).toHaveValue('week')
+})
+
+test('changing the Top period reloads the scoreboard (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'best' },
+  ])
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalledWith(0, 'week'))
+
+  await userEvent.selectOptions(screen.getByLabelText('Top posts time period'), 'year')
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalledWith(0, 'year'))
+})
+
+test('a slow response for the previous period does not overwrite the new one (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  let resolveWeek: (posts: FeedPost[]) => void = () => {}
+  mockGetTop.mockImplementation((_batch, period) =>
+    period === 'week'
+      ? new Promise<FeedPost[]>(resolve => {
+          resolveWeek = resolve
+        })
+      : Promise.resolve([
+          { post_identifier: 'y1', image_url: 'http://img/y.jpg', author_username: 'yearly', caption: 'y' },
+        ]),
+  )
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalledWith(0, 'week'))
+  await userEvent.selectOptions(screen.getByLabelText('Top posts time period'), 'year')
+  expect(await screen.findByRole('button', { name: 'Open post by yearly' })).toBeInTheDocument()
+
+  // The Week request finally lands; it must be ignored.
+  resolveWeek([
+    { post_identifier: 'w1', image_url: 'http://img/w.jpg', author_username: 'weekly', caption: 'w' },
+  ])
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(screen.queryByRole('button', { name: 'Open post by weekly' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Open post by yearly' })).toBeInTheDocument()
+})
+
+test('switching to a feed that fails to load does not keep the old posts (#558)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },
+  ])
+  mockGetTop.mockRejectedValue(new Error('boom'))
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalled())
+
+  expect(screen.queryByRole('button', { name: 'Open post by ada' })).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Rank 1')).not.toBeInTheDocument()
+  expect(await screen.findByText('No posts here yet.')).toBeInTheDocument()
+})
+
+test('a post repeated across Top pages is only listed once (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  const post = (id: string) => ({
+    post_identifier: id,
+    image_url: `http://img/${id}.jpg`,
+    author_username: `author_${id}`,
+    caption: id,
+  })
+  mockGetTop.mockImplementation(batch =>
+    Promise.resolve(batch === 0 ? [post('a'), post('b')] : [post('b'), post('c')]),
+  )
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await screen.findByRole('button', { name: 'Open post by author_b' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  await screen.findByRole('button', { name: 'Open post by author_c' })
+
+  expect(screen.getAllByRole('button', { name: 'Open post by author_b' })).toHaveLength(1)
+  expect(screen.getByLabelText('Rank 3')).toBeInTheDocument()
+  expect(screen.queryByLabelText('Rank 4')).not.toBeInTheDocument()
+})
+
+test('Load more skips past a Top page of nothing but repeats (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  const post = (id: string) => ({
+    post_identifier: id,
+    image_url: `http://img/${id}.jpg`,
+    author_username: `author_${id}`,
+    caption: id,
+  })
+  const pages: Record<number, ReturnType<typeof post>[]> = {
+    0: [post('a'), post('b')],
+    1: [post('a'), post('b')],
+    2: [post('c')],
+  }
+  mockGetTop.mockImplementation(batch => Promise.resolve(pages[batch] ?? []))
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await screen.findByRole('button', { name: 'Open post by author_b' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  // One click reaches page 2's new post instead of stalling on page 1.
+  expect(await screen.findByRole('button', { name: 'Open post by author_c' })).toBeInTheDocument()
+  expect(mockGetTop).toHaveBeenCalledWith(2, 'week')
+})
+
+test('the period picker and ranks are only on the Top feed (#558)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },
+  ])
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  expect(screen.queryByLabelText('Top posts time period')).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Rank 1')).not.toBeInTheDocument()
 })
 
 test('navigates to an author profile from the feed', async () => {

@@ -96,6 +96,10 @@ import Foundation
     // Relationship-category endpoint and query key (issue #392).
     static let pathSegmentCategory = "category"
     static let queryKeyCategory = "category"
+    // Top posts scoreboard: GET feed/top/<batch>/?period=... (issue #558).
+    static let pathSegmentTop = "top"
+    static let queryKeyPeriod = "period"
+
     // Keyset cursor for the follow-request list (issue #96): the request id
     // of the oldest row loaded so far.
     static let queryKeyAfter = "after"

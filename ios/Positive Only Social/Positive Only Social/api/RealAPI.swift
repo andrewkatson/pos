@@ -734,6 +734,26 @@ final class RealAPI: Networking {
     }
     
     
+    /// Fetches one page of the Top posts scoreboard (issue #558): the most-liked
+    /// public posts created within `period`, most likes first.
+    ///
+    /// - Parameters:
+    ///   - batch: Which page to fetch, starting at 0. Each page holds up to 10
+    ///     posts; pages past the top 100 come back empty.
+    ///   - period: The time window, one of `TopPostPeriod`'s raw values:
+    ///     "day", "week", "month" or "year".
+    /// - Returns: The raw JSON array of posts, in the same shape as the other feeds.
+    func getTopPosts(sessionManagementToken: String, batch: Int, period: String) async throws -> Data {
+        // Sends an authenticated GET to /feed/top/<batch>/?period=<period>:
+        // the page number goes in the path and the period in the query string.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSregmenFeed, GVOAppConstants.pathSegmentTop, String(batch)],
+            method: .get,
+            authToken: sessionManagementToken,
+            queryItems: [URLQueryItem(name: GVOAppConstants.queryKeyPeriod, value: period)]
+        )
+    }
+
     /// Gets a batch of posts for another user.
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with auth. Username/Batch are in path.

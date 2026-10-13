@@ -57,6 +57,16 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // small, test-friendly numbers and is not the source of truth for the real
     // backend.
     private val POST_BATCH_SIZE = 10
+    // The Top posts windows and depth, matching backend/user_system/constants.py.
+    private val TOP_POST_PERIOD_DAYS = mapOf("day" to 1, "week" to 7, "month" to 30, "year" to 365)
+    private val TOP_POSTS_LIMIT = 100
+    // Hidden reasons meaning the classifier hasn't approved a post.
+    private val TOP_POST_UNAPPROVED_REASONS = setOf("pending_classification", "classifier", "classifier_final")
+
+    /** Mirrors visibility.is_minor: verified and not adult (issue #329). */
+    private fun isVerifiedMinor(user: UserMock?): Boolean =
+        user != null && user.isVerified && !user.isAdult
+
     // Incoming follow requests per page (issue #96), matching the backend.
     var followRequestBatchSize = 30
     // Each pending request's id, keyed "ownerId|requesterId" — the keyset cursor
@@ -1088,6 +1098,39 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
         val batched = getBatch(followedPosts, batch, POST_BATCH_SIZE)
         val dtos = batched.map { post ->
+            val author = users.find { it.id == post.authorId }!!
+            listingDto(post, author.username, user.id)
+        }
+        return Response.success(dtos)
+    }
+
+    /** Mirrors get_top_posts (issue #558): public, live, same-age-band posts by
+     * public accounts, created within the period, most likes first, then newest, then post id,
+     * capped at the top 100. */
+    override suspend fun getTopPosts(token: String, batch: Int, period: String): Response<List<Post>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val days = TOP_POST_PERIOD_DAYS[period] ?: return errorGeneric(400, "Invalid period")
+        val since = System.currentTimeMillis() - days * 24L * 60 * 60 * 1000
+
+        val ranked = posts.filter {
+            // As get_top_posts: unapproved posts never rank, and other hidden
+            // (report-hidden) posts only for their own author.
+            it.hiddenReason !in TOP_POST_UNAPPROVED_REASONS &&
+            (it.authorId == user.id || !it.hidden) &&
+            it.audience == PostAudience.PUBLIC.value &&
+            users.find { u -> u.id == it.authorId }?.isPrivate != true &&
+            it.creationTime >= since &&
+            !user.blocked.contains(it.authorId) &&
+            !user.blockedBy.contains(it.authorId) &&
+            // Same age band only (issue #329), as visible_posts enforces.
+            isVerifiedMinor(users.find { u -> u.id == it.authorId }) == isVerifiedMinor(user)
+        }.sortedWith(
+            compareByDescending<PostMock> { it.likes.size }
+                .thenByDescending { it.creationTime }
+                .thenBy { it.postIdentifier }
+        ).take(TOP_POSTS_LIMIT)
+
+        val dtos = getBatch(ranked, batch, POST_BATCH_SIZE).map { post ->
             val author = users.find { it.id == post.authorId }!!
             listingDto(post, author.username, user.id)
         }

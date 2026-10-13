@@ -1,3 +1,4 @@
+import { vi } from 'vitest'
 import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
 import { STUB_TOTP_CODE, StatefulStubbedAPI } from './StatefulStubbedAPI'
 import { isTwoFactorRequired } from './types'
@@ -1148,6 +1149,90 @@ test('searchUsers hides anyone who blocked the searcher, but not those they bloc
 
   // Blocking someone doesn't hide them from you; being blocked does.
   expect(results.map((u) => u.username)).toEqual(['bobvictim'])
+})
+
+// --- Top posts scoreboard (#558) ---------------------------------------------
+
+test('top posts rank public posts by likes and skip restricted ones', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const quiet = await api.createPost({ caption: 'quiet' })
+  const loved = await api.createPost({ caption: 'loved' })
+  await api.createPost({ caption: 'family only', audience: 'family' })
+
+  await register(api, 'fan')
+  await api.likePost(loved.post_identifier)
+
+  const top = (await api.getTopPosts(0, 'week')).map((p) => p.post_identifier)
+  expect(top).toEqual([loved.post_identifier, quiet.post_identifier])
+})
+
+test('top posts leave out private accounts, even for their followers', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'secret')
+  await api.setAccountPrivacy(true)
+  await api.createPost({ caption: 'private account post' })
+  await register(api, 'open')
+  const openPost = await api.createPost({ caption: 'public account post' })
+
+  await register(api, 'viewer')
+  expect((await api.getTopPosts(0, 'week')).map((p) => p.post_identifier)).toEqual([
+    openPost.post_identifier,
+  ])
+})
+
+test('a report-hidden post ranks for its author only, unapproved ones for nobody', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  // 'moderated' is the stub's stand-in for a post a moderator hid after
+  // reports; 'borderline' is a classifier rejection.
+  const reportHidden = await api.createPost({ caption: 'moderated post' })
+  await api.createPost({ caption: 'borderline post' })
+
+  expect((await api.getTopPosts(0, 'week')).map((p) => p.post_identifier)).toEqual([
+    reportHidden.post_identifier,
+  ])
+
+  await register(api, 'viewer')
+  expect(await api.getTopPosts(0, 'week')).toEqual([])
+})
+
+test('top posts only include posts created within the period', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({ caption: 'now' })
+
+  vi.useFakeTimers({ now: Date.now() + 2 * 24 * 60 * 60 * 1000, toFake: ['Date'] })
+  try {
+    expect(await api.getTopPosts(0, 'day')).toEqual([])
+    const week = (await api.getTopPosts(0, 'week')).map((p) => p.post_identifier)
+    expect(week).toEqual([post.post_identifier])
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('top posts stay within the viewer\'s age band', async () => {
+  const api = new StatefulStubbedAPI()
+  const thisYear = new Date().getFullYear()
+  await api.register({
+    username: 'teen',
+    email: 'teen@example.com',
+    password: 'password123',
+    date_of_birth: `${thisYear - 16}-01-01`,
+  })
+  const teenPost = await api.createPost({ caption: 'teen post' })
+
+  await register(api, 'adult')
+  const adultPost = await api.createPost({ caption: 'adult post' })
+  expect((await api.getTopPosts(0, 'week')).map((p) => p.post_identifier)).toEqual([
+    adultPost.post_identifier,
+  ])
+
+  await api.login({ username_or_email: 'teen', password: 'password123' })
+  expect((await api.getTopPosts(0, 'week')).map((p) => p.post_identifier)).toEqual([
+    teenPost.post_identifier,
+  ])
 })
 
 // --- Private accounts (issue #96) -------------------------------------------

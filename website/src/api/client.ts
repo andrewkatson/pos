@@ -63,6 +63,7 @@ import type {
   SetInterestsResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
+  TopPostPeriod,
   TwoFactorSetupResponse,
   UserSearchResult,
   VerifyEmailRequest,
@@ -596,6 +597,14 @@ export class ApiClient implements PositiveOnlySocialAPI {
   getFollowedFeed(batch: number, category?: FollowCategory): Promise<FeedPost[]> {
     const query = category ? `?category=${encodeURIComponent(category)}` : ''
     return this.request<FeedPost[]>('GET', `/feed/followed/${batch}/${query}`, { auth: true })
+  }
+
+  getTopPosts(batch: number, period: TopPostPeriod): Promise<FeedPost[]> {
+    return this.request<FeedPost[]>(
+      'GET',
+      `/feed/top/${batch}/?period=${encodeURIComponent(period)}`,
+      { auth: true },
+    )
   }
 
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]> {
