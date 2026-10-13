@@ -293,6 +293,7 @@ final class StatefulStubbedAPI: Networking {
     public private(set) var getPostsInFeedCallCount = 0
     public private(set) var getPostsForFollowedUsersCallCount = 0
     public private(set) var getTopPostsCallCount = 0
+    public private(set) var getTopUsersCallCount = 0
     /// The `period` of the most recent getTopPosts call, for asserting the
     /// view model forwards the selected window (issue #558).
     public private(set) var lastTopPostsPeriod: String?
@@ -1976,6 +1977,59 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
 
+    /// Mirrors get_top_users (issue #562): public, same-age-band, unblocked
+    /// accounts with at least one follower, most followers first then by username, capped at
+    /// the top 100. Followers are counted within the viewer's age band, as the
+    /// profile header counts them; the stub has no ban model, so bans don't apply.
+    func getTopUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
+        getTopUsersCallCount += 1
+        await simulateNetwork()
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 401)
+        }
+        let viewerIsMinor = isVerifiedMinor(currentUser)
+        let bandIds: Set<UUID> = Set(users.filter { isVerifiedMinor($0) == viewerIsMinor }.map(\.id))
+        var counts: [UUID: Int] = [:]
+        for follow in userFollows where bandIds.contains(follow.userFromId) {
+            counts[follow.userToId, default: 0] += 1
+        }
+        let eligible: [MockUser] = users.filter { user in
+            !user.isPrivate
+                && bandIds.contains(user.id)
+                && !currentUser.blocked.contains(user.id)
+                && !currentUser.blockedBy.contains(user.id)
+                && (counts[user.id] ?? 0) > 0
+        }
+        let sorted: [MockUser] = eligible.sorted { a, b in
+            let countA = counts[a.id] ?? 0
+            let countB = counts[b.id] ?? 0
+            return countA != countB ? countA > countB : a.username < b.username
+        }
+        let ranked: [(MockUser, Int)] = sorted.prefix(Self.topUsersLimit).map { ($0, counts[$0.id] ?? 0) }
+
+        struct Fields: Codable {
+            let username: String
+            let identity_is_verified: Bool
+            let author_profile_image_url: String?
+            let author_profile_image_original_url: String?
+            let follower_count: Int
+        }
+        let startIndex = batch * pageSize
+        guard startIndex < ranked.count else {
+            return try createSerializedListResponse(fieldsList: [Fields]())
+        }
+        let endIndex = min(startIndex + pageSize, ranked.count)
+        let fieldObjects: [Fields] = ranked[startIndex..<endIndex].map { (user: MockUser, count: Int) -> Fields in
+            let avatar = user.profileImageStatus == "approved" ? user.profileImageUrl : nil
+            return Fields(username: user.username, identity_is_verified: user.identityIsVerified,
+                          author_profile_image_url: avatar, author_profile_image_original_url: avatar,
+                          follower_count: count)
+        }
+        return try createSerializedListResponse(fieldsList: fieldObjects)
+    }
+
+    private static let topUsersLimit = 100
+
     func getFollowing(sessionManagementToken: String) async throws -> Data {
         await simulateNetwork()
         guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
@@ -2282,11 +2336,15 @@ final class StatefulStubbedAPI: Networking {
         // Count posts where the authorId matches the profile user
         let postCount = posts.filter { $0.authorId == profileUser.id }.count
         
-        // Count follows where 'userToId' matches the profile user
-        let followerCount = userFollows.filter { $0.userToId == profileUser.id }.count
-        
-        // Count follows where 'userFromId' matches the profile user
-        let followingCount = userFollows.filter { $0.userFromId == profileUser.id }.count
+        // Follower/following counts leave out accounts in the other age band,
+        // as the backend's do (issue #398), so a profile header agrees with the
+        // most-followed board (issue #562).
+        let viewerIsMinor = isVerifiedMinor(requestingUser)
+        let inViewerBand: (UUID) -> Bool = { id in
+            self.isVerifiedMinor(self.users.first { $0.id == id }) == viewerIsMinor
+        }
+        let followerCount = userFollows.filter { $0.userToId == profileUser.id && inViewerBand($0.userFromId) }.count
+        let followingCount = userFollows.filter { $0.userFromId == profileUser.id && inViewerBand($0.userToId) }.count
         
         // 4. Check if the requesting user is following the profile user, and
         //    with which relationship category (issue #392).

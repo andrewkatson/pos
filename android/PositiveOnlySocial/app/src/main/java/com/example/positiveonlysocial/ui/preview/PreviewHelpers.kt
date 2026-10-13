@@ -651,6 +651,18 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun getTopUsers(token: String, batch: Int): Response<List<TopUser>> {
+        // One page only: TopUsersViewModel pages past repeat-only pages, so the
+        // same rows on every batch would make a preview request forever.
+        if (batch > 0) return Response.success(emptyList())
+        return Response.success(
+            listOf(
+                TopUser(username = "popular_pal", identityIsVerified = true, followerCount = 1200),
+                TopUser(username = "coffee_addict", identityIsVerified = false, followerCount = 45)
+            )
+        )
+    }
+
     override suspend fun getFollowers(
         token: String
     ): Response<List<User>> {

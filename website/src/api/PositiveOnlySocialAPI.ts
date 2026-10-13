@@ -57,6 +57,7 @@ import type {
   SubmitAppealRequest,
   SubmitAppealResponse,
   TopPostPeriod,
+  TopUser,
   TwoFactorSetupResponse,
   UserSearchResult,
   VerifyEmailRequest,
@@ -236,6 +237,9 @@ export interface PositiveOnlySocialAPI {
   toggleBlock(username: string): Promise<MessageResponse>
   getBlockedUsers(): Promise<UserSearchResult[]>
   getFollowers(): Promise<UserSearchResult[]>
+  /** The most-followed people board (issue #562): who has the most followers
+   * right now, batched and capped at the top 100. */
+  getTopUsers(batch: number): Promise<TopUser[]>
   getFollowing(): Promise<UserSearchResult[]>
   /** Private accounts (issue #96). Following a private account files a
    * request (see followUser's follow_request_pending); its owner lists, approves

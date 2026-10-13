@@ -551,6 +551,29 @@ struct User: Codable, Identifiable, Hashable {
     }
 }
 
+/// A row of the most-followed people board (issue #562): the usual user fields
+/// plus a follower count that matches the profile header's.
+struct TopUser: Decodable, Identifiable, Hashable {
+    var id: String { user.username }
+    let user: User
+    let followerCount: Int
+
+    init(user: User, followerCount: Int) {
+        self.user = user
+        self.followerCount = followerCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case followerCount = "follower_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        // The row is flat JSON: User decodes its own keys from the same object.
+        user = try User(from: decoder)
+        followerCount = try decoder.container(keyedBy: CodingKeys.self).decode(Int.self, forKey: .followerCount)
+    }
+}
+
 // Represents another user's profile
 struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     var id: String { username }

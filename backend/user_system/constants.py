@@ -515,6 +515,11 @@ TOP_POST_PERIOD_DAYS = {
 TOP_POST_DEFAULT_PERIOD = TOP_POST_PERIOD_WEEK
 TOP_POSTS_LIMIT = 100
 
+# Most-followed people board (issue #562): who has the most followers right
+# now, in batches the size of a user-search batch, stopping at TOP_USERS_LIMIT.
+TOP_USERS_BATCH_SIZE = 10
+TOP_USERS_LIMIT = 100
+
 # Maximum lengths for user-authored text, counted as unicode code points
 # (Python's len() on a str is code-point based, so these limits are unicode
 # aware rather than restricted to ASCII bytes).

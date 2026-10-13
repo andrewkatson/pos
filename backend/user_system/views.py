@@ -38,6 +38,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, \
     HIDDEN_REASON_PENDING_CLASSIFICATION, NON_APPEALABLE_HIDDEN_REASONS, \
     POST_STATUS_PENDING, POST_STATUS_REJECTED, POST_STATUS_REJECTED_FINAL, \
     TOP_POST_PERIOD_DAYS, TOP_POST_DEFAULT_PERIOD, TOP_POSTS_LIMIT, \
+    TOP_USERS_BATCH_SIZE, TOP_USERS_LIMIT, \
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
     MAX_APPEAL_REASON_LENGTH, \
     TWO_FACTOR_CHALLENGE_MINUTES, TWO_FACTOR_MAX_ATTEMPTS, NUM_RECOVERY_CODES, \
@@ -69,7 +70,7 @@ from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_so
 from .tags import set_post_tags
 from .visibility import audience_admits, can_view_post, in_same_age_band, privacy_admits, \
     searchable_users, \
-    visible_comment_threads, visible_comments, visible_posts, PUBLIC_VIEWER
+    visible_comment_threads, visible_comments, visible_posts, with_visible_follower_count, PUBLIC_VIEWER
 
 
 def _age_from_dob(dob):
@@ -5395,6 +5396,62 @@ def notification_preferences(request):
     # Allow header). Kept as a defensive default so the view always returns.
     return log_and_return_json(
         "notification_preferences", {'error': "Method not allowed"}, status=405)
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
+def get_top_users(request, batch):
+    """The most-followed people board (issue #562): who has the most followers
+    right now, most first, in batches of TOP_USERS_BATCH_SIZE, stopping at
+    TOP_USERS_LIMIT.
+
+    Eligibility mirrors user search (searchable_users: no shadow-banned or
+    cross-age-band accounts, so each age band gets its own board) plus the
+    block filters in both directions, and drops accounts under an outright ban,
+    accounts nobody follows, and private accounts (issue #96) — a private
+    profile shows non-followers no follower count, and a ranked board would
+    give it away. follower_count is counted exactly as the
+    profile header counts it (with_visible_follower_count), so the number on
+    the board matches the one on the profile it links to."""
+    logger.info("Endpoint get_top_users invoked by IP or User")
+    if batch < 0:
+        return log_and_return_json("get_top_users", {'error': "Invalid batch parameter"}, status=400)
+
+    starting_index = batch * TOP_USERS_BATCH_SIZE
+    if starting_index >= TOP_USERS_LIMIT:
+        return log_and_return_json("get_top_users", [], safe=False)
+
+    outright_banned = UserBan.objects.active().filter(
+        ban_type=BAN_TYPE_OUTRIGHT).values_list('user_id', flat=True)
+    candidates = (
+        PositiveOnlySocialUser.objects
+        .filter(is_private=False)
+        .exclude(pk__in=outright_banned)
+        .exclude(pk__in=request.user.blocked.all())
+        .exclude(pk__in=request.user.blocked_by.all())
+    )
+    ranked_users = (
+        with_visible_follower_count(searchable_users(candidates, request.user), request.user)
+        .filter(follower_count__gt=0)
+        # Username is unique, so ties break deterministically. Like the posts
+        # board, this is live OFFSET paging: a count changing between two page
+        # requests can move someone across the boundary.
+        .order_by('-follower_count', 'username')
+    )
+
+    batch_size = min(TOP_USERS_BATCH_SIZE, TOP_USERS_LIMIT - starting_index)
+    batched_users = list(ranked_users[starting_index:starting_index + batch_size])
+    users_data = [
+        {
+            Fields.username: user.username,
+            Fields.identity_is_verified: user.identity_is_verified,
+            **_author_avatar_fields(user),
+            Fields.follower_count: user.follower_count,
+        }
+        for user in batched_users
+    ]
+    return log_and_return_json("get_top_users", users_data, safe=False)
 
 
 @api_login_required

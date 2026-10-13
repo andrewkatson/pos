@@ -382,6 +382,14 @@ interface PositiveOnlySocialAPI {
         @Header("Authorization") token: String
     ): Response<List<User>>
 
+    /** The most-followed people board (issue #562): who has the most followers
+     * right now, in batches, capped at the top 100. */
+    @GET("users/top/{batch}/")
+    suspend fun getTopUsers(
+        @Header("Authorization") token: String,
+        @Path("batch") batch: Int
+    ): Response<List<TopUser>>
+
     @GET("users/following/")
     suspend fun getFollowing(
         @Header("Authorization") token: String

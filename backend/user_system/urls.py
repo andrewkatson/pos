@@ -230,6 +230,9 @@ urlpatterns = [
     # =========================================================================
     # USER & PROFILE
     # =========================================================================
+    # GET /users/top/<int:batch>/ (Token in header) — most-followed board (#562)
+    path('users/top/<int:batch>/', views.get_top_users, name='get_top_users'),
+
     # GET /users/search/<str:username_fragment>/ (Token in header)
     path('users/search/<str:username_fragment>/', views.get_users_matching_fragment,
          name='get_users_matching_fragment'),

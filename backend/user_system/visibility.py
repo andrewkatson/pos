@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import Count, Q
 
 from .constants import (
     AUDIENCE_ALLOWED_CATEGORIES,
@@ -267,6 +267,19 @@ def can_view_post(post, viewer):
     if not privacy_admits(post.author, viewer):
         return False
     return _audience_allows(post, viewer)
+
+
+def with_visible_follower_count(users, viewer):
+    """Annotate `follower_count` on a user queryset, counting followers the way
+    the profile header does (issue #398): a shadow-banned or cross-age-band
+    follower is hidden from the follower list, so it doesn't count either. Keeps
+    a ranked list (the most-followed board, issue #562) in step with the number
+    each profile shows."""
+    counted = (
+        ~Q(followers_set__user_from__in=_shadow_banned_user_ids())
+        & _same_age_band_q(viewer, 'followers_set__user_from')
+    )
+    return users.annotate(follower_count=Count('followers_set', filter=counted, distinct=True))
 
 
 def same_age_band_users(users, viewer):

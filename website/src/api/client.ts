@@ -64,6 +64,7 @@ import type {
   SubmitAppealRequest,
   SubmitAppealResponse,
   TopPostPeriod,
+  TopUser,
   TwoFactorSetupResponse,
   UserSearchResult,
   VerifyEmailRequest,
@@ -857,6 +858,10 @@ export class ApiClient implements PositiveOnlySocialAPI {
   // followers/following can't be requested (issue #8).
   getFollowers(): Promise<UserSearchResult[]> {
     return this.request<UserSearchResult[]>('GET', '/users/followers/', { auth: true })
+  }
+
+  getTopUsers(batch: number): Promise<TopUser[]> {
+    return this.request<TopUser[]>('GET', `/users/top/${batch}/`, { auth: true })
   }
 
   getFollowing(): Promise<UserSearchResult[]> {

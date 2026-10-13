@@ -72,6 +72,7 @@ import type {
   SubmitAppealRequest,
   SubmitAppealResponse,
   TopPostPeriod,
+  TopUser,
   TwoFactorSetupResponse,
   AuthorAvatarFields,
   UserSearchResult,
@@ -96,6 +97,9 @@ const TOP_POSTS_LIMIT = 100
 // Hidden reasons meaning the classifier hasn't approved a post (pending or
 // rejected); such posts never rank, even for their author.
 const TOP_POST_UNAPPROVED_REASONS = ['pending_classification', 'classifier', 'classifier_final']
+// The most-followed board's batch size and depth, matching the backend.
+const TOP_USERS_BATCH_SIZE = 10
+const TOP_USERS_LIMIT = 100
 
 // The stub has no clock-based TOTP; this fixed code is the one the stub
 // accepts, mirroring the fixed codes in the iOS/Android stubs.
@@ -1434,6 +1438,13 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
    * never sees: that visitor's age is unknown, so it sits in the adult band and
    * the two bands are mutually invisible (issue #329). Mirrors
    * visibility.is_minor. */
+  /** How many of these accounts are in the given age band. Follower/following
+   * counts leave out the other band, as the backend's do (issue #398), so a
+   * profile header agrees with the most-followed board (issue #562). */
+  private countInBand(ids: Set<string>, viewerIsMinor: boolean): number {
+    return [...ids].filter((id) => this.isVerifiedMinor(id) === viewerIsMinor).length
+  }
+
   private isVerifiedMinor(authorId: string): boolean {
     const author = this.users.find((u) => u.id === authorId)
     return !!author?.isVerified && !author.isAdult
@@ -1542,8 +1553,9 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return {
       username: target.username,
       post_count: postCount,
-      follower_count: target.isPrivate ? 0 : target.followers.size,
-      following_count: target.isPrivate ? 0 : target.following.size,
+      // A signed-out visitor sits in the adult band.
+      follower_count: target.isPrivate ? 0 : this.countInBand(target.followers, false),
+      following_count: target.isPrivate ? 0 : this.countInBand(target.following, false),
       is_private: target.isPrivate,
       identity_is_verified: target.isVerified,
       profile_image_url: target.profileImageUrl,
@@ -2155,6 +2167,30 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       }))
   }
 
+  /** Mirrors get_top_users (issue #562): public, same-age-band, unblocked
+   * accounts with at least one follower, most followers first then by username, capped at
+   * TOP_USERS_LIMIT. Followers are counted within the viewer's age band, as the
+   * profile header counts them; the stub has no ban model, so bans don't apply. */
+  async getTopUsers(batch: number): Promise<TopUser[]> {
+    const user = this.requireUser()
+    const viewerIsMinor = user.isVerified && !user.isAdult
+    const inBand = (id: string) => this.isVerifiedMinor(id) === viewerIsMinor
+    const ranked = this.users
+      .filter(
+        (u) => !u.isPrivate && inBand(u.id) && !user.blocked.has(u.id) && !user.blockedBy.has(u.id),
+      )
+      .map((u) => ({ u, count: this.countInBand(u.followers, viewerIsMinor) }))
+      .filter(({ count }) => count > 0)
+      .sort((a, b) => b.count - a.count || a.u.username.localeCompare(b.u.username))
+      .slice(0, TOP_USERS_LIMIT)
+    return this.batch(ranked, batch, TOP_USERS_BATCH_SIZE).map(({ u, count }) => ({
+      username: u.username,
+      identity_is_verified: u.isVerified,
+      ...this.authorAvatarFields(u.id),
+      follower_count: count,
+    }))
+  }
+
   async getFollowing(): Promise<UserSearchResult[]> {
     const user = this.requireUser()
     return this.users
@@ -2177,14 +2213,15 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     // A private account shows a non-follower no counts (issue #96); zeroed
     // exactly like a blocker's.
     const hideCounts = isBlockedBy || !this.privacyAdmits(target.id, user)
+    const viewerIsMinor = user.isVerified && !user.isAdult
     const postCount = hideCounts ? 0 : this.posts.filter((p) => p.authorId === target.id).length
     const isFollowing = isBlockedBy ? false : user.following.has(target.id)
     const liveAvatar = isBlockedBy ? null : target.profileImageUrl
     const details: ProfileDetails = {
       username: target.username,
       post_count: postCount,
-      follower_count: hideCounts ? 0 : target.followers.size,
-      following_count: hideCounts ? 0 : target.following.size,
+      follower_count: hideCounts ? 0 : this.countInBand(target.followers, viewerIsMinor),
+      following_count: hideCounts ? 0 : this.countInBand(target.following, viewerIsMinor),
       is_following: isFollowing,
       follow_category: isFollowing ? (user.followCategories.get(target.id) ?? 'following') : null,
       is_private: target.isPrivate,

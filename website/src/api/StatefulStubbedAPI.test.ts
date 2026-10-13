@@ -1235,6 +1235,57 @@ test('top posts stay within the viewer\'s age band', async () => {
   ])
 })
 
+// --- Most-followed board (#562) ----------------------------------------------
+
+test('top users rank by followers and leave out the unfollowed', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'quiet')
+  await register(api, 'star')
+  await register(api, 'rising')
+  await register(api, 'fan1')
+  await api.followUser('star')
+  await api.followUser('rising')
+  await register(api, 'fan2')
+  await api.followUser('star')
+
+  const top = await api.getTopUsers(0)
+  expect(top.map((u) => [u.username, u.follower_count])).toEqual([
+    ['star', 2],
+    ['rising', 1],
+  ])
+})
+
+test('a follower who verifies into the other age band drops from board and profile alike', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'star')
+  await register(api, 'fan1')
+  await api.followUser('star')
+  await register(api, 'fan2')
+  await api.followUser('star')
+  await api.verifyIdentity(`${new Date().getFullYear() - 16}-01-01`) // fan2 is a minor now
+
+  await register(api, 'viewer')
+  const [row] = await api.getTopUsers(0)
+  expect(row.username).toBe('star')
+  expect(row.follower_count).toBe(1)
+  expect((await api.getProfile('star')).follower_count).toBe(row.follower_count)
+})
+
+test('top users leave out private accounts', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'secret')
+  await api.setAccountPrivacy(true)
+  await register(api, 'open')
+  await register(api, 'fan')
+  await api.followUser('open')
+  await api.followUser('secret') // only files a request
+
+  await api.login({ username_or_email: 'secret', password: 'password123' })
+  await api.approveFollowRequest('fan')
+  await api.login({ username_or_email: 'fan', password: 'password123' })
+  expect((await api.getTopUsers(0)).map((u) => u.username)).toEqual(['open'])
+})
+
 // --- Private accounts (issue #96) -------------------------------------------
 
 async function privateAuthorWithPost(api: StatefulStubbedAPI) {

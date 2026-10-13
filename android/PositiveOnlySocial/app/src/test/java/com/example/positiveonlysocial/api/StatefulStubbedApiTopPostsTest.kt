@@ -57,6 +57,22 @@ class StatefulStubbedApiTopPostsTest {
     }
 
     @Test
+    fun `top users rank by followers and leave out the unfollowed`() = runTest {
+        val api = StatefulStubbedAPI()
+        register(api, "quiet")
+        register(api, "star")
+        register(api, "rising")
+        val fan1 = register(api, "fan1")
+        api.followUser(fan1, "star")
+        api.followUser(fan1, "rising")
+        val fan2 = register(api, "fan2")
+        api.followUser(fan2, "star")
+
+        val top = api.getTopUsers(fan2, 0).body()!!.map { it.username to it.followerCount }
+        assertEquals(listOf("star" to 2, "rising" to 1), top)
+    }
+
+    @Test
     fun `top posts leave out private accounts`() = runTest {
         val api = StatefulStubbedAPI()
         val secretToken = register(api, "secret")
@@ -67,5 +83,35 @@ class StatefulStubbedApiTopPostsTest {
 
         val viewerToken = register(api, "viewer")
         assertEquals(listOf(openPost), api.getTopPosts(viewerToken, 0, "week").body()!!.map { it.postIdentifier })
+    }
+
+    @Test
+    fun `top users leave out private accounts`() = runTest {
+        val api = StatefulStubbedAPI()
+        val secretToken = register(api, "secret")
+        api.setAccountPrivacy(secretToken, SetAccountPrivacyRequest(true))
+        register(api, "open")
+        val fanToken = register(api, "fan")
+        api.followUser(fanToken, "open")
+        api.followUser(fanToken, "secret")
+        api.approveFollowRequest(secretToken, "fan")
+
+        assertEquals(listOf("open"), api.getTopUsers(fanToken, 0).body()!!.map { it.username })
+    }
+
+    @Test
+    fun `a follower who verifies into the other age band drops from board and profile alike`() = runTest {
+        val api = StatefulStubbedAPI()
+        register(api, "star")
+        val fan1 = register(api, "fan1")
+        api.followUser(fan1, "star")
+        val fan2 = register(api, "fan2")
+        api.followUser(fan2, "star")
+        api.verifyIdentity(fan2, IdentityVerificationRequest(LocalDate.now().minusYears(16).toString()))
+
+        val viewer = register(api, "viewer")
+        val row = api.getTopUsers(viewer, 0).body()!!.single()
+        assertEquals("star" to 1, row.username to row.followerCount)
+        assertEquals(row.followerCount, api.getProfileDetails(viewer, "star").body()!!.followerCount)
     }
 }

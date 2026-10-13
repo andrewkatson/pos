@@ -62,6 +62,15 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private val TOP_POSTS_LIMIT = 100
     // Hidden reasons meaning the classifier hasn't approved a post.
     private val TOP_POST_UNAPPROVED_REASONS = setOf("pending_classification", "classifier", "classifier_final")
+    // The most-followed board's batch size and depth, matching the backend.
+    private val TOP_USERS_BATCH_SIZE = 10
+    private val TOP_USERS_LIMIT = 100
+
+    /** How many of these accounts are in the given age band. Follower/following
+     * counts leave out the other band, as the backend's do (issue #398), so a
+     * profile header agrees with the most-followed board (issue #562). */
+    private fun countInBand(ids: Collection<String>, viewerIsMinor: Boolean): Int =
+        ids.count { id -> isVerifiedMinor(users.find { it.id == id }) == viewerIsMinor }
 
     /** Mirrors visibility.is_minor: verified and not adult (issue #329). */
     private fun isVerifiedMinor(user: UserMock?): Boolean =
@@ -1688,6 +1697,29 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(followers)
     }
 
+    /** Mirrors get_top_users (issue #562): public, same-age-band, unblocked
+     * accounts with at least one follower, most followers first then by username, capped at
+     * the top 100. Followers are counted within the viewer's age band, as the
+     * profile header counts them; the stub has no ban model, so bans don't apply. */
+    override suspend fun getTopUsers(token: String, batch: Int): Response<List<TopUser>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val viewerIsMinor = isVerifiedMinor(user)
+        val bandIds = users.filter { isVerifiedMinor(it) == viewerIsMinor }.map { it.id }.toSet()
+        val ranked = users
+            .filter {
+                !it.isPrivate && it.id in bandIds &&
+                    !user.blocked.contains(it.id) && !user.blockedBy.contains(it.id)
+            }
+            .map { it to it.followers.count { followerId -> followerId in bandIds } }
+            .filter { (_, count) -> count > 0 }
+            .sortedWith(compareByDescending<Pair<UserMock, Int>> { it.second }.thenBy { it.first.username })
+            .take(TOP_USERS_LIMIT)
+        val rows = getBatch(ranked, batch, TOP_USERS_BATCH_SIZE).map { (u, count) ->
+            TopUser(u.username, u.isVerified, count, approvedAvatarFor(u.id), approvedAvatarFor(u.id))
+        }
+        return Response.success(rows)
+    }
+
     override suspend fun getFollowing(token: String): Response<List<User>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         // The users the current user follows are the ids in following.
@@ -1734,8 +1766,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(ProfileDetailsResponse(
             username = target.username,
             postCount = if (hideCounts) 0 else postCount,
-            followerCount = if (hideCounts) 0 else target.followers.size,
-            followingCount = if (hideCounts) 0 else target.following.size,
+            followerCount = if (hideCounts) 0 else countInBand(target.followers, isVerifiedMinor(user)),
+            followingCount = if (hideCounts) 0 else countInBand(target.following, isVerifiedMinor(user)),
             isFollowing = isFollowing,
             followCategory = followCategory,
             isBlocked = isBlocked,

@@ -10,6 +10,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -19,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -34,6 +37,9 @@ import com.example.positiveonlysocial.models.viewmodels.FollowingFeedViewModelFa
 import com.example.positiveonlysocial.models.viewmodels.PostListActions
 import com.example.positiveonlysocial.models.viewmodels.TopPostsViewModel
 import com.example.positiveonlysocial.models.viewmodels.TopPostsViewModelFactory
+import com.example.positiveonlysocial.models.viewmodels.TopUsersViewModel
+import com.example.positiveonlysocial.models.viewmodels.TopUsersViewModelFactory
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
@@ -273,12 +279,54 @@ fun FollowingFeed(
 }
 
 /**
- * The "Top" feed (issue #558): the most-liked public posts across the app over a
- * chosen period, numbered by rank.
+ * The "Top" feed: a toggle between the most-liked public posts over a chosen
+ * period (issue #558) and the most-followed people right now (issue #562).
+ */
+@Composable
+fun TopFeed(
+    navController: NavController,
+    api: PositiveOnlySocialAPI,
+    keychainHelper: KeychainHelperProtocol
+) {
+    var showPeople by rememberSaveable { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp)
+                .padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = !showPeople,
+                onClick = { showPeople = false },
+                label = { Text("Posts") },
+                modifier = Modifier.testTag("TopKind_posts")
+            )
+            FilterChip(
+                selected = showPeople,
+                onClick = { showPeople = true },
+                label = { Text("People") },
+                modifier = Modifier.testTag("TopKind_people")
+            )
+        }
+
+        if (showPeople) {
+            TopUsersBoard(navController, api, keychainHelper)
+        } else {
+            TopPostsBoard(navController, api, keychainHelper)
+        }
+    }
+}
+
+/**
+ * The most-liked public posts across the app over a chosen period, numbered by
+ * rank (issue #558).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TopFeed(
+fun TopPostsBoard(
     navController: NavController,
     api: PositiveOnlySocialAPI,
     keychainHelper: KeychainHelperProtocol
@@ -365,6 +413,134 @@ fun TopFeed(
             }
 
             PostActionDialogs(postActions, navController)
+        }
+    }
+}
+
+/**
+ * The most-followed people right now (issue #562), numbered by rank; each row
+ * opens that profile.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TopUsersBoard(
+    navController: NavController,
+    api: PositiveOnlySocialAPI,
+    keychainHelper: KeychainHelperProtocol
+) {
+    val viewModel: TopUsersViewModel = viewModel(
+        factory = TopUsersViewModelFactory(api, keychainHelper)
+    )
+    val users by viewModel.topUsers.collectAsState()
+    val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val loadError by viewModel.loadError.collectAsState()
+
+    LaunchedEffect(Unit) {
+        if (users.isEmpty()) {
+            viewModel.fetchTopUsers()
+        }
+    }
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refreshTopUsers() },
+        modifier = Modifier.fillMaxSize()
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = 8.dp)
+        ) {
+            itemsIndexed(users, key = { _, user -> user.username }) { index, user ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { navController.openProfileFor(user.username, viewModel.currentUsername) }
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .testTag("TopUserRow"),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "#${index + 1}",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    ProfileAvatar(
+                        imageUrl = user.authorProfileImageUrl,
+                        originalImageUrl = user.authorProfileImageOriginalUrl,
+                        // Decorative — the username is rendered right next to it.
+                        contentDescription = null,
+                        size = 32.dp,
+                        blurHash = user.authorProfileImageBlurHash
+                    )
+                    // Usernames run up to 150 characters: the name takes the
+                    // free width and truncates, keeping the badge beside it and
+                    // the follower count on the row.
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = user.username,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (user.identityIsVerified) {
+                            Icon(
+                                Icons.Filled.CheckCircle,
+                                contentDescription = "Verified",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = if (user.followerCount == 1) "1 follower" else "%,d followers".format(user.followerCount),
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                if (index == users.lastIndex) {
+                    // Keyed to the row and the list size, so it restarts whenever
+                    // the list it ends has changed.
+                    LaunchedEffect(user.username, users.size) {
+                        viewModel.fetchTopUsers()
+                    }
+                }
+            }
+
+            if (isLoadingNextPage) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+            }
+
+            if (users.isEmpty() && !isLoadingNextPage && !isRefreshing) {
+                item {
+                    Box(
+                        modifier = Modifier.fillParentMaxSize(),
+                        contentAlignment = androidx.compose.ui.Alignment.Center
+                    ) {
+                        Text(
+                            text = loadError ?: "Nobody to rank yet. Pull down to refresh.",
+                            textAlign = TextAlign.Center,
+                            color = if (loadError != null) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.padding(24.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }

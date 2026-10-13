@@ -941,6 +941,15 @@ final class RealAPI: Networking {
         )
     }
 
+    func getTopUsers(sessionManagementToken: String, batch: Int) async throws -> Data {
+        // GET users/top/<batch>/ with auth (issue #562).
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmentTop, String(batch)],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
     func getFollowing(sessionManagementToken: String) async throws -> Data {
         // GET users/following/ with auth — the users the signed-in user follows.
         return try await performRequest(
