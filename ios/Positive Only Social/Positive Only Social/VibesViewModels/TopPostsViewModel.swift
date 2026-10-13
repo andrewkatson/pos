@@ -10,13 +10,18 @@ import Combine
 /// across the app over a chosen period (issue #558).
 @MainActor
 final class TopPostsViewModel: ObservableObject {
+    // State the view observes.
+    @Published var topPosts: [Post] = []
+    @Published var isLoadingNextPage = false
+    @Published private(set) var selectedPeriod: TopPostPeriod = .week
+
+    // Dependencies.
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
     private let keychainService = GVOAppConstants.keychainService
-    @Published var topPosts: [Post] = []
-    @Published var isLoadingNextPage = false
-    @Published private(set) var selectedPeriod: TopPostPeriod = .week
+
+    // Pagination state.
     private var canLoadMore = true
     private var currentPage = 0
     // Bumped when the period changes, so a load still in flight for the old
