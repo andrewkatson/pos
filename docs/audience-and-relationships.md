@@ -61,6 +61,109 @@ listing keeps only threads with a matching visible comment). Like the feed filte
 it is an exact-category match and naturally drops your own comments, since you do
 not follow yourself.
 
+## Private accounts (issue #96)
+
+Any account can be made **private** from Settings (`POST /profile/private/` with
+`{"is_private": true|false}`; `GET /me/` reports the current setting). A private
+account's **posts** are visible only to the account itself and its approved
+followers — the people with a follow edge *to* it. Everyone else, signed in or
+out, gets an empty grid, and a private post's own link reads as missing.
+
+Following a private account takes a **follow request**:
+
+- `follow_user` on a private account files a request instead of following, and
+  answers `follow_request_pending: true` (with `follow_category: null`). A
+  `category` sent with the call is kept on the request and applied when it is
+  approved. Asking twice is refused ("Follow already requested"), and when either
+  side has blocked the other the request gets "User does not exist", the same as
+  a missing account. Filing, approving and blocking take row locks on the two
+  accounts, so a block can't race a request into existence or into a follow.
+- The owner lists incoming requests, newest first, with
+  `GET /users/follow-requests/` — 30 per page; each row carries its
+  `request_id`, and `?after=<request_id>` fetches the next, older page, a cursor
+  rather than an offset so answering rows while paging can't skip one. The
+  website fetches the next page with a "Load more" button; iOS and Android
+  fetch it when a "Load more" row at the end of the list scrolls into view, and
+  that row's button retries a failed fetch. The control stays until a page
+  comes back empty, even if every loaded row has been answered, and only then
+  does the list say nobody is waiting. It lists their own requests only — there
+  is no username parameter — and leaves out shadow-banned and cross-age-band
+  requesters, as the follower list does. The owner answers each with
+  `POST /users/<username>/follow-request/approve/` or `.../deny/`. Approving
+  creates the follow edge; denying just drops the request, and the requester is
+  not told — they may ask again.
+- The requester can withdraw their own request with
+  `POST /users/<username>/follow-request/cancel/`.
+- Pending requests live in their own table (`FollowRequest`), never as a
+  `UserFollow` row, so no audience or feed query can mistake one for a follow.
+
+Switching **private on** keeps every existing follower; it only changes how new
+followers arrive. It also takes effect at the API, not on image bytes already
+handed out: a post image URL issued while the account was public stays usable
+until its CloudFront signature expires (`CLOUDFRONT_SIGNED_URL_EXPIRY_SECONDS`,
+24h by default — see [Images](images.md)), and indefinitely on a deploy without
+signing configured. That grace window is the same one every other visibility
+change (a block, a shadow ban, a hidden post) already has; nothing new is
+*served* after the switch. `follow_user` and `set_account_privacy` take a row lock
+on the account, so a follow racing a privacy change is decided against the
+setting it is actually written under. Switching **private off** approves every pending request, since
+a public account has nothing left to approve. Once the setting commits, the
+first chunk of up to 500 requests converts before the response, so a typical
+account's requests (and its counts) are settled by the time the client reloads.
+A larger backlog continues in background jobs (`tasks.convert_follow_requests_job`,
+run inline under the same cap when there is no Redis queue), each a bounded number of chunks that
+enqueues a continuation while work remains, and every chunk is its own short
+transaction. If an enqueue fails or a job dies, the 15-minute
+`sweep_classifications` timer re-enqueues any public account that still has
+pending requests. If the owner goes private again part-way, the rest simply stay
+pending; until conversion finishes, requests left on a public account are
+harmless, since following directly works — and a direct follow deletes the
+caller's leftover request, so unfollowing later can't be undone by the
+conversion catching up. Only requesters still in the owner's
+age band are approved, checked with their rows locked so a concurrent identity
+verification can't slip past; anyone who has since verified into the other band
+has their request dropped instead, and as the account is now public they can
+simply follow. A requester whose row is mid-update at that moment is skipped
+rather than decided: their request stays pending for a later chunk, and if a
+whole chunk is busy the job stops and the sweep picks it up. Blocking drops any pending request
+in either direction, alongside the follow edges.
+
+The privacy rule lives in `visibility.py` (`privacy_admits`, and `_privacy_q` in
+`visible_posts` / `can_view_post`), so it applies everywhere posts are served —
+discovery, following and tag feeds, profile grids, saved posts, post details and
+the public share pages. Liking, reporting, commenting, and liking or reporting a
+comment on a private account's post are refused to non-followers the same way —
+and so are the undo actions (unlike, retract a report), so someone who interacted
+while the account was public can't keep mutating or probing it by id afterward. Each of
+these writes (and saving a post) re-checks the author's privacy under the
+author's row lock in the same transaction as the write — the lock
+`set_account_privacy` takes — so a switch to private that commits mid-request
+is never followed by a non-follower's like, report or save.
+Note the
+direction: privacy reads the **viewer → author** edge (do you follow them?) while
+[post audience](#relationship-categories--post-audience) reads the **author →
+viewer** edge (did they label you?). A non-public post from a private account must
+pass both.
+
+Privacy gates **posts only**. A private account's comments — including on
+someone else's public post — follow each comment's own audience exactly like
+anyone else's, so the commenter decides who sees them per comment. (Comments *on*
+a private account's posts stay out of reach for non-followers anyway, because the
+post itself is.)
+
+On a private profile someone doesn't follow, the **counts are hidden** too: the
+backend zeroes `post_count`, `follower_count` and `following_count`, and the
+clients hide the stats row rather than show zeros. After an unfollow or a block
+the clients also hide the stats until a fresh profile read arrives (and keep
+them hidden if it fails), since the account may have gone private since the page
+loaded and the cached counts can no longer be vouched for. The header — name, photo,
+bio, join number — is still shown, and a 🔒 *This account is private* note stands
+in for the grid. The profile payload carries `is_private` for everyone,
+`follow_request_pending` for the viewer, and (owner only) `follow_request_count`.
+The Follow button reads **Requested** while a request is pending, and tapping it
+cancels the request. The owner reaches the request list from Settings → Follow
+Requests or from the "Follow Requests (n)" link on their own profile.
+
 ## Audience badges (issue #518)
 
 Your **own** posts and comments carry a small badge saying who can see them:

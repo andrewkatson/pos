@@ -17,7 +17,7 @@ from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.mail import send_mail
 from django.db import transaction, IntegrityError
-from django.db.models import Count, Max, OuterRef, Subquery
+from django.db.models import Count, Max, OuterRef, Q, Subquery
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -31,12 +31,13 @@ from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_COD
 from .classifiers.prefilter import prefilter_text
 from .constants import Patterns, Params, POST_BATCH_SIZE, \
     MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, MAX_BIO_LENGTH, \
-    COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, LIKE_BATCH_SIZE, \
+    COMMENT_BATCH_SIZE, Fields, COMMENT_THREAD_BATCH_SIZE, LIKE_BATCH_SIZE, FOLLOW_REQUEST_BATCH_SIZE, \
     VERIFY_RESET_MAX_ATTEMPTS, VERIFY_RESET_LOCKOUT_MINUTES, \
     ACCOUNT_BANNED, EMAIL_NOT_VERIFIED, EMAIL_VERIFICATION_TOKEN_HOURS, BAN_TYPE_OUTRIGHT, \
-    HIDDEN_REASON_NONE, HIDDEN_REASON_CLASSIFIER, \
+    HIDDEN_REASON_NONE, HIDDEN_REASON_CLASSIFIER, HIDDEN_REASON_CLASSIFIER_FINAL, \
     HIDDEN_REASON_PENDING_CLASSIFICATION, NON_APPEALABLE_HIDDEN_REASONS, \
     POST_STATUS_PENDING, POST_STATUS_REJECTED, POST_STATUS_REJECTED_FINAL, \
+    TOP_POST_PERIOD_DAYS, TOP_POST_DEFAULT_PERIOD, TOP_POSTS_LIMIT, \
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
     MAX_APPEAL_REASON_LENGTH, \
     TWO_FACTOR_CHALLENGE_MINUTES, TWO_FACTOR_MAX_ATTEMPTS, NUM_RECOVERY_CODES, \
@@ -59,14 +60,15 @@ from .google_auth import GoogleTokenError, is_google_sign_in_configured, verify_
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
     PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode, \
-    InterestCategory, UserFreeformInterest, DeviceToken, NotificationPreference
+    InterestCategory, UserFreeformInterest, DeviceToken, NotificationPreference, FollowRequest
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
 from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_source_bucket_url, \
     strip_query_and_fragment
 from .tags import set_post_tags
-from .visibility import audience_admits, can_view_post, in_same_age_band, searchable_users, \
+from .visibility import audience_admits, can_view_post, in_same_age_band, privacy_admits, \
+    searchable_users, \
     visible_comment_threads, visible_comments, visible_posts, PUBLIC_VIEWER
 
 
@@ -2265,23 +2267,28 @@ def report_post(request, post_identifier):
         # A post from a different age band is treated as absent, so an adult
         # cannot interact with an underage account's post (or vice versa) even
         # with a known post id (issue #329).
-        if not in_same_age_band(post.author, request.user):
-            logger.warning(f"Report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
-            return log_and_return_json("report_post", {'error': "No post with that identifier"}, status=400)
+        # Likewise a private account's post for a non-follower (issue #96).
+        # Check and write in one transaction under the post author's row
+        # lock, which set_account_privacy also takes: an owner going private
+        # is either seen here or waits until this commits (issue #96).
+        with transaction.atomic():
+            if not in_same_age_band(post.author, request.user) or not _post_author_still_admits(post, request.user):
+                logger.warning(f"Report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+                return log_and_return_json("report_post", {'error': "No post with that identifier"}, status=400)
 
-        if post.author == request.user:
-            logger.warning(f"Report post failed: Cannot report own post for user_id: {request.user.id}")
-            return log_and_return_json("report_post", {'error': "Cannot report own post"}, status=400)
+            if post.author == request.user:
+                logger.warning(f"Report post failed: Cannot report own post for user_id: {request.user.id}")
+                return log_and_return_json("report_post", {'error': "Cannot report own post"}, status=400)
 
-        if post.postreport_set.active().filter(user=request.user).exists():
-            logger.warning(f"Report post failed: Post already reported by user_id: {request.user.id}")
-            return log_and_return_json("report_post", {'error': "Cannot report post twice"}, status=400)
+            if post.postreport_set.active().filter(user=request.user).exists():
+                logger.warning(f"Report post failed: Post already reported by user_id: {request.user.id}")
+                return log_and_return_json("report_post", {'error': "Cannot report post twice"}, status=400)
 
-        if moderation.daily_report_limit_reached(request.user):
-            logger.warning(f"Report post failed: Daily report limit reached by user_id: {request.user.id}")
-            return log_and_return_json("report_post", {'error': "Daily report limit reached"}, status=400)
+            if moderation.daily_report_limit_reached(request.user):
+                logger.warning(f"Report post failed: Daily report limit reached by user_id: {request.user.id}")
+                return log_and_return_json("report_post", {'error': "Daily report limit reached"}, status=400)
 
-        post.postreport_set.create(user=request.user, reason=reason)
+            post.postreport_set.create(user=request.user, reason=reason)
         logger.info(f"Post reported successful: post_id: {post_identifier} by user_id: {request.user.id}")
 
         # A report never hides anything (issue #467): it opens a moderation
@@ -2315,17 +2322,23 @@ def retract_report_post(request, post_identifier):
         return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
 
     # Treat a cross-band post as absent (issue #329) so the "not reported yet"
-    # vs "no such post" responses cannot be used as an existence oracle.
-    if not in_same_age_band(post.author, request.user):
-        logger.warning(f"Retract report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
-        return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
+    # vs "no such post" responses cannot be used as an existence oracle — and a
+    # private account's post for a non-follower likewise (issue #96), including
+    # someone who reported it before the account went private.
+    # Check and write in one transaction under the post author's row
+    # lock, which set_account_privacy also takes: an owner going private
+    # is either seen here or waits until this commits (issue #96).
+    with transaction.atomic():
+        if not in_same_age_band(post.author, request.user) or not _post_author_still_admits(post, request.user):
+            logger.warning(f"Retract report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("retract_report_post", {'error': "No post with that identifier"}, status=400)
 
-    # Stamped, not deleted (issue #467): the row stays as a record that this
-    # account filed a report, so the daily budget counts it and report-then-
-    # retract cycling cannot refund budget. active() makes it stop counting as a
-    # report of the post everywhere else.
-    retracted_count = post.postreport_set.active().filter(user=request.user).update(
-        retracted_time=timezone.now())
+        # Stamped, not deleted (issue #467): the row stays as a record that this
+        # account filed a report, so the daily budget counts it and report-then-
+        # retract cycling cannot refund budget. active() makes it stop counting as a
+        # report of the post everywhere else.
+        retracted_count = post.postreport_set.active().filter(user=request.user).update(
+            retracted_time=timezone.now())
     if retracted_count == 0:
         logger.warning(f"Retract report post failed: Post not reported by user_id: {request.user.id}")
         return log_and_return_json("retract_report_post", {'error': "Post not reported yet"}, status=400)
@@ -2356,16 +2369,21 @@ def like_post(request, post_identifier):
         # A post from a different age band is treated as absent, so an adult
         # cannot interact with an underage account's post (or vice versa) even
         # with a known post id (issue #329).
-        if not in_same_age_band(post.author, request.user):
-            logger.warning(f"Like post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
-            return log_and_return_json("like_post", {'error': "No post with that identifier"}, status=400)
+        # Likewise a private account's post for a non-follower (issue #96).
+        # Check and write in one transaction under the post author's row
+        # lock, which set_account_privacy also takes: an owner going private
+        # is either seen here or waits until this commits (issue #96).
+        with transaction.atomic():
+            if not in_same_age_band(post.author, request.user) or not _post_author_still_admits(post, request.user):
+                logger.warning(f"Like post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+                return log_and_return_json("like_post", {'error': "No post with that identifier"}, status=400)
 
-        if post.author == request.user:
-            logger.warning(f"Like post failed: Cannot like own post for user_id: {request.user.id}")
-            return log_and_return_json("like_post", {'error': "Cannot like own post"}, status=400)
+            if post.author == request.user:
+                logger.warning(f"Like post failed: Cannot like own post for user_id: {request.user.id}")
+                return log_and_return_json("like_post", {'error': "Cannot like own post"}, status=400)
 
-        # get_or_create handles the check and creation in one step
-        like, created = post.postlike_set.get_or_create(user=request.user)
+            # get_or_create handles the check and creation in one step
+            like, created = post.postlike_set.get_or_create(user=request.user)
 
         if not created:
             logger.warning(f"Like post failed: Already liked for user_id: {request.user.id} on post: {post_identifier}")
@@ -2391,16 +2409,22 @@ def unlike_post(request, post_identifier):
     post = get_post_with_identifier(post_identifier)
     if post is not None:
         # Treat a cross-band post as absent (issue #329) so the "not liked yet"
-        # vs "no such post" responses cannot be used as an existence oracle.
-        if not in_same_age_band(post.author, request.user):
-            logger.warning(f"Unlike post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
-            return log_and_return_json("unlike_post", {'error': "No post with that identifier"}, status=400)
+        # vs "no such post" responses cannot be used as an existence oracle — and
+        # a private account's post for a non-follower likewise (issue #96),
+        # including someone who liked it before the account went private.
+        # Check and write in one transaction under the post author's row
+        # lock, which set_account_privacy also takes: an owner going private
+        # is either seen here or waits until this commits (issue #96).
+        with transaction.atomic():
+            if not in_same_age_band(post.author, request.user) or not _post_author_still_admits(post, request.user):
+                logger.warning(f"Unlike post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+                return log_and_return_json("unlike_post", {'error': "No post with that identifier"}, status=400)
 
-        if post.author == request.user:
-            logger.warning(f"Unlike post failed: Cannot unlike own post for user_id: {request.user.id}")
-            return log_and_return_json("unlike_post", {'error': "Cannot unlike own post"}, status=400)
+            if post.author == request.user:
+                logger.warning(f"Unlike post failed: Cannot unlike own post for user_id: {request.user.id}")
+                return log_and_return_json("unlike_post", {'error': "Cannot unlike own post"}, status=400)
 
-        deleted_count, _ = post.postlike_set.filter(user=request.user).delete()
+            deleted_count, _ = post.postlike_set.filter(user=request.user).delete()
 
         if deleted_count > 0:
             logger.info(f"Post unliked successful: post_id: {post_identifier} by user_id: {request.user.id}")
@@ -2498,11 +2522,16 @@ def save_post(request, post_identifier):
         # and the saved-posts listing filter, so saving across a block is refused.
         blocked = (request.user.blocked.filter(pk=post.author_id).exists()
                    or request.user.blocked_by.filter(pk=post.author_id).exists())
-        if blocked or not can_view_post(post, request.user):
-            logger.warning(f"Save post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
-            return log_and_return_json("save_post", {'error': "No post with that identifier"}, status=400)
+        # Check and write in one transaction under the post author's row
+        # lock, which set_account_privacy also takes: an owner going private
+        # is either seen here or waits until this commits (issue #96).
+        with transaction.atomic():
+            if blocked or not _post_author_still_admits(post, request.user) \
+                    or not can_view_post(post, request.user):
+                logger.warning(f"Save post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
+                return log_and_return_json("save_post", {'error': "No post with that identifier"}, status=400)
 
-        saved, created = post.savedpost_set.get_or_create(user=request.user)
+            saved, created = post.savedpost_set.get_or_create(user=request.user)
 
         if not created:
             logger.warning(f"Save post failed: Already saved for user_id: {request.user.id} on post: {post_identifier}")
@@ -2907,6 +2936,98 @@ def get_posts_for_followed_users(request, batch):
 @api_login_required
 @ratelimit(key='user', rate='60/m', block=True)
 @require_GET
+def get_top_posts(request, batch):
+    """The Top posts scoreboard (issue #558): the most-liked public posts across
+    the whole app created within a rolling window (?period=day|week|month|year,
+    default week), most likes first.
+
+    Only public-audience, approved posts by public accounts are eligible — a
+    scoreboard is a public ranking, so restricted-audience posts, and every post
+    by a private account (issue #96), never compete even for viewers they would
+    admit, and an author never sees their own pending or rejected post ranked. Everything else is the standard listing rule: visible_posts
+    (hidden, shadow-banned and cross-age-band content stays out, so each age
+    band gets its own board) plus the block filters.
+
+    Ranked on the fly for now: PostLike has no timestamp, so "top in the last
+    week" means posts *created* in the last week ranked by their total likes.
+    The ranking stops at TOP_POSTS_LIMIT; later batches are empty."""
+    logger.info("Endpoint get_top_posts invoked by IP or User")
+    if batch < 0:
+        return log_and_return_json("get_top_posts", {'error': "Invalid batch parameter"}, status=400)
+
+    # Absent or empty (?period=) means the default window, matching how the
+    # followed feed treats an empty ?category=.
+    period = request.GET.get(Fields.period) or TOP_POST_DEFAULT_PERIOD
+    if period not in TOP_POST_PERIOD_DAYS:
+        return log_and_return_json("get_top_posts", {'error': "Invalid period"}, status=400)
+
+    starting_index = batch * POST_BATCH_SIZE
+    if starting_index >= TOP_POSTS_LIMIT:
+        return log_and_return_json("get_top_posts", [], safe=False)
+
+    since = timezone.now() - timedelta(days=TOP_POST_PERIOD_DAYS[period])
+    blocked_users = request.user.blocked.all()
+    blocking_users = request.user.blocked_by.all()
+    candidates = (
+        Post.objects.filter(
+            audience=POST_AUDIENCE_PUBLIC, author__is_private=False, creation_time__gte=since)
+        # Not yet (or never) approved by the classifier — Post.classification_status
+        # is derived from these hidden reasons. Report-hiding is left to
+        # visible_posts, so it stays invisible to the author as everywhere else.
+        .exclude(hidden_reason__in=(
+            HIDDEN_REASON_PENDING_CLASSIFICATION,
+            HIDDEN_REASON_CLASSIFIER,
+            HIDDEN_REASON_CLASSIFIER_FINAL,
+        ))
+        .exclude(author__in=blocked_users)
+        .exclude(author__in=blocking_users)
+    )
+    ranked_posts = (
+        visible_posts(candidates, request.user)
+        # distinct=True for the same reason as calculate_weights: visible_posts'
+        # audience filter joins the author's follow edges, and a plain Count
+        # would count each like once per edge.
+        .annotate(like_count=Count('postlike', distinct=True))
+        # Newest first among equal like counts, then the primary key, so the
+        # order is deterministic for a given state of the data. That is all
+        # OFFSET paging can promise: a post whose likes change between two
+        # page requests can move across the boundary, so the next page may
+        # repeat or skip it. A stable paged snapshot comes with the
+        # pre-computed boards (#559).
+        .order_by('-like_count', '-creation_time', 'post_identifier')
+        .select_related('author')
+        .prefetch_related('tags')
+    )
+
+    batch_size = min(POST_BATCH_SIZE, TOP_POSTS_LIMIT - starting_index)
+    batched_posts = list(ranked_posts[starting_index:starting_index + batch_size])
+    interaction_state = build_post_interaction_state(request.user, batched_posts)
+    posts_data = [
+        {
+            Fields.post_identifier: post.post_identifier,
+            Fields.image_url: sign_compressed_url(post.image_url),
+            # Full-res original, used as a client fallback while the async
+            # Lambda-generated compressed copy is still missing (#252/#254).
+            Fields.original_image_url: sign_original_url(post.image_url),
+            Fields.image_blurhash: post.image_blurhash,
+            Fields.author_username: post.author.username,
+            **_author_avatar_fields(post.author),
+            Fields.caption: post.caption,
+            Fields.audience: post.audience,
+            Fields.comments_disabled: post.comments_disabled,
+            **_caption_style_fields(post),
+            **_post_tags(post),
+            **interaction_state(post),
+            **_author_status_fields(post, request.user),
+        }
+        for post in batched_posts
+    ]
+    return log_and_return_json("get_top_posts", posts_data, safe=False)
+
+
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_GET
 def get_posts_for_user(request, username, batch):
     logger.info("Endpoint get_posts_for_user invoked by IP or User")
 
@@ -3094,6 +3215,18 @@ def _comments_locked_for_update(post):
             .first())
 
 
+def _post_author_still_admits(post, viewer):
+    """Re-check the post author's privacy for `viewer` under the author's row
+    lock (issue #96). Call inside the transaction that then writes the
+    interaction — a comment or reply (alongside _comments_locked_for_update), a
+    like, report, save, or their undo: set_account_privacy takes this lock, so
+    an owner going private is either seen here or waits until the write is
+    committed. The lock is only held for the check and the write, never across
+    classification or moderation follow-up."""
+    author = get_user_model().objects.select_for_update(no_key=True).get(pk=post.author_id)
+    return privacy_admits(author, viewer)
+
+
 @csrf_exempt
 @api_login_required
 @ratelimit(key='user', rate='20/h', block=True)
@@ -3169,6 +3302,9 @@ def comment_on_post(request, post_identifier):
         if locked:
             logger.warning(f"Comment on post failed: Comments disabled for post {post_identifier}")
             return log_and_return_json("comment_on_post", {'error': "Comments are disabled for this post"}, status=403)
+        # The author may have gone private while the classifier ran (issue #96).
+        if not _post_author_still_admits(post, request.user):
+            return log_and_return_json("comment_on_post", {'error': "No post with that identifier"}, status=400)
 
         # Create a new thread for this top-level comment
         comment_thread = post.commentthread_set.create()
@@ -3279,6 +3415,9 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
         if locked:
             logger.warning(f"Reply to comment failed: Comments disabled for post {post_identifier}")
             return log_and_return_json("reply_to_comment_thread", {'error': "Comments are disabled for this post"}, status=403)
+        # The author may have gone private while the classifier ran (issue #96).
+        if not _post_author_still_admits(comment_thread.post, request.user):
+            return log_and_return_json("reply_to_comment_thread", {'error': "Comment thread not found for the given post"}, status=400)
 
         new_comment = comment_thread.comment_set.create(
             author=request.user, body=comment_text, body_formatting=body_formatting,
@@ -3333,18 +3472,24 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
     # interaction cannot be smuggled in via known ids (issue #329). Both the
     # comment's author and its post's author must share the caller's band, so
     # even an inconsistent legacy record (a cross-band comment on a post) stays
-    # unreachable.
-    if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
-            or not audience_admits(comment, request.user):
-        logger.warning(f"Like comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
-        return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
+    # unreachable. A comment on a private account's post is equally out of reach
+    # for a non-follower (issue #96), who cannot see the post it sits on.
+    # Check and write in one transaction under the post author's row
+    # lock, which set_account_privacy also takes: an owner going private
+    # is either seen here or waits until this commits (issue #96).
+    with transaction.atomic():
+        if not in_same_age_band(comment.author, request.user) \
+                or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+                or not _post_author_still_admits(comment.comment_thread.post, request.user) \
+                or not audience_admits(comment, request.user):
+            logger.warning(f"Like comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("like_comment", {'error': "Comment not found"}, status=400)
 
-    if comment.author == request.user:
-        logger.warning(f"Like comment failed: Cannot like own comment for user_id: {request.user.id}")
-        return log_and_return_json("like_comment", {'error': "Cannot like own comment"}, status=400)
+        if comment.author == request.user:
+            logger.warning(f"Like comment failed: Cannot like own comment for user_id: {request.user.id}")
+            return log_and_return_json("like_comment", {'error': "Cannot like own comment"}, status=400)
 
-    like, created = comment.commentlike_set.get_or_create(user=request.user)
+        like, created = comment.commentlike_set.get_or_create(user=request.user)
     if not created:
         logger.warning(f"Like comment failed: Already liked for user_id: {request.user.id} on comment: {comment_identifier}")
         return log_and_return_json("like_comment", {'error': "Already liked comment"}, status=400)
@@ -3382,17 +3527,24 @@ def unlike_comment(request, post_identifier, comment_thread_identifier, comment_
 
     # Treat a cross-band comment as absent (issue #329) so the "not liked yet"
     # vs "no such comment" responses cannot be used as an existence oracle.
-    if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
-            or not audience_admits(comment, request.user):
-        logger.warning(f"Unlike comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
-        return log_and_return_json("unlike_comment", {'error': "Comment not found"}, status=400)
+    # A comment on a private account's post is equally absent for a non-follower
+    # (issue #96), even one who interacted before the account went private.
+    # Check and write in one transaction under the post author's row
+    # lock, which set_account_privacy also takes: an owner going private
+    # is either seen here or waits until this commits (issue #96).
+    with transaction.atomic():
+        if not in_same_age_band(comment.author, request.user) \
+                or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+                or not _post_author_still_admits(comment.comment_thread.post, request.user) \
+                or not audience_admits(comment, request.user):
+            logger.warning(f"Unlike comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("unlike_comment", {'error': "Comment not found"}, status=400)
 
-    if comment.author == request.user:
-        logger.warning(f"Unlike comment failed: Cannot unlike own comment for user_id: {request.user.id}")
-        return log_and_return_json("unlike_comment", {'error': "Cannot unlike own comment"}, status=400)
+        if comment.author == request.user:
+            logger.warning(f"Unlike comment failed: Cannot unlike own comment for user_id: {request.user.id}")
+            return log_and_return_json("unlike_comment", {'error': "Cannot unlike own comment"}, status=400)
 
-    deleted_count, _ = comment.commentlike_set.filter(user=request.user).delete()
+        deleted_count, _ = comment.commentlike_set.filter(user=request.user).delete()
     if deleted_count == 0:
         logger.warning(f"Unlike comment failed: Comment not liked yet for user_id: {request.user.id} on comment: {comment_identifier}")
         return log_and_return_json("unlike_comment", {'error': "Comment not liked yet"}, status=400)
@@ -3518,26 +3670,32 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
     # interaction cannot be smuggled in via known ids (issue #329). Both the
     # comment's author and its post's author must share the caller's band, so
     # even an inconsistent legacy record (a cross-band comment on a post) stays
-    # unreachable.
-    if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
-            or not audience_admits(comment, request.user):
-        logger.warning(f"Report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
-        return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
+    # unreachable. A comment on a private account's post is equally out of reach
+    # for a non-follower (issue #96), who cannot see the post it sits on.
+    # Check and write in one transaction under the post author's row
+    # lock, which set_account_privacy also takes: an owner going private
+    # is either seen here or waits until this commits (issue #96).
+    with transaction.atomic():
+        if not in_same_age_band(comment.author, request.user) \
+                or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+                or not _post_author_still_admits(comment.comment_thread.post, request.user) \
+                or not audience_admits(comment, request.user):
+            logger.warning(f"Report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
 
-    if comment.author == request.user:
-        logger.warning(f"Report comment failed: Cannot report own comment for user_id: {request.user.id}")
-        return log_and_return_json("report_comment", {'error': "Cannot report own comment"}, status=400)
+        if comment.author == request.user:
+            logger.warning(f"Report comment failed: Cannot report own comment for user_id: {request.user.id}")
+            return log_and_return_json("report_comment", {'error': "Cannot report own comment"}, status=400)
 
-    if comment.commentreport_set.active().filter(user=request.user).exists():
-        logger.warning(f"Report comment failed: Already reported by user_id: {request.user.id}")
-        return log_and_return_json("report_comment", {'error': "Cannot report comment twice"}, status=400)
+        if comment.commentreport_set.active().filter(user=request.user).exists():
+            logger.warning(f"Report comment failed: Already reported by user_id: {request.user.id}")
+            return log_and_return_json("report_comment", {'error': "Cannot report comment twice"}, status=400)
 
-    if moderation.daily_report_limit_reached(request.user):
-        logger.warning(f"Report comment failed: Daily report limit reached by user_id: {request.user.id}")
-        return log_and_return_json("report_comment", {'error': "Daily report limit reached"}, status=400)
+        if moderation.daily_report_limit_reached(request.user):
+            logger.warning(f"Report comment failed: Daily report limit reached by user_id: {request.user.id}")
+            return log_and_return_json("report_comment", {'error': "Daily report limit reached"}, status=400)
 
-    comment.commentreport_set.create(user=request.user, reason=reason)
+        comment.commentreport_set.create(user=request.user, reason=reason)
     logger.info(f"Report comment successful: comment_id: {comment_identifier} by user_id: {request.user.id}")
 
     # As for posts, a report never hides a comment (issue #467) — it opens a
@@ -3576,15 +3734,22 @@ def retract_report_comment(request, post_identifier, comment_thread_identifier, 
 
     # Treat a cross-band comment as absent (issue #329) so the "not reported
     # yet" vs "no such comment" responses cannot be used as an existence oracle.
-    if not in_same_age_band(comment.author, request.user) \
-            or not in_same_age_band(comment.comment_thread.post.author, request.user) \
-            or not audience_admits(comment, request.user):
-        logger.warning(f"Retract report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
-        return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
+    # A comment on a private account's post is equally absent for a non-follower
+    # (issue #96), even one who interacted before the account went private.
+    # Check and write in one transaction under the post author's row
+    # lock, which set_account_privacy also takes: an owner going private
+    # is either seen here or waits until this commits (issue #96).
+    with transaction.atomic():
+        if not in_same_age_band(comment.author, request.user) \
+                or not in_same_age_band(comment.comment_thread.post.author, request.user) \
+                or not _post_author_still_admits(comment.comment_thread.post, request.user) \
+                or not audience_admits(comment, request.user):
+            logger.warning(f"Retract report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
+            return log_and_return_json("retract_report_comment", {'error': "Comment not found"}, status=400)
 
-    # Stamped, not deleted, exactly as for posts (issue #467).
-    retracted_count = comment.commentreport_set.active().filter(user=request.user).update(
-        retracted_time=timezone.now())
+        # Stamped, not deleted, exactly as for posts (issue #467).
+        retracted_count = comment.commentreport_set.active().filter(user=request.user).update(
+            retracted_time=timezone.now())
     if retracted_count == 0:
         logger.warning(f"Retract report comment failed: Comment not reported by user_id: {request.user.id}")
         return log_and_return_json("retract_report_comment", {'error': "Comment not reported yet"}, status=400)
@@ -4002,13 +4167,22 @@ def get_public_profile_details(request, username):
     # Each count is what this viewer could actually see, mirroring
     # get_profile_details: only public posts, and only followers/followees who
     # are themselves publicly listable (issue #398).
-    post_count = visible_posts(profile_user.post_set.all(), PUBLIC_VIEWER).count()
-    follower_count = searchable_users(profile_user.followers.all(), PUBLIC_VIEWER).count()
-    following_count = searchable_users(profile_user.following.all(), PUBLIC_VIEWER).count()
+    # A private account (issue #96) still shows its header — name, photo, bio,
+    # join number — on a shared link, but none of its counts, exactly as for a
+    # signed-in non-follower; they are not even computed, so an anonymous hit on
+    # a popular private profile costs no count queries. Its grid is already
+    # empty: visible_posts admits no private account's posts for this viewer.
+    if profile_user.is_private:
+        post_count = follower_count = following_count = 0
+    else:
+        post_count = visible_posts(profile_user.post_set.all(), PUBLIC_VIEWER).count()
+        follower_count = searchable_users(profile_user.followers.all(), PUBLIC_VIEWER).count()
+        following_count = searchable_users(profile_user.following.all(), PUBLIC_VIEWER).count()
 
     live_avatar = profile_user.profile_image_url
     data = {
         Fields.username: profile_user.username,
+        Fields.is_private: profile_user.is_private,
         Fields.post_count: post_count,
         Fields.follower_count: follower_count,
         Fields.following_count: following_count,
@@ -4203,18 +4377,114 @@ def follow_user(request, username_to_follow):
     if request.user.following.filter(pk=user_to_follow_obj.pk).exists():
         return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
 
-    # Create the through row directly so the category is set; .add() cannot pass
-    # extra through-model fields. The pre-check above handles the common case, but
-    # two concurrent follow requests can still race past it, so the unique
-    # (user_from, user_to) constraint is the real guard: translate the resulting
-    # IntegrityError into the same clean "Already following" 400 rather than a 500.
+    with transaction.atomic():
+        # Decide follow-vs-request on a locked, fresh read of the target, and
+        # write in the same transaction (issue #96). set_account_privacy takes
+        # the same row lock, so an account cannot go private between the check
+        # and the write (gaining an unapproved follower) or go public between
+        # them (stranding a request no one will ever need to approve).
+        #
+        # Both accounts are locked, in primary-key order like every other lock in
+        # this flow, and re-read fresh: either one may have verified into the
+        # other age band since `request.user` and the first lookup were loaded,
+        # and the band check below must see the rows the write happens under.
+        _lock_users(request.user, user_to_follow_obj)
+        caller = get_user_model().objects.get(pk=request.user.pk)
+        user_to_follow_obj = get_user_model().objects.get(pk=user_to_follow_obj.pk)
+
+        # Re-check the age band on the locked, fresh rows (issue #329): neither a
+        # follow nor a request may cross bands.
+        if not in_same_age_band(caller, user_to_follow_obj):
+            return log_and_return_json("follow_user", {'error': "User does not exist"}, status=400)
+
+        # Re-check the edge under the lock: an approval (which holds the same
+        # lock) may have turned a pending request into a follow since the check
+        # above, and filing a fresh request on top of it would leave both.
+        if request.user.following.filter(pk=user_to_follow_obj.pk).exists():
+            return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
+
+        # A private account (issue #96) is not followed outright: the call files
+        # a follow request the owner approves or denies, carrying the chosen
+        # category so approval creates exactly the edge the requester asked for.
+        if user_to_follow_obj.is_private:
+            return _request_to_follow(request, user_to_follow_obj, category)
+
+        # Create the through row directly so the category is set; .add() cannot
+        # pass extra through-model fields. The pre-check above handles the common
+        # case, but two concurrent follow requests can still race past it, so the
+        # unique (user_from, user_to) constraint is the real guard: translate the
+        # resulting IntegrityError into the same clean "Already following" 400
+        # rather than a 500.
+        # A public account can still hold this caller's request while a
+        # going-public backlog drains (issue #96). Drop it under the same locks
+        # before following, or the conversion would later recreate the edge even
+        # after the caller unfollows.
+        FollowRequest.objects.filter(user_from=caller, user_to=user_to_follow_obj).delete()
+        try:
+            with transaction.atomic():
+                UserFollow.objects.create(user_from=request.user, user_to=user_to_follow_obj, category=category)
+        except IntegrityError:
+            return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
+    logger.info(f"Follow user successful: target_user_id: {user_to_follow_obj.id} by user_id: {request.user.id}")
+    return log_and_return_json("follow_user", {
+        'message': 'User followed',
+        Fields.follow_category: category,
+        Fields.follow_request_pending: False,
+    })
+
+
+def _lock_users(*users):
+    """Row-lock the given accounts for the rest of the current transaction, in
+    primary-key order so two transactions locking the same pair can never
+    deadlock. Serializes follow requests, approvals and blocks between the same
+    two people (issue #96).
+
+    Every lock in this flow (here, in follow_user and in set_account_privacy) is
+    FOR NO KEY UPDATE rather than FOR UPDATE. On PostgreSQL, inserting a
+    FollowRequest or UserFollow takes a FOR KEY SHARE lock on both referenced
+    accounts for the foreign-key check; FOR UPDATE conflicts with that, so a
+    transaction holding the owner and inserting would wait on a toggle_block that
+    holds the requester and waits on the owner — a deadlock. FOR NO KEY UPDATE
+    still serializes these flows against each other but never blocks a foreign
+    key check, so that cycle cannot form. (SQLite ignores row locks entirely.)"""
+    pks = sorted(user.pk for user in users)
+    list(get_user_model().objects.select_for_update(no_key=True).filter(pk__in=pks).order_by('pk'))
+
+
+def _blocked_either_way(user_a, user_b):
+    """Whether either account has blocked the other."""
+    return UserBlock.objects.filter(
+        Q(user_blocker=user_a, user_blocked=user_b) | Q(user_blocker=user_b, user_blocked=user_a)
+    ).exists()
+
+
+def _request_to_follow(request, target_user, category):
+    """follow_user's private-account branch (issue #96): file a follow request
+    instead of a follow edge.
+
+    Called inside follow_user's transaction with the target's row locked, which
+    toggle_block also locks, so a block cannot land between the check below and
+    the insert and leave a pending request from a blocked user behind.
+
+    A block in either direction refuses the request with the same "User does not
+    exist" a missing account gets, so a blocker never receives requests from
+    someone they blocked and the blocked user cannot tell the account is there.
+    The unique (user_from, user_to) constraint guards against two concurrent
+    requests the same way it does for follows."""
+    if _blocked_either_way(request.user, target_user):
+        return log_and_return_json("follow_user", {'error': "User does not exist"}, status=400)
+
     try:
         with transaction.atomic():
-            UserFollow.objects.create(user_from=request.user, user_to=user_to_follow_obj, category=category)
+            FollowRequest.objects.create(user_from=request.user, user_to=target_user, category=category)
     except IntegrityError:
-        return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
-    logger.info(f"Follow user successful: target_user_id: {user_to_follow_obj.id} by user_id: {request.user.id}")
-    return log_and_return_json("follow_user", {'message': 'User followed', Fields.follow_category: category})
+        return log_and_return_json("follow_user", {'error': "Follow already requested"}, status=400)
+    logger.info(f"Follow request filed: target_user_id: {target_user.id} by user_id: {request.user.id}")
+    return log_and_return_json("follow_user", {
+        'message': 'Follow requested',
+        Fields.follow_category: None,
+        Fields.follow_request_pending: True,
+    })
 
 
 @csrf_exempt
@@ -4303,11 +4573,19 @@ def toggle_block(request, username_to_toggle_block):
     if request.user == user_to_toggle_obj:
         return log_and_return_json("toggle_block", {'error': "Cannot block self"}, status=400)
 
-    if request.user.blocked.filter(pk=user_to_toggle_obj.pk).exists():
-        # Unblock
-        request.user.blocked.remove(user_to_toggle_obj)
-        return log_and_return_json("toggle_block", {'message': 'User unblocked'})
-    else:
+    with transaction.atomic():
+        # Lock both accounts (issue #96): follow_user locks the target of a
+        # follow request and approve_follow_request locks its owner, so a block
+        # between these two people is serialized with any request being filed or
+        # approved — the requests deleted below cannot be recreated or turned
+        # into a follow edge behind the block.
+        _lock_users(request.user, user_to_toggle_obj)
+
+        if request.user.blocked.filter(pk=user_to_toggle_obj.pk).exists():
+            # Unblock
+            request.user.blocked.remove(user_to_toggle_obj)
+            return log_and_return_json("toggle_block", {'message': 'User unblocked'})
+
         # Block
         request.user.blocked.add(user_to_toggle_obj)
         # Also force unfollow? Typically blocking unfollows.
@@ -4315,9 +4593,15 @@ def toggle_block(request, username_to_toggle_block):
             request.user.following.remove(user_to_toggle_obj)
         if user_to_toggle_obj.following.filter(pk=request.user.pk).exists():
             user_to_toggle_obj.following.remove(request.user)
+        # A block also drops any pending follow request in either direction
+        # (issue #96), so neither side is left with a request it cannot act on.
+        FollowRequest.objects.filter(
+            Q(user_from=request.user, user_to=user_to_toggle_obj)
+            | Q(user_from=user_to_toggle_obj, user_to=request.user)
+        ).delete()
 
-        logger.info(f"User blocked successful: target_user_id: {user_to_toggle_obj.id} by user_id: {request.user.id}")
-        return log_and_return_json("toggle_block", {'message': 'User blocked'})
+    logger.info(f"User blocked successful: target_user_id: {user_to_toggle_obj.id} by user_id: {request.user.id}")
+    return log_and_return_json("toggle_block", {'message': 'User blocked'})
 
 
 @api_login_required
@@ -4338,6 +4622,228 @@ def get_blocked_users(request):
     ]
     logger.info(f"Get blocked users successful: count: {len(users_data)} for user_id: {request.user.id}")
     return log_and_return_json("get_blocked_users", users_data, safe=False)
+
+
+# --- Private accounts & follow requests (issue #96) --------------------------
+#
+# A private account's posts are visible only to its approved followers (the
+# rule lives in visibility.py), so following one goes through a request:
+# follow_user files a FollowRequest instead of a UserFollow, the owner lists
+# their incoming requests and approves or denies each, and the requester can
+# cancel one they no longer want. Approval creates the follow edge with the
+# category the requester asked for. Comments are untouched — they keep their
+# own per-comment audience.
+
+
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_GET
+def get_follow_requests(request):
+    """The requester's own incoming follow requests, newest first.
+
+    There is no username parameter, so nobody can read another account's
+    requests. Requesters are filtered through searchable_users for the same
+    reasons the follower list is (issue #398): a shadow-banned account stays
+    hidden from everyone but itself, and a cross-age-band account must never be
+    surfaced (follow_user already refuses cross-band follows, but an account can
+    change band by verifying its age after asking).
+
+    Keyset-paginated, newest first: each row carries its `request_id`, and
+    `?after=<request_id>` returns the next FOLLOW_REQUEST_BATCH_SIZE requests
+    older than it (no parameter is the first page). A cursor, not an offset,
+    because the owner answers rows while paging: removing an answered row from
+    an offset page would shift a later request into a page already read and
+    skip it."""
+    logger.info("Endpoint get_follow_requests invoked by IP or User")
+    after = request.GET.get('after')
+    try:
+        after = int(after) if after not in (None, '') else None
+    except (TypeError, ValueError):
+        return log_and_return_json("get_follow_requests", {'error': "Invalid after parameter"}, status=400)
+
+    incoming = FollowRequest.objects.filter(
+        user_to=request.user,
+        user_from__in=searchable_users(PositiveOnlySocialUser.objects.all(), request.user),
+    ).select_related('user_from').order_by('-pk')
+    if after is not None:
+        incoming = incoming.filter(pk__lt=after)
+
+    users_data = [
+        {
+            Fields.username: follow_request.user_from.username,
+            Fields.identity_is_verified: follow_request.user_from.identity_is_verified,
+            Fields.request_id: follow_request.pk,
+            **_author_avatar_fields(follow_request.user_from),
+        }
+        for follow_request in incoming[:FOLLOW_REQUEST_BATCH_SIZE]
+    ]
+    logger.info(f"Get follow requests successful: count: {len(users_data)} for user_id: {request.user.id}")
+    return log_and_return_json("get_follow_requests", users_data, safe=False)
+
+
+def _incoming_follow_request(request, endpoint, username):
+    """Resolve the pending request `username` sent the caller, or an error
+    response. A cross-band requester is treated as absent like everywhere else
+    (issue #329), so these endpoints cannot confirm such an account exists."""
+    if not is_valid_pattern(username, Patterns.username):
+        return None, log_and_return_json(endpoint, {'error': "Invalid username"}, status=400)
+    requester = get_user_with_username(username)
+    # Compare against a fresh read of the owner, not the `request.user` loaded at
+    # authentication: callers lock the owner first, and an identity verification
+    # may have changed its band in between.
+    owner = get_user_model().objects.get(pk=request.user.pk)
+    if requester is None or not in_same_age_band(owner, requester):
+        return None, log_and_return_json(endpoint, {'error': "User does not exist"}, status=400)
+    follow_request = FollowRequest.objects.filter(user_from=requester, user_to=request.user).first()
+    if follow_request is None:
+        return None, log_and_return_json(endpoint, {'error': "No follow request from user"}, status=400)
+    return follow_request, None
+
+
+def _approve_follow_request(follow_request):
+    """Turn a pending request into the follow edge it asked for. get_or_create
+    so an edge that somehow already exists (e.g. created before the account went
+    private) is kept rather than tripping the unique constraint."""
+    with transaction.atomic():
+        UserFollow.objects.get_or_create(
+            user_from=follow_request.user_from, user_to=follow_request.user_to,
+            defaults={'category': follow_request.category})
+        follow_request.delete()
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_POST
+def approve_follow_request(request, username):
+    """Approve the follow request `username` sent the caller: they become a
+    follower and can see the caller's posts."""
+    logger.info("Endpoint approve_follow_request invoked by IP or User")
+    with transaction.atomic():
+        # Lock both accounts in primary-key order (as toggle_block does), then
+        # read the request and the requester's age band under those locks: a
+        # block between the two people either deleted the request already or
+        # waits until the follow edge exists and then removes it, and an
+        # identity verification moving the requester into the other band can't
+        # land between the band check and the insert.
+        requester = (get_user_with_username(username)
+                     if is_valid_pattern(username, Patterns.username) else None)
+        _lock_users(request.user, *([requester] if requester else []))
+        follow_request, error = _incoming_follow_request(request, "approve_follow_request", username)
+        if error is not None:
+            return error
+        _approve_follow_request(follow_request)
+    logger.info(f"Follow request approved: requester_id: {follow_request.user_from_id} by user_id: {request.user.id}")
+    return log_and_return_json("approve_follow_request", {'message': 'Follow request approved'})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='60/m', block=True)
+@require_POST
+def deny_follow_request(request, username):
+    """Deny the follow request `username` sent the caller. The requester is not
+    told; their profile view simply stops showing the request as pending, and
+    they are free to ask again."""
+    logger.info("Endpoint deny_follow_request invoked by IP or User")
+    with transaction.atomic():
+        # The owner lock approve_follow_request takes, so an approval and a
+        # denial of the same request cannot both succeed.
+        _lock_users(request.user)
+        follow_request, error = _incoming_follow_request(request, "deny_follow_request", username)
+        if error is not None:
+            return error
+        follow_request.delete()
+    logger.info(f"Follow request denied: requester_id: {follow_request.user_from_id} by user_id: {request.user.id}")
+    return log_and_return_json("deny_follow_request", {'message': 'Follow request denied'})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_POST
+def cancel_follow_request(request, username):
+    """Withdraw the caller's own pending request to follow `username`."""
+    logger.info("Endpoint cancel_follow_request invoked by IP or User")
+    if not is_valid_pattern(username, Patterns.username):
+        return log_and_return_json("cancel_follow_request", {'error': "Invalid username"}, status=400)
+    target_user = get_user_with_username(username)
+    if target_user is None:
+        return log_and_return_json("cancel_follow_request", {'error': "User does not exist"}, status=400)
+    with transaction.atomic():
+        # Lock the owner, as approving (one at a time or all at once when going
+        # public) does, so a cancellation that reports success can never be
+        # followed by that same request turning into a follow edge. The caller
+        # is locked too (both in primary-key order), so the age-band decision
+        # below reads rows an identity verification can't change underneath it.
+        _lock_users(request.user, target_user)
+        caller = get_user_model().objects.get(pk=request.user.pk)
+        target_user = get_user_model().objects.get(pk=target_user.pk)
+        # Withdrawing your own request works even if one of you has since
+        # verified into the other age band — otherwise the request would be
+        # stuck, since the owner can no longer see or answer it. Only a
+        # cross-band target with *no* request from the caller reads as missing,
+        # so this can't confirm such an account exists.
+        deleted_count, _ = FollowRequest.objects.filter(user_from=caller, user_to=target_user).delete()
+        cross_band = deleted_count == 0 and not in_same_age_band(caller, target_user)
+    if cross_band:
+        return log_and_return_json("cancel_follow_request", {'error': "User does not exist"}, status=400)
+    if deleted_count == 0:
+        return log_and_return_json("cancel_follow_request", {'error': "No follow request to cancel"}, status=400)
+    logger.info(f"Follow request cancelled: target_user_id: {target_user.id} by user_id: {request.user.id}")
+    return log_and_return_json("cancel_follow_request", {'message': 'Follow request cancelled'})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_POST
+def set_account_privacy(request):
+    """Turn the caller's private account setting on or off (issue #96).
+
+    Going private keeps every existing follower — they were already approved by
+    virtue of following a public account — and only changes how new followers
+    arrive. Going public approves every pending request, since a public account
+    has nothing left to approve and those people asked to follow."""
+    logger.info("Endpoint set_account_privacy invoked by IP or User")
+    data = _get_json_body(request)
+    # Valid JSON need not be an object ([] or false would fail .get below).
+    if not isinstance(data, dict):
+        return log_and_return_json("set_account_privacy", {'error': "Invalid JSON data"}, status=400)
+    is_private = data.get(Fields.is_private)
+    if not isinstance(is_private, bool):
+        return log_and_return_json(
+            "set_account_privacy", {'error': f"Invalid fields ['{Fields.is_private}']"}, status=400)
+
+    with transaction.atomic():
+        # The same row lock follow_user takes, so a concurrent follow sees either
+        # the old setting or the new one — never decides on one and writes under
+        # the other.
+        # NO KEY UPDATE, like _lock_users, so the approval inserts below (and
+        # concurrent ones elsewhere) never wait on it for a foreign-key check.
+        user = get_user_model().objects.select_for_update(no_key=True).get(pk=request.user.pk)
+        user.is_private = is_private
+        user.save(update_fields=['is_private'])
+    # Convert the pending backlog once the setting has committed: the first
+    # chunk inline, so a typical account's requests are all approved (and its
+    # counts correct) by the time the client reloads; anything beyond that is
+    # background work (tasks.convert_follow_requests_job), so this request stays
+    # bounded however large the backlog. Requests still waiting on a now-public
+    # account are harmless meanwhile: they grant no visibility, and following
+    # directly simply works.
+    if not is_private:
+        try:
+            if not tasks.convert_follow_requests(user.pk, max_rounds=1):
+                tasks.enqueue_follow_request_conversion(user.pk)
+        except Exception:
+            # The privacy change has already committed, so report it as made: a
+            # 500 here would make clients revert their toggle to private while
+            # the account is public. The conversion is best-effort — hand it to
+            # the background job, and sweep_classifications backstops even that.
+            logger.exception(f"Inline follow-request conversion failed for user_id: {user.id}; queueing it")
+            tasks.enqueue_follow_request_conversion(user.pk)
+    logger.info(f"Account privacy set to {is_private} for user_id: {user.id}")
+    return log_and_return_json("set_account_privacy", {Fields.is_private: is_private})
 
 
 @csrf_exempt
@@ -4974,6 +5480,8 @@ def get_current_user(request):
     data = {
         Fields.username: request.user.username,
         Fields.email: request.user.email,
+        # The private account setting (issue #96), so Settings can show its toggle.
+        Fields.is_private: request.user.is_private,
     }
     logger.info(f"Get current user successful for user_id: {request.user.id}")
     response = log_and_return_json("get_current_user", data, status=200)
@@ -5004,17 +5512,27 @@ def get_profile_details(request, username):
         logger.warning("Get profile details refused: requester and profile are in different age bands")
         return log_and_return_json("get_profile_details", {'error': "User not found"}, status=400)
 
-    # Count only the posts the requesting user is allowed to see, so a
-    # shadow-banned profile shows no posts to others (but all to its owner).
-    post_count = visible_posts(profile_user.post_set.all(), request.user).count()
+    # A private account shows non-followers none of its counts (issue #96) —
+    # the grid is already empty for them via visible_posts, and the follower /
+    # following numbers are the account's information too. Zeroed rather than
+    # omitted, as for a blocker below, so clients keep a stable shape; the
+    # clients hide the stats row for a locked profile instead of showing zeros.
+    # Decided before counting, so a non-follower viewing a popular private
+    # profile costs no count queries.
+    if not privacy_admits(profile_user, request.user):
+        post_count = follower_count = following_count = 0
+    else:
+        # Count only the posts the requesting user is allowed to see, so a
+        # shadow-banned profile shows no posts to others (but all to its owner).
+        post_count = visible_posts(profile_user.post_set.all(), request.user).count()
 
-    # The follower/following counts must agree with the filtered lists
-    # (issue #398): a shadow-banned or cross-age-band account is hidden from the
-    # follower/following list, so it must not inflate the count either. Apply the
-    # same searchable_users exclusion the list endpoints use — mirroring how
-    # post_count above counts only visible_posts.
-    follower_count = searchable_users(profile_user.followers.all(), request.user).count()
-    following_count = searchable_users(profile_user.following.all(), request.user).count()
+        # The follower/following counts must agree with the filtered lists
+        # (issue #398): a shadow-banned or cross-age-band account is hidden from
+        # the follower/following list, so it must not inflate the count either.
+        # Apply the same searchable_users exclusion the list endpoints use —
+        # mirroring how post_count above counts only visible_posts.
+        follower_count = searchable_users(profile_user.followers.all(), request.user).count()
+        following_count = searchable_users(profile_user.following.all(), request.user).count()
 
     # The follow edge (if any) carries the viewer's relationship category for
     # this profile user (issue #392); null when not following.
@@ -5030,6 +5548,11 @@ def get_profile_details(request, username):
     # Let's hide stats if blocked by them.
     is_blocked_by = request.user.blocked_by.filter(pk=profile_user.pk).exists()
 
+    # Whether the viewer has asked to follow this (private) account and is
+    # waiting on an answer (issue #96).
+    follow_request_pending = FollowRequest.objects.filter(
+        user_from=request.user, user_to=profile_user).exists()
+
     if is_blocked_by:
         # Return limited info or error?
         # Usually it looks like the user doesn't exist or empty profile.
@@ -5039,6 +5562,7 @@ def get_profile_details(request, username):
         following_count = 0
         is_following = False
         follow_category = None
+        follow_request_pending = False
 
     # The approved, live profile photo (compressed + full-res fallback, like
     # posts). Hidden along with the stats when the profile has blocked the
@@ -5057,6 +5581,8 @@ def get_profile_details(request, username):
         Fields.following_count: following_count,
         Fields.is_following: is_following,
         Fields.follow_category: follow_category,
+        Fields.is_private: profile_user.is_private,
+        Fields.follow_request_pending: follow_request_pending,
         'is_blocked': is_blocked,
         Fields.identity_is_verified: profile_user.identity_is_verified,
         Fields.is_adult: profile_user.is_adult,
@@ -5087,6 +5613,15 @@ def get_profile_details(request, username):
         # async), so the owner's immediate preview must point at the full-res
         # original or it would 404 to the placeholder.
         data[Fields.pending_profile_image_url] = sign_original_url(pending_avatar)
+        # Incoming follow requests awaiting a decision (issue #96), so the owner's
+        # client can badge its "Follow requests" entry. Counted through the same
+        # searchable_users filter the request list applies, so the badge never
+        # promises a request the list will not show.
+        data[Fields.follow_request_count] = searchable_users(
+            PositiveOnlySocialUser.objects.filter(
+                pk__in=FollowRequest.objects.filter(user_to=profile_user).values('user_from_id')),
+            request.user,
+        ).count()
 
     return log_and_return_json("get_profile_details", data, status=200)
 

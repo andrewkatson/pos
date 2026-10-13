@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
@@ -18,6 +18,7 @@ vi.mock('../api/client', () => ({
     changePassword: vi.fn(),
     getNotificationPreferences: vi.fn(),
     setNotificationPreference: vi.fn(),
+    setAccountPrivacy: vi.fn(),
   },
 }))
 
@@ -32,6 +33,7 @@ const mockGetCurrentUser = vi.mocked(apiClient.getCurrentUser)
 const mockChangePassword = vi.mocked(apiClient.changePassword)
 const mockGetNotifPrefs = vi.mocked(apiClient.getNotificationPreferences)
 const mockSetNotifPref = vi.mocked(apiClient.setNotificationPreference)
+const mockSetPrivacy = vi.mocked(apiClient.setAccountPrivacy)
 
 function renderTab() {
   return render(
@@ -42,6 +44,7 @@ function renderTab() {
         <Route path="/appeals" element={<div>Appeals page</div>} />
         <Route path="/blocked" element={<div>Blocked users page</div>} />
         <Route path="/saved" element={<div>Saved posts page</div>} />
+        <Route path="/follow-requests" element={<div>Follow requests page</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -62,8 +65,9 @@ beforeEach(() => {
   mockDisableTotp.mockReset().mockResolvedValue({ totp_enabled: false })
   mockGetCurrentUser
     .mockReset()
-    .mockResolvedValue({ username: 'ada', email: 'ada@example.com' })
+    .mockResolvedValue({ username: 'ada', email: 'ada@example.com', is_private: false })
   mockChangePassword.mockReset().mockResolvedValue({ message: 'ok' })
+  mockSetPrivacy.mockReset().mockResolvedValue({ is_private: true })
   // Default: no notification types, so the Notifications section stays hidden
   // for the existing tests; the toggle test overrides this.
   mockGetNotifPrefs.mockReset().mockResolvedValue([])
@@ -342,4 +346,45 @@ test('a later successful toggle clears a previous toggle error', async () => {
 
   await userEvent.click(toggle) // succeeds -> banner cleared
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+test('the private account toggle saves the new setting (#96)', async () => {
+  renderTab()
+  const toggle = await screen.findByRole('button', { name: /Private account/ })
+  await waitFor(() => expect(toggle).toBeEnabled())
+  expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+  await userEvent.click(toggle)
+
+  await waitFor(() => expect(mockSetPrivacy).toHaveBeenCalledWith(true))
+  expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  expect(within(toggle).getByText('On')).toBeInTheDocument()
+})
+
+test('a failed private account save reverts the toggle (#96)', async () => {
+  mockGetCurrentUser.mockResolvedValue({ username: 'ada', email: 'ada@example.com', is_private: true })
+  mockSetPrivacy.mockRejectedValue(new Error('boom'))
+  renderTab()
+  const toggle = await screen.findByRole('button', { name: /Private account/ })
+  await waitFor(() => expect(toggle).toHaveAttribute('aria-pressed', 'true'))
+
+  await userEvent.click(toggle)
+
+  await waitFor(() => expect(mockSetPrivacy).toHaveBeenCalledWith(false))
+  await waitFor(() => expect(toggle).toHaveAttribute('aria-pressed', 'true'))
+  expect(screen.getByRole('alert')).toHaveTextContent('Could not update your privacy setting.')
+})
+
+test('opens the follow requests page (#96)', async () => {
+  renderTab()
+  await userEvent.click(screen.getByRole('button', { name: 'Follow Requests' }))
+  expect(screen.getByText('Follow requests page')).toBeInTheDocument()
+})
+
+test('the private account toggle stays disabled when the backend omits the setting', async () => {
+  mockGetCurrentUser.mockResolvedValue({ username: 'ada', email: 'ada@example.com' })
+  renderTab()
+  await screen.findByText('ada@example.com')
+
+  expect(screen.getByRole('button', { name: /Private account/ })).toBeDisabled()
 })

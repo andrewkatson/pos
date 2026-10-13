@@ -220,6 +220,10 @@ struct MyProfileTabView: View {
             .navigationDestination(for: FollowListMode.self) { mode in
                 FollowListView(mode: mode, api: api, keychainHelper: keychainHelper)
             }
+            // The owner's incoming follow requests (issue #96).
+            .navigationDestination(for: FollowRequestsDestination.self) { _ in
+                FollowRequestsView(api: api, keychainHelper: keychainHelper)
+            }
             .postActionDialogs(postActions)
         }
     }

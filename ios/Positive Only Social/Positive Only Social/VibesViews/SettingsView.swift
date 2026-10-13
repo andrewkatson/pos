@@ -14,6 +14,10 @@ import UniformTypeIdentifiers
 private let _recoveryCodeClipboardTTL: TimeInterval = 120
 
 struct SettingsView: View {
+    /// Footer under the Private Account toggle (issue #96).
+    private static let privateAccountFooter =
+        "Only people you approve can see your posts. Your comments keep the audience you pick for each one."
+
     // The AuthenticationManager is still needed to trigger the final UI change.
     @EnvironmentObject private var authManager: AuthenticationManager
 
@@ -127,6 +131,25 @@ struct SettingsView: View {
                     } label: {
                         Text("Hidden Content & Appeals")
                     }.accessibilityIdentifier("AppealsButton")
+                }
+
+                // MARK: - Privacy Section (issue #96)
+                Section(
+                    header: Text("Privacy"),
+                    footer: Text(Self.privateAccountFooter)
+                ) {
+                    Toggle("Private Account", isOn: Binding(
+                        get: { viewModel.isPrivate ?? false },
+                        set: { viewModel.setAccountPrivacy($0) }
+                    ))
+                    .disabled(viewModel.isPrivate == nil || viewModel.isSavingPrivacy)
+                    .accessibilityIdentifier("PrivateAccountToggle")
+
+                    NavigationLink {
+                        FollowRequestsView(api: api, keychainHelper: keychainHelper)
+                    } label: {
+                        Text("Follow Requests")
+                    }.accessibilityIdentifier("FollowRequestsButton")
                 }
 
                 // MARK: - Blocked Users Section

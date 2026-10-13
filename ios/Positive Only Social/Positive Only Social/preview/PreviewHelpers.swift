@@ -283,6 +283,16 @@ struct MockedAPI: Networking {
         return try encode(posts)
     }
 
+    func getTopPosts(sessionManagementToken: String, batch: Int, period: String) async throws -> Data {
+        // One page only: TopPostsViewModel pages past repeat-only pages, so the
+        // same rows on every batch would make a preview request forever.
+        guard batch == 0 else { return try encode([Post]()) }
+        let posts = [
+            Post(postIdentifier: "7", imageUrl: "https://picsum.photos/400/305", originalImageUrl: nil, caption: "Crowd favorite", authorUsername: "popular_pal")
+        ]
+        return try encode(posts)
+    }
+
     func getPostsForTag(sessionManagementToken: String, tag: String, batch: Int) async throws -> Data {
         let posts = [
             Post(postIdentifier: "6", imageUrl: "https://picsum.photos/400/304", originalImageUrl: nil, caption: "Tagged #\(tag)", authorUsername: "tag_fan", tags: [tag])
@@ -432,6 +442,31 @@ struct MockedAPI: Networking {
             User(username: "following_2", identityIsVerified: false)
         ]
         return try encode(users)
+    }
+
+    func getFollowRequests(sessionManagementToken: String, after: Int?) async throws -> Data {
+        guard after == nil else { return try encode([User]()) }
+        let users = [
+            User(username: "requester_1", identityIsVerified: true),
+            User(username: "requester_2", identityIsVerified: false)
+        ]
+        return try encode(users)
+    }
+
+    func approveFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func denyFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func cancelFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func setAccountPrivacy(sessionManagementToken: String, isPrivate: Bool) async throws -> Data {
+        return try encode(["is_private": isPrivate])
     }
 
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {

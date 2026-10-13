@@ -192,6 +192,10 @@ final class RealAPI: Networking {
         let bio: String
     }
 
+    private struct SetPrivacyBody: Encodable {
+        let is_private: Bool
+    }
+
     private struct SetInterestsBody: Encodable {
         let categories: [String]
         let freeform: [String]
@@ -730,6 +734,26 @@ final class RealAPI: Networking {
     }
     
     
+    /// Fetches one page of the Top posts scoreboard (issue #558): the most-liked
+    /// public posts created within `period`, most likes first.
+    ///
+    /// - Parameters:
+    ///   - batch: Which page to fetch, starting at 0. Each page holds up to 10
+    ///     posts; pages past the top 100 come back empty.
+    ///   - period: The time window, one of `TopPostPeriod`'s raw values:
+    ///     "day", "week", "month" or "year".
+    /// - Returns: The raw JSON array of posts, in the same shape as the other feeds.
+    func getTopPosts(sessionManagementToken: String, batch: Int, period: String) async throws -> Data {
+        // Sends an authenticated GET to /feed/top/<batch>/?period=<period>:
+        // the page number goes in the path and the period in the query string.
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSregmenFeed, GVOAppConstants.pathSegmentTop, String(batch)],
+            method: .get,
+            authToken: sessionManagementToken,
+            queryItems: [URLQueryItem(name: GVOAppConstants.queryKeyPeriod, value: period)]
+        )
+    }
+
     /// Gets a batch of posts for another user.
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with auth. Username/Batch are in path.
@@ -922,6 +946,54 @@ final class RealAPI: Networking {
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmentFollowing],
             method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    // MARK: - Private accounts & follow requests (issue #96)
+
+    func getFollowRequests(sessionManagementToken: String, after: Int?) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, GVOAppConstants.pathSegmentFollowRequests],
+            method: .get,
+            authToken: sessionManagementToken,
+            queryItems: after.map { [URLQueryItem(name: GVOAppConstants.queryKeyAfter, value: String($0))] }
+        )
+    }
+
+    func approveFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, username,
+                           GVOAppConstants.pathSegmentFollowRequest, GVOAppConstants.pathSegmentApprove],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func denyFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, username,
+                           GVOAppConstants.pathSegmentFollowRequest, GVOAppConstants.pathSegmentDeny],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func cancelFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, username,
+                           GVOAppConstants.pathSegmentFollowRequest, GVOAppConstants.pathSegmentCancel],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
+    func setAccountPrivacy(sessionManagementToken: String, isPrivate: Bool) async throws -> Data {
+        let requestBody = try encode(SetPrivacyBody(is_private: isPrivate))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmenProfile, GVOAppConstants.pathSegmentPrivate],
+            method: .post,
+            body: requestBody,
             authToken: sessionManagementToken
         )
     }

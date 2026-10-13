@@ -193,6 +193,21 @@ class Command(BaseCommand):
             # cleanup is owed here (cleanup_orphan_images backstops any miss).
             tombstones.delete()
 
+        # --- Public accounts still holding follow requests: re-enqueue. ---
+        # Going public converts the backlog in the background (issue #96); an
+        # enqueue that failed (Redis down) or a job that died leaves requests
+        # pending on a public account, which this picks back up. The job is
+        # idempotent, so re-enqueueing one that is still running is harmless.
+        unconverted_owner_ids = list(
+            PositiveOnlySocialUser.objects.filter(is_private=False, follow_requests_received__isnull=False)
+            .values_list('pk', flat=True).distinct()
+        )
+        for owner_id in unconverted_owner_ids:
+            if dry_run:
+                self.stdout.write(f"[dry-run] would re-enqueue follow-request conversion for user {owner_id}")
+            else:
+                tasks.enqueue_follow_request_conversion(owner_id)
+
         verb = "Would re-enqueue" if dry_run else "Re-enqueued"
         purge_verb = "would purge" if dry_run else "purged"
         summary = (f"{verb} {requeued} stuck pending post(s); {exhausted} exhausted "
@@ -201,6 +216,7 @@ class Command(BaseCommand):
                    f"photo(s) exhausted (fail-closed, {photos_newly_alerted} newly alerted); "
                    f"{reviews_requeued} stuck report review(s); {reviews_escalated} escalated "
                    f"to a moderator; "
+                   f"{len(unconverted_owner_ids)} public account(s) with unconverted follow requests; "
                    f"{purge_verb} {purged} tombstone(s) older than {tombstone_days}d.")
         self.stdout.write(summary)
         logger.info("sweep_classifications: %s", summary)

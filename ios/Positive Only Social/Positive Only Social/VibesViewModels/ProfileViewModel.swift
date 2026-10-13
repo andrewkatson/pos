@@ -23,6 +23,30 @@ class ProfileViewModel: ObservableObject {
     // meaningful while `isFollowing`.
     @Published var followCategory: FollowCategory = .following
     @Published var isBlocked = false
+    /// The viewer asked to follow this private account and is waiting on an
+    /// answer (issue #96); the Follow button reads "Requested" and tapping it
+    /// cancels the request.
+    @Published var followRequestPending = false
+
+    /// A private account someone other than its owner does not follow (issue
+    /// #96): the backend serves no posts and zeroed counts, so the view hides
+    /// the stats and shows a "this account is private" note instead of a grid.
+    var isLocked: Bool {
+        !isOwnProfile && (profileDetails?.isPrivate ?? false) && !isFollowing
+    }
+
+    /// Set when an unfollow or block may have just revoked access to a profile
+    /// whose privacy the cached payload can't vouch for (issue #96). Cleared by
+    /// the next fresh profile read — never by a failed one, so stale counts
+    /// can't stand for an account that has gone private.
+    @Published private(set) var awaitingRevalidation = false
+
+    /// The stats row is shown only when its counts are known to be readable.
+    var hidesStats: Bool { isLocked || awaitingRevalidation }
+
+    /// Owner-only count of incoming follow requests, for the profile's
+    /// "Follow Requests" entry (issue #96).
+    var followRequestCount: Int { profileDetails?.followRequestCount ?? 0 }
 
     // Own profile-photo controls (issue #7). Uploading reuses the post-image
     // presigned flow (createUploadUrl + S3Uploader), then calls setProfilePhoto;
@@ -90,6 +114,9 @@ class ProfileViewModel: ObservableObject {
     // Listens for `.postCreated` so a brand new post shows up on the signed-in
     // user's own profile grid right away (issue #347).
     private var postCreatedCancellable: AnyCancellable?
+    // Listens for `.followRequestsChanged` so the owner's request badge and
+    // follower count refresh after approving or denying requests (issue #96).
+    private var followRequestsChangedCancellable: AnyCancellable?
 
     /// Whether this profile belongs to the signed-in user, which hides Follow /
     /// Block and enables the classification poll.
@@ -188,6 +215,16 @@ class ProfileViewModel: ObservableObject {
                 }
             }
 
+        // Follow requests are only ever answered on your own account.
+        followRequestsChangedCancellable = notificationCenter.publisher(for: .followRequestsChanged)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.isOwnProfile else { return }
+                    await self.refreshProfileDetails()
+                }
+            }
+
         // A newly created post only ever belongs on the author's own profile.
         postCreatedCancellable = notificationCenter.publisher(for: .postCreated)
             .receive(on: RunLoop.main)
@@ -209,6 +246,7 @@ class ProfileViewModel: ObservableObject {
         guard !isLoading, canLoadMore else { return }
         
         isLoading = true
+        let generation = postsGeneration
         
         Task {
             do {
@@ -225,6 +263,12 @@ class ProfileViewModel: ObservableObject {
                     batch: batch
                 )
                 let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
+                // Superseded (issue #96): a newer authoritative reload owns the grid.
+                guard generation == postsGeneration else {
+                    isLoading = false
+                    runQueuedPostsRefresh()
+                    return
+                }
                 
                 if newPosts.isEmpty {
                     // No more posts to load
@@ -241,7 +285,30 @@ class ProfileViewModel: ObservableObject {
             }
             
             isLoading = false
+            runQueuedPostsRefresh()
         }
+    }
+
+    // A page-0 reload asked for while another post load was in flight (issue
+    // #96); it runs as soon as that load finishes instead of being skipped.
+    private var postsRefreshQueued = false
+    // Bumped to supersede in-flight post loads: a load that started in an older
+    // generation drops its results, so it can't refill a grid a newer
+    // authoritative reload (or the fail-closed private state) has replaced.
+    private var postsGeneration = 0
+
+    private func runQueuedPostsRefresh() {
+        guard postsRefreshQueued else { return }
+        postsRefreshQueued = false
+        Task { await refreshUserPosts() }
+    }
+
+    /// The authoritative page-0 reload after a privacy/relationship change:
+    /// supersedes any post load in flight, and queues behind it rather than
+    /// being skipped.
+    private func reloadPostsAuthoritatively() async {
+        postsGeneration += 1
+        await refreshUserPosts()
     }
     
     /// Pull-to-refresh: resets pagination and reloads the user's posts from the
@@ -249,10 +316,19 @@ class ProfileViewModel: ObservableObject {
     /// backend. `async` so SwiftUI's `.refreshable` keeps the spinner visible
     /// until the new posts have actually loaded.
     func refreshUserPosts() async {
-        guard !isLoading else { return }
+        guard !isLoading else {
+            // Don't drop it: run once the load in flight finishes.
+            postsRefreshQueued = true
+            return
+        }
         isLoading = true
-        // Reset the loading flag on every exit path so it can't be left stuck on.
-        defer { isLoading = false }
+        let generation = postsGeneration
+        // Reset the loading flag on every exit path so it can't be left stuck on,
+        // then run any reload queued meanwhile.
+        defer {
+            isLoading = false
+            runQueuedPostsRefresh()
+        }
 
         do {
             guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
@@ -266,6 +342,8 @@ class ProfileViewModel: ObservableObject {
                 batch: 0
             )
             let newPosts = try JSONDecoder().decode([Post].self, from: responseData)
+            // Superseded (issue #96): a newer authoritative reload owns the grid.
+            guard generation == postsGeneration else { return }
 
             // Replace the list and reset pagination so the next infinite-scroll
             // fetch continues from page 1.
@@ -332,10 +410,18 @@ class ProfileViewModel: ObservableObject {
         }
     }
 
+    /// Bumped by each `refreshProfileDetails()` call; see there.
+    private var detailsRefreshGeneration = 0
+
     /// Pull-to-refresh companion to `refreshUserPosts()`: reloads the profile
     /// stats and follow/block status so they don't go stale on refresh. `async`
     /// so `.refreshable` keeps the spinner up until both posts and details load.
     func refreshProfileDetails() async {
+        // Reloads can overlap (follow requests answered concurrently, issue #96)
+        // and return out of order; only the newest one's response is applied, so
+        // an older read can't overwrite the counts from a newer decision.
+        detailsRefreshGeneration += 1
+        let generation = detailsRefreshGeneration
         do {
             guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                 NSLog("%@", "No active session — cannot refresh profile details")
@@ -344,11 +430,14 @@ class ProfileViewModel: ObservableObject {
 
             let responseData = try await api.getProfileDetails(sessionManagementToken: userSession.sessionToken, username: user.username)
             let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: responseData)
+            guard generation == detailsRefreshGeneration else { return }
 
             self.profileDetails = details
+            self.awaitingRevalidation = false
             self.isFollowing = details.isFollowing
             self.followCategory = details.followCategory.flatMap(FollowCategory.init(rawValue:)) ?? .following
             self.isBlocked = details.isBlocked
+            self.followRequestPending = details.followRequestPending ?? false
         } catch {
             NSLog("%@", "Error refreshing profile details for \(user.username): \(error)")
         }
@@ -358,6 +447,11 @@ class ProfileViewModel: ObservableObject {
     func fetchProfileDetails() {
         guard !isLoadingProfile else { return }
         isLoadingProfile = true
+        // Shares refreshProfileDetails()' generation (issue #96), so a slow
+        // initial response can't land after a newer refresh and restore stale
+        // privacy, request-count or follower state.
+        detailsRefreshGeneration += 1
+        let generation = detailsRefreshGeneration
         
         Task {
             do {
@@ -369,11 +463,17 @@ class ProfileViewModel: ObservableObject {
 
                 let responseData = try await api.getProfileDetails(sessionManagementToken: userSession.sessionToken, username: user.username)
                 let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: responseData)
+                guard generation == detailsRefreshGeneration else {
+                    isLoadingProfile = false
+                    return
+                }
                 
                 self.profileDetails = details
+                self.awaitingRevalidation = false
                 self.isFollowing = details.isFollowing // Set initial follow state
                 self.followCategory = details.followCategory.flatMap(FollowCategory.init(rawValue:)) ?? .following
                 self.isBlocked = details.isBlocked // Set initial block state
+                self.followRequestPending = details.followRequestPending ?? false
             } catch {
                 NSLog("%@", "Error fetching profile details: \(error)")
                 // Handle error (e.g., show alert)
@@ -406,20 +506,32 @@ class ProfileViewModel: ObservableObject {
 
     func toggleFollow() {
         guard !isBusy else { return }
+        // "Requested" → withdraw the pending request (issue #96).
+        if followRequestPending {
+            cancelFollowRequest()
+            return
+        }
         isBusy = true
 
-        // Optimistic update: change UI immediately, revert on error.
+        // Optimistic update: change UI immediately, revert on error. Following a
+        // private account files a request instead (issue #96), so it shows
+        // "Requested" rather than "Following" and leaves the counts alone.
         let wasFollowing = isFollowing
-        isFollowing = !wasFollowing
-        // A fresh follow starts in the default "following" bucket (issue #392).
-        if !wasFollowing { followCategory = .following }
-        adjustFollowerCount(by: wasFollowing ? -1 : 1)
+        let expectsRequest = !wasFollowing && (profileDetails?.isPrivate ?? false)
+        if expectsRequest {
+            followRequestPending = true
+        } else {
+            isFollowing = !wasFollowing
+            // A fresh follow starts in the default "following" bucket (issue #392).
+            if !wasFollowing { followCategory = .following }
+            adjustFollowerCount(by: wasFollowing ? -1 : 1)
+        }
 
         Task {
             do {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session — cannot toggle follow")
-                    revertFollow(wasFollowing: wasFollowing)
+                    revertFollow(wasFollowing: wasFollowing, expectedRequest: expectsRequest)
                     isBusy = false
                     return
                 }
@@ -427,20 +539,133 @@ class ProfileViewModel: ObservableObject {
 
                 if wasFollowing {
                     let _ = try await api.unfollowUser(sessionManagementToken: token, username: user.username)
+                    // Losing the follow edge may revoke access: the account may
+                    // have gone private since this profile loaded, which the
+                    // cached isPrivate can't tell. Fail closed — drop the grid and
+                    // hide the counts, superseding any load in flight — and reload
+                    // what the viewer may still see (issue #96).
+                    postsGeneration += 1
+                    userPosts = []
+                    awaitingRevalidation = true
+                    await refreshProfileDetails()
+                    await reloadPostsAuthoritatively()
                 } else {
-                    let _ = try await api.followUser(sessionManagementToken: token, username: user.username, category: nil)
+                    let data = try await api.followUser(sessionManagementToken: token, username: user.username, category: nil)
+                    let filedRequest = (try? JSONDecoder().decode(FollowResponse.self, from: data))?.followRequestPending ?? false
+                    // A details load that started before this call may still
+                    // land and flip the button back; supersede it (issue #96).
+                    detailsRefreshGeneration += 1
+                    // The server has the final word on whether the account is
+                    // private (it may have changed since the profile loaded).
+                    if filedRequest == expectsRequest {
+                        // Confirmed as expected: re-apply it in case an older
+                        // load already landed before the response.
+                        followRequestPending = filedRequest
+                        isFollowing = !filedRequest
+                    }
+                    if filedRequest != expectsRequest {
+                        // The owner changed their privacy since this profile
+                        // loaded, so the cached privacy, counts and grid are all
+                        // stale. Reload them (and the follow state with them)
+                        // rather than patching only the button.
+                        revertFollow(wasFollowing: false, expectedRequest: expectsRequest)
+                        if filedRequest {
+                            // The account went private. Fail closed before the
+                            // best-effort reload (which swallows errors): the
+                            // cached public grid and counts must not stay on
+                            // screen for someone who is now only a requester.
+                            applyLockedPendingState()
+                        } else {
+                            // The account went public and the server just
+                            // created the follow: apply that now, so a failed
+                            // reload can't leave the profile locked showing
+                            // Follow for someone who already follows.
+                            followRequestPending = false
+                            isFollowing = true
+                            followCategory = .following
+                            if var details = profileDetails {
+                                details.isPrivate = false
+                                details.isFollowing = true
+                                details.followRequestPending = false
+                                details.followCategory = FollowCategory.following.rawValue
+                                profileDetails = details
+                            }
+                        }
+                        await refreshProfileDetails()
+                        await reloadPostsAuthoritatively()
+                    }
                 }
             } catch {
                 NSLog("%@", "Error toggling follow: \(error)")
-                revertFollow(wasFollowing: wasFollowing)
+                revertFollow(wasFollowing: wasFollowing, expectedRequest: expectsRequest)
             }
             isBusy = false
         }
     }
 
-    private func revertFollow(wasFollowing: Bool) {
+    private func revertFollow(wasFollowing: Bool, expectedRequest: Bool = false) {
+        if expectedRequest {
+            followRequestPending = false
+            return
+        }
         isFollowing = wasFollowing
         adjustFollowerCount(by: wasFollowing ? 1 : -1)
+    }
+
+    /// The fail-closed view of a profile that just turned out to be private with
+    /// the viewer's request pending (issue #96): private, pending, no counts and
+    /// no posts, until a reload says otherwise.
+    private func applyLockedPendingState() {
+        isFollowing = false
+        followRequestPending = true
+        if var details = profileDetails {
+            details.isPrivate = true
+            details.followRequestPending = true
+            details.isFollowing = false
+            details.postCount = 0
+            details.followerCount = 0
+            details.followingCount = 0
+            profileDetails = details
+        }
+        // Supersede any post load in flight, so it can't refill the grid while
+        // the authoritative reload is pending.
+        postsGeneration += 1
+        userPosts = []
+    }
+
+    /// Withdraws the viewer's pending request to follow this private account
+    /// (issue #96). Optimistic: flips back to "Follow" and restores
+    /// "Requested" if the call fails.
+    private func cancelFollowRequest() {
+        isBusy = true
+        followRequestPending = false
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    NSLog("%@", "No active session — cannot cancel follow request")
+                    followRequestPending = true
+                    isBusy = false
+                    return
+                }
+                _ = try await api.cancelFollowRequest(sessionManagementToken: userSession.sessionToken, username: user.username)
+                // Confirmed: supersede any older details load so it can't put
+                // "Requested" back, and re-apply the cancelled state.
+                detailsRefreshGeneration += 1
+                followRequestPending = false
+            } catch {
+                // Most likely the owner already answered the request (or went
+                // public and approved it) while this profile was open, so the
+                // cached "Requested" state is stale. Reload the profile and grid
+                // rather than restore it — the viewer may now be a follower.
+                NSLog("%@", "Error cancelling follow request: \(error)")
+                // Restore the last known state first, so a failed reload leaves
+                // "Requested" rather than a guess.
+                followRequestPending = true
+                await refreshProfileDetails()
+                await reloadPostsAuthoritatively()
+            }
+            isBusy = false
+        }
     }
 
     /// Re-categorizes the relationship (issue #392). Optimistic: updates the
@@ -478,7 +703,11 @@ class ProfileViewModel: ObservableObject {
         let previousBlockState = isBlocked
         let previousFollowState = isFollowing
 
+        let previousRequestPending = followRequestPending
+
         isBlocked.toggle()
+        // A block also drops any pending follow request (issue #96).
+        if isBlocked { followRequestPending = false }
         // Blocking also unfollows on the backend; mirror that locally.
         if isBlocked && isFollowing {
             isFollowing = false
@@ -490,15 +719,27 @@ class ProfileViewModel: ObservableObject {
                 guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                     NSLog("%@", "No active session — cannot toggle block")
                     revertBlock(previousBlockState: previousBlockState, previousFollowState: previousFollowState)
+                    followRequestPending = previousRequestPending
                     isBusy = false
                     return
                 }
                 let token = userSession.sessionToken
 
                 let _ = try await api.toggleBlock(sessionManagementToken: token, username: user.username)
+                // A block removes any follow edge and hides each side's posts
+                // from the other, so the cached grid can't stand: fail closed and
+                // reload (issue #96). Unblocking reloads to bring it back.
+                if !previousBlockState {
+                    postsGeneration += 1
+                    userPosts = []
+                    awaitingRevalidation = true
+                }
+                await refreshProfileDetails()
+                await reloadPostsAuthoritatively()
             } catch {
                 NSLog("%@", "Error toggling block: \(error)")
                 revertBlock(previousBlockState: previousBlockState, previousFollowState: previousFollowState)
+                followRequestPending = previousRequestPending
             }
             isBusy = false
         }
