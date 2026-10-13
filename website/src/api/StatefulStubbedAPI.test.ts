@@ -1181,6 +1181,22 @@ test('top posts leave out private accounts, even for their followers', async () 
   ])
 })
 
+test('a report-hidden post ranks for its author only, unapproved ones for nobody', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  // 'moderated' is the stub's stand-in for a post a moderator hid after
+  // reports; 'borderline' is a classifier rejection.
+  const reportHidden = await api.createPost({ caption: 'moderated post' })
+  await api.createPost({ caption: 'borderline post' })
+
+  expect((await api.getTopPosts(0, 'week')).map((p) => p.post_identifier)).toEqual([
+    reportHidden.post_identifier,
+  ])
+
+  await register(api, 'viewer')
+  expect(await api.getTopPosts(0, 'week')).toEqual([])
+})
+
 test('top posts only include posts created within the period', async () => {
   const api = new StatefulStubbedAPI()
   await register(api, 'author')

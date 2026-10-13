@@ -60,6 +60,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // The Top posts windows and depth, matching backend/user_system/constants.py.
     private val TOP_POST_PERIOD_DAYS = mapOf("day" to 1, "week" to 7, "month" to 30, "year" to 365)
     private val TOP_POSTS_LIMIT = 100
+    // Hidden reasons meaning the classifier hasn't approved a post.
+    private val TOP_POST_UNAPPROVED_REASONS = setOf("pending_classification", "classifier", "classifier_final")
 
     /** Mirrors visibility.is_minor: verified and not adult (issue #329). */
     private fun isVerifiedMinor(user: UserMock?): Boolean =
@@ -1111,7 +1113,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val since = System.currentTimeMillis() - days * 24L * 60 * 60 * 1000
 
         val ranked = posts.filter {
-            !it.hidden &&
+            // As get_top_posts: unapproved posts never rank, and other hidden
+            // (report-hidden) posts only for their own author.
+            it.hiddenReason !in TOP_POST_UNAPPROVED_REASONS &&
+            (it.authorId == user.id || !it.hidden) &&
             it.audience == PostAudience.PUBLIC.value &&
             users.find { u -> u.id == it.authorId }?.isPrivate != true &&
             it.creationTime >= since &&
