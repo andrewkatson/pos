@@ -59,6 +59,20 @@ class ProfileViewModel(
     private val _isBlocked = MutableStateFlow(false)
     val isBlocked: StateFlow<Boolean> = _isBlocked.asStateFlow()
 
+    // A follow / unfollow / cancel-request call is in flight (issue #96). The
+    // Follow button is disabled meanwhile, and toggleFollow ignores taps, so a
+    // quick second tap can't send "cancel" before the "follow" it would cancel
+    // has reached the server.
+    private val _isFollowBusy = MutableStateFlow(false)
+    val isFollowBusy: StateFlow<Boolean> = _isFollowBusy.asStateFlow()
+
+    // Set when an unfollow or block may have just revoked access to a profile
+    // whose privacy the cached payload can't vouch for (issue #96): the screen
+    // hides the counts until a fresh profile read clears it — indefinitely if
+    // that read fails, so stale counts never stand for a now-private account.
+    private val _awaitingRevalidation = MutableStateFlow(false)
+    val awaitingRevalidation: StateFlow<Boolean> = _awaitingRevalidation.asStateFlow()
+
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
@@ -150,6 +164,39 @@ class ProfileViewModel(
     private var currentPage = 0
     private var canLoadMore = true
 
+    // The username this view model last loaded, so an event-driven refresh
+    // (follow request decisions, issue #96) knows which profile to reload.
+    private var loadedUsername: String? = null
+
+    // Bumped by every profile load and by the fail-closed privacy update (issue
+    // #96). Each load remembers the generation it started in and drops its
+    // results if a newer one has begun since, so a slow, older response can't
+    // land after the fail-closed private state and restore a stale public
+    // profile and grid.
+    private var loadGeneration = 0
+
+    // A refresh asked for while another load was in flight; it runs as soon as
+    // that load finishes. Several requests in the meantime coalesce into one,
+    // which reads after all of them.
+    private var queuedRefreshUsername: String? = null
+
+    private fun runQueuedRefresh() {
+        val username = queuedRefreshUsername ?: return
+        queuedRefreshUsername = null
+        refreshProfile(username)
+    }
+
+    init {
+        // Approving or denying follow requests changes the owner's request badge
+        // and follower count; refresh their own profile when it happens.
+        viewModelScope.launch {
+            FollowRequestEvents.decisions.collect {
+                val username = loadedUsername
+                if (_isOwnProfile.value && username != null) refreshProfile(username)
+            }
+        }
+    }
+
     fun fetchProfile(username: String) {
         _isLoading.value = true
         _errorMessage.value = null
@@ -158,6 +205,8 @@ class ProfileViewModel(
         currentPage = 0
         canLoadMore = true
         _userPosts.value = emptyList() // Clear old posts immediately
+        _awaitingRevalidation.value = false
+        val generation = ++loadGeneration
 
         viewModelScope.launch {
             try {
@@ -172,12 +221,15 @@ class ProfileViewModel(
                 }
 
                 _isOwnProfile.value = (userSession.username == username)
+                loadedUsername = username
 
                 // Fetch Profile Details
                 val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
+                if (generation != loadGeneration) return@launch
                 if (profileResponse.isSuccessful) {
                     val profile = profileResponse.body()
                     _profileDetails.value = profile
+                    _awaitingRevalidation.value = false
                     _isFollowing.value = profile?.isFollowing ?: false
                     _followCategory.value = FollowCategory.from(profile?.followCategory)
                     _isBlocked.value = profile?.isBlocked ?: false
@@ -187,6 +239,7 @@ class ProfileViewModel(
 
                 // Fetch Initial User Posts (Page 0)
                 val postsResponse = api.getPostsForUser(userSession.sessionToken, username, 0)
+                if (generation != loadGeneration) return@launch
                 if (postsResponse.isSuccessful) {
                     val newPosts = postsResponse.body() ?: emptyList()
                     _userPosts.value = newPosts
@@ -207,6 +260,7 @@ class ProfileViewModel(
                 Log.e(TAG, "Error fetching profile", e)
             } finally {
                 _isLoading.value = false
+                runQueuedRefresh()
             }
         }
     }
@@ -218,11 +272,18 @@ class ProfileViewModel(
      */
     fun refreshProfile(username: String) {
         // Don't refresh while a paginated fetch is in flight; they share
-        // _userPosts/currentPage/canLoadMore and would otherwise race.
-        if (_isRefreshing.value || _isLoading.value) return
+        // _userPosts/currentPage/canLoadMore and would otherwise race. Queue it
+        // instead of dropping it: an event-driven refresh (a follow request
+        // answered while another reload is running, issue #96) must still
+        // happen, or the badge and counts stay one decision behind.
+        if (_isRefreshing.value || _isLoading.value) {
+            queuedRefreshUsername = username
+            return
+        }
 
         _isRefreshing.value = true
         _errorMessage.value = null
+        val generation = ++loadGeneration
 
         viewModelScope.launch {
             try {
@@ -233,9 +294,11 @@ class ProfileViewModel(
                 }
 
                 val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
+                if (generation != loadGeneration) return@launch
                 if (profileResponse.isSuccessful) {
                     val profile = profileResponse.body()
                     _profileDetails.value = profile
+                    _awaitingRevalidation.value = false
                     _isFollowing.value = profile?.isFollowing ?: false
                     _followCategory.value = FollowCategory.from(profile?.followCategory)
                     _isBlocked.value = profile?.isBlocked ?: false
@@ -246,6 +309,7 @@ class ProfileViewModel(
                 }
 
                 val postsResponse = api.getPostsForUser(userSession.sessionToken, username, 0)
+                if (generation != loadGeneration) return@launch
                 if (postsResponse.isSuccessful) {
                     val newPosts = postsResponse.body() ?: emptyList()
                     _userPosts.value = newPosts
@@ -262,6 +326,7 @@ class ProfileViewModel(
                 Log.e(TAG, "Error refreshing profile", e)
             } finally {
                 _isRefreshing.value = false
+                runQueuedRefresh()
             }
         }
     }
@@ -272,6 +337,7 @@ class ProfileViewModel(
         if (_isLoading.value || _isRefreshing.value || !canLoadMore) return
 
         _isLoading.value = true
+        val generation = loadGeneration
 
         viewModelScope.launch {
             try {
@@ -282,6 +348,10 @@ class ProfileViewModel(
                 }
 
                 val response = api.getPostsForUser(userSession.sessionToken, username, currentPage)
+                // Superseded (issue #96): an unfollow/block or privacy change
+                // cleared the grid since this page was requested, so it must not
+                // repopulate it.
+                if (generation != loadGeneration) return@launch
 
                 if (response.isSuccessful) {
                     val newPosts = response.body() ?: emptyList()
@@ -301,6 +371,7 @@ class ProfileViewModel(
                 Log.e(TAG, "Error fetching more posts", e)
             } finally {
                 _isLoading.value = false
+                runQueuedRefresh()
             }
         }
     }
@@ -533,27 +604,45 @@ class ProfileViewModel(
 
     fun toggleFollow(username: String) {
         val currentProfile = _profileDetails.value ?: return
+        if (_isFollowBusy.value) return
+        _isFollowBusy.value = true
+        // "Requested" → withdraw the pending request (issue #96).
+        if (currentProfile.followRequestPending == true) {
+            cancelFollowRequest(username, currentProfile)
+            return
+        }
         val isFollowing = currentProfile.isFollowing
+        // Following a private account files a request instead (issue #96), so it
+        // shows "Requested" rather than "Following" and leaves the counts alone.
+        val expectsRequest = !isFollowing && currentProfile.isPrivate == true
 
-        // Optimistic Update. Keep _isFollowing in sync with the profile so the
-        // follow button and the follower count never drift apart.
-        _profileDetails.value = currentProfile.copy(
-            isFollowing = !isFollowing,
-            // A fresh follow starts in the default "following" bucket; unfollowing
-            // clears the category to null to match the API contract (#392).
-            followCategory = if (isFollowing) null else FollowCategory.FOLLOWING.value,
-            followerCount = if (isFollowing) currentProfile.followerCount - 1 else currentProfile.followerCount + 1
-        )
-        _isFollowing.value = !isFollowing
-        // Reset the category state either way: it's the default for a fresh
-        // follow and meaningless (null on the wire) once unfollowed.
-        _followCategory.value = FollowCategory.FOLLOWING
+        if (expectsRequest) {
+            _profileDetails.value = currentProfile.copy(followRequestPending = true)
+        } else {
+            // Optimistic Update. Keep _isFollowing in sync with the profile so the
+            // follow button and the follower count never drift apart.
+            _profileDetails.value = currentProfile.copy(
+                isFollowing = !isFollowing,
+                // A fresh follow starts in the default "following" bucket; unfollowing
+                // clears the category to null to match the API contract (#392).
+                followCategory = if (isFollowing) null else FollowCategory.FOLLOWING.value,
+                followerCount = if (isFollowing) currentProfile.followerCount - 1 else currentProfile.followerCount + 1
+            )
+            _isFollowing.value = !isFollowing
+            // Reset the category state either way: it's the default for a fresh
+            // follow and meaningless (null on the wire) once unfollowed.
+            _followCategory.value = FollowCategory.FOLLOWING
+        }
 
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 if (userSession == null) {
                     Log.e(TAG, "No active session found — cannot toggle follow")
+                    // No call was made, so undo the optimistic follow/request.
+                    _profileDetails.value = currentProfile
+                    _isFollowing.value = isFollowing
+                    _followCategory.value = FollowCategory.from(currentProfile.followCategory)
                     _errorMessage.value = "Not logged in."
                     return@launch
                 }
@@ -570,6 +659,79 @@ class ProfileViewModel(
                     _isFollowing.value = isFollowing
                     _followCategory.value = FollowCategory.from(currentProfile.followCategory)
                     _errorMessage.value = "Failed to update follow status"
+                } else if (isFollowing) {
+                    // Losing the follow edge may revoke access: the account may
+                    // have gone private since this profile loaded, which the cached
+                    // isPrivate can't tell. Fail closed — drop the grid and hide
+                    // the counts, superseding any load in flight — and reload what
+                    // the viewer may still see (issue #96).
+                    loadGeneration++
+                    _userPosts.value = emptyList()
+                    _awaitingRevalidation.value = true
+                    refreshProfile(username)
+                } else {
+                    // The server has the final word on whether the account is
+                    // private (it may have changed since the profile loaded).
+                    val filedRequest = response.body()?.followRequestPending == true
+                    if (filedRequest != expectsRequest) {
+                        // The owner changed their privacy since this profile
+                        // loaded, so the cached privacy, counts and grid are all
+                        // stale. Reload them (and the follow state with them)
+                        // rather than patching only the button.
+                        if (filedRequest) {
+                            // Supersede any load still in flight, so its older
+                            // response can't undo what follows.
+                            loadGeneration++
+                            // The account went private. Fail closed before the
+                            // best-effort reload: the cached public grid and
+                            // counts must not stay on screen for someone who is
+                            // now only a requester.
+                            _profileDetails.value = currentProfile.copy(
+                                isPrivate = true,
+                                followRequestPending = true,
+                                isFollowing = false,
+                                followCategory = null,
+                                postCount = 0,
+                                followerCount = 0,
+                                followingCount = 0
+                            )
+                            _isFollowing.value = false
+                            _userPosts.value = emptyList()
+                        } else {
+                            // The account went public and the server just created
+                            // the follow: apply that now, so a failed reload can't
+                            // leave it showing Requested (whose cancel can't work).
+                            loadGeneration++
+                            _profileDetails.value = currentProfile.copy(
+                                isPrivate = false,
+                                isFollowing = true,
+                                followRequestPending = false,
+                                followCategory = FollowCategory.FOLLOWING.value
+                            )
+                            _isFollowing.value = true
+                            _followCategory.value = FollowCategory.FOLLOWING
+                        }
+                        refreshProfile(username)
+                    } else {
+                        // Confirmed as expected. A profile load that started before
+                        // this call may still land and undo it (flipping the button
+                        // back), so supersede it and re-apply the confirmed state.
+                        loadGeneration++
+                        _profileDetails.value = if (filedRequest) {
+                            currentProfile.copy(followRequestPending = true)
+                        } else {
+                            currentProfile.copy(
+                                isFollowing = true,
+                                followCategory = FollowCategory.FOLLOWING.value,
+                                followerCount = currentProfile.followerCount + 1
+                            )
+                        }
+                        _isFollowing.value = !filedRequest
+                        // The bump also dropped any posts/details load still in
+                        // flight (e.g. the first page), so start a replacement;
+                        // it queues behind a running load and reconciles counts.
+                        refreshProfile(username)
+                    }
                 }
             } catch (e: Exception) {
                 // Revert on error
@@ -577,6 +739,54 @@ class ProfileViewModel(
                 _isFollowing.value = isFollowing
                 _followCategory.value = FollowCategory.from(currentProfile.followCategory)
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            } finally {
+                _isFollowBusy.value = false
+            }
+        }
+    }
+
+    /**
+     * Withdraws the viewer's pending request to follow this private account
+     * (issue #96). Optimistic: flips back to "Follow" and restores "Requested"
+     * if the call fails.
+     */
+    private fun cancelFollowRequest(username: String, currentProfile: ProfileDetailsResponse) {
+        _profileDetails.value = currentProfile.copy(followRequestPending = false)
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _profileDetails.value = currentProfile
+                    _errorMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.cancelFollowRequest(userSession.sessionToken, username)
+                if (!response.isSuccessful) {
+                    // Most likely the owner already answered the request (or went
+                    // public and approved it) while this profile was open, so the
+                    // cached "Requested" state is stale. Reload the profile and
+                    // grid rather than restore it — the viewer may now follow.
+                    // Restore the last known state first, so a failed reload
+                    // leaves "Requested" rather than a guess.
+                    _profileDetails.value = currentProfile
+                    refreshProfile(username)
+                } else {
+                    // Confirmed: supersede any older profile load so it can't put
+                    // "Requested" back, and re-apply the cancelled state.
+                    loadGeneration++
+                    _profileDetails.value = currentProfile.copy(followRequestPending = false)
+                    // Replace whatever load the bump dropped.
+                    refreshProfile(username)
+                }
+            } catch (e: Exception) {
+                // A transport error is ambiguous: the server may already have
+                // cancelled before the response was lost. Restore the last known
+                // state, then reconcile, as the HTTP-error branch does.
+                _profileDetails.value = currentProfile
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+                refreshProfile(username)
+            } finally {
+                _isFollowBusy.value = false
             }
         }
     }
@@ -637,9 +847,13 @@ class ProfileViewModel(
         if (!currentBlockedStatus && currentProfile != null && currentProfile.isFollowing) {
             _profileDetails.value = currentProfile.copy(
                 isFollowing = false,
-                followerCount = currentProfile.followerCount - 1
+                followerCount = currentProfile.followerCount - 1,
+                followRequestPending = false
             )
             _isFollowing.value = false
+        } else if (!currentBlockedStatus && currentProfile?.followRequestPending == true) {
+            // A block also drops any pending follow request (issue #96).
+            _profileDetails.value = currentProfile.copy(followRequestPending = false)
         }
 
         viewModelScope.launch {
@@ -661,6 +875,16 @@ class ProfileViewModel(
                         _isFollowing.value = currentProfile.isFollowing
                     }
                     _errorMessage.value = "Failed to update block status"
+                } else {
+                    // A block removes any follow edge and hides each side's posts
+                    // from the other, so the cached grid can't stand: fail closed
+                    // and reload (issue #96). Unblocking reloads to bring it back.
+                    if (!currentBlockedStatus) {
+                        loadGeneration++
+                        _userPosts.value = emptyList()
+                        _awaitingRevalidation.value = true
+                    }
+                    refreshProfile(username)
                 }
             } catch (e: Exception) {
                 // Revert on error, including the optimistic unfollow side-effect.
@@ -672,5 +896,16 @@ class ProfileViewModel(
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
+    }
+
+    companion object {
+        /**
+         * Whether a profile is a private account the viewer can't see into
+         * (issue #96): not their own, private, and not followed. The backend
+         * then serves no posts and zeroed counts, so the screen hides the stats
+         * and shows a "this account is private" note instead of a grid.
+         */
+        fun isLocked(profile: ProfileDetailsResponse?, isOwnProfile: Boolean, isFollowing: Boolean): Boolean =
+            !isOwnProfile && profile?.isPrivate == true && !isFollowing
     }
 }

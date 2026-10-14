@@ -109,6 +109,26 @@ struct DisableTotpFields: Codable {
 struct CurrentUserFields: Codable {
     let username: String
     let email: String
+    /// The private account setting (issue #96), shown as a Settings toggle.
+    /// Optional so a response from an older backend still decodes.
+    var isPrivate: Bool? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case username
+        case email
+        case isPrivate = "is_private"
+    }
+}
+
+/// The follow endpoint's reply (issue #96). `followRequestPending` is true when
+/// the target is a private account, so the call filed a request instead of
+/// following; nil on older backends, which only ever follow outright.
+struct FollowResponse: Codable {
+    var followRequestPending: Bool? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case followRequestPending = "follow_request_pending"
+    }
 }
 
 // Represents a single post in the user's grid.
@@ -497,15 +517,19 @@ struct User: Codable, Identifiable, Hashable {
     /// The photo's BlurHash (issue #460), decoded into a blurred preview shown
     /// while it loads. Nil when there is no photo or on older responses.
     var authorProfileImageBlurHash: String? = nil
+    /// Present only on follow-request rows (issue #96): the request's id, the
+    /// keyset cursor for loading the next page.
+    var requestId: Int? = nil
 
     init(username: String, identityIsVerified: Bool,
          authorProfileImageUrl: String? = nil, authorProfileImageOriginalUrl: String? = nil,
-         authorProfileImageBlurHash: String? = nil) {
+         authorProfileImageBlurHash: String? = nil, requestId: Int? = nil) {
         self.username = username
         self.identityIsVerified = identityIsVerified
         self.authorProfileImageUrl = authorProfileImageUrl
         self.authorProfileImageOriginalUrl = authorProfileImageOriginalUrl
         self.authorProfileImageBlurHash = authorProfileImageBlurHash
+        self.requestId = requestId
     }
 
     enum CodingKeys: String, CodingKey {
@@ -514,6 +538,7 @@ struct User: Codable, Identifiable, Hashable {
         case authorProfileImageUrl = "author_profile_image_url"
         case authorProfileImageOriginalUrl = "author_profile_image_original_url"
         case authorProfileImageBlurHash = "author_profile_image_blurhash"
+        case requestId = "request_id"
     }
 
     init(from decoder: Decoder) throws {
@@ -523,6 +548,7 @@ struct User: Codable, Identifiable, Hashable {
         authorProfileImageUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageUrl)
         authorProfileImageOriginalUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageOriginalUrl)
         authorProfileImageBlurHash = try container.decodeIfPresent(String.self, forKey: .authorProfileImageBlurHash)
+        requestId = try container.decodeIfPresent(Int.self, forKey: .requestId)
     }
 }
 
@@ -567,6 +593,15 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     /// would still make the synthesized decoder *require* the key. nil and "" are
     /// treated alike ("no bio set"); read it via the view model's `bio` accessor.
     var bio: String? = nil
+    /// Private account (issue #96): only approved followers see its posts and
+    /// counts. The counts above are zeroed for anyone else, so the view hides
+    /// them rather than show zeros. Nil on older backends (treated as public).
+    var isPrivate: Bool? = nil
+    /// The viewer has asked to follow this private account and is waiting on
+    /// an answer (issue #96).
+    var followRequestPending: Bool? = nil
+    /// Owner-only: incoming follow requests awaiting a decision (issue #96).
+    var followRequestCount: Int? = nil
 
     enum CodingKeys: String, CodingKey {
         case username
@@ -586,6 +621,9 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
         case profileImageReasonCode = "profile_image_reason_code"
         case pendingProfileImageUrl = "pending_profile_image_url"
         case bio
+        case isPrivate = "is_private"
+        case followRequestPending = "follow_request_pending"
+        case followRequestCount = "follow_request_count"
     }
 }
 
@@ -766,6 +804,27 @@ enum FollowCategory: String, CaseIterable, Identifiable {
         case .following: return "Following"
         case .friend: return "Friend"
         case .family: return "Family"
+        }
+    }
+}
+
+/// Rolling window for the Top posts scoreboard (issue #558): posts created in
+/// the last day / 7 days / 30 days / 365 days, ranked by likes. Raw values
+/// match the backend's `period` query parameter.
+enum TopPostPeriod: String, CaseIterable, Identifiable {
+    case day
+    case week
+    case month
+    case year
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .day: return "Today"
+        case .week: return "Week"
+        case .month: return "Month"
+        case .year: return "Year"
         }
     }
 }

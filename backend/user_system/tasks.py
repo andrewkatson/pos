@@ -38,7 +38,8 @@ from .constants import (
     REVIEW_STATUS_PENDING, REVIEW_STATUS_CLEARED, REVIEW_STATUS_ESCALATED,
     REVIEW_STATUS_HIDDEN,
 )
-from .models import Post, PositiveOnlySocialUser, InterestCategory, ModerationReview
+from .models import Post, PositiveOnlySocialUser, InterestCategory, ModerationReview, FollowRequest, UserFollow
+from .visibility import same_age_band_users
 from . import push
 from .s3 import delete_image
 
@@ -71,6 +72,16 @@ POST_CATEGORIZE_JOB_PATH = 'user_system.tasks.categorize_post'
 # anything, so the job retries and the review escalates to a human if the
 # budget runs out.
 REPORT_REVIEW_JOB_PATH = 'user_system.tasks.review_reported_content'
+# Turning a newly public account's pending follow requests into follows (issue
+# #96). Background work so set_account_privacy returns promptly however large
+# the backlog; retried like classification, and idempotent, so a rerun simply
+# continues where an interrupted one stopped.
+FOLLOW_REQUEST_CONVERSION_JOB_PATH = 'user_system.tasks.convert_follow_requests_job'
+# Requests converted per round (one short transaction each).
+FOLLOW_REQUEST_BULK_BATCH_SIZE = 500
+# Rounds one job runs before handing the rest to a continuation job, so every
+# job finishes well inside JOB_TIMEOUT_SECONDS however large the backlog.
+FOLLOW_REQUEST_CHUNKS_PER_JOB = 20
 RETRY_INTERVALS_SECONDS = [60, 300, 900]
 
 # RQ kills jobs that exceed this. Worst case is two sequential cascades of
@@ -154,6 +165,132 @@ def enqueue_post_categorization(post_identifier):
                              post_identifier)
 
     transaction.on_commit(_enqueue)
+
+
+def enqueue_follow_request_conversion(owner_id):
+    """Schedule turning a newly public account's pending follow requests into
+    follows (issue #96). Mirrors enqueue_classification's eager/queue split: in
+    eager mode (no Redis) it runs inline, capped at the same number of chunks a
+    queued job processes, leaving any remainder to the sweep; otherwise it is enqueued on_commit, so
+    the worker sees the committed privacy change. A failure is logged and
+    leaves the requests pending, which is harmless on a public account until
+    sweep_classifications re-enqueues it."""
+    owner_id = str(owner_id)
+    if settings.CLASSIFICATION_EAGER:
+        # Bounded like a queued job, so a huge backlog can't hold the request's
+        # worker indefinitely; sweep_classifications picks up any remainder.
+        try:
+            convert_follow_requests(owner_id, max_rounds=FOLLOW_REQUEST_CHUNKS_PER_JOB)
+        except Exception:
+            logger.exception("Eager follow-request conversion failed for user %s; the sweep will retry it.",
+                             owner_id)
+        return
+
+    def _enqueue():
+        from rq import Retry
+        try:
+            _queue().enqueue(
+                FOLLOW_REQUEST_CONVERSION_JOB_PATH,
+                owner_id,
+                retry=Retry(max=len(RETRY_INTERVALS_SECONDS), interval=RETRY_INTERVALS_SECONDS),
+                job_timeout=JOB_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            # Not lost: sweep_classifications re-enqueues any public account
+            # that still has pending requests.
+            logger.exception("Failed to enqueue follow-request conversion for user %s; the sweep will retry it.",
+                             owner_id)
+
+    transaction.on_commit(_enqueue)
+
+
+def convert_follow_requests_job(owner_id):
+    """RQ entry point: convert a bounded number of rounds, then enqueue a
+    continuation if requests remain, so no single job's runtime grows with the
+    backlog (and an exhausted job can't strand the rest)."""
+    done, stalled = _convert_follow_requests(owner_id, max_rounds=FOLLOW_REQUEST_CHUNKS_PER_JOB)
+    # A stalled run (every remaining requester's row busy) isn't continued at
+    # once, which could spin; sweep_classifications retries it later.
+    if not done and not stalled:
+        enqueue_follow_request_conversion(owner_id)
+
+
+def convert_follow_requests(owner_id, max_rounds=None):
+    """Turn every pending request to `owner` into the follow edge it asked for
+    (issue #96), one bounded chunk per committed transaction: each round locks
+    the owner, reads at most FOLLOW_REQUEST_BULK_BATCH_SIZE requests,
+    bulk-creates their follows and deletes them. Memory stays flat and no single
+    transaction (or hold on the owner's row) grows with the backlog. If the
+    owner goes private again part-way through, the rest stay pending, which is
+    exactly right for a private account. ignore_conflicts keeps an edge that
+    already exists, just as _approve_follow_request's get_or_create does.
+
+    Only requesters still in the owner's age band are approved (issue #329): a
+    requester can verify into the other band after asking, and approving them
+    one at a time is already refused. Each chunk's requesters are row-locked
+    before their band is read, so a verification can't move one across between
+    the check and the insert; a requester whose row is busy right now (SKIP
+    LOCKED — the owner is already locked, so waiting could deadlock) is left
+    pending for a later round, continuation or sweep rather than decided now.
+    Every request whose requester was locked is deleted, followed or not: the
+    cross-band ones are hidden from the owner's list and could never be
+    approved, and the account is public now, so anyone dropped can just follow.
+
+    `max_rounds` caps the chunks processed; returns True when nothing is left to
+    convert (or the owner is gone or private again), False if requests remain —
+    because the cap was hit, or because every requester left in a chunk was
+    busy."""
+    done, _ = _convert_follow_requests(owner_id, max_rounds)
+    return done
+
+
+def _lock_free_requesters(requester_ids):
+    """Row-lock whichever of these accounts aren't locked by someone else right
+    now (SKIP LOCKED), returning their ids; the busy ones are left out."""
+    return set(
+        PositiveOnlySocialUser.objects.select_for_update(no_key=True, skip_locked=True)
+        .filter(pk__in=requester_ids).order_by('pk').values_list('pk', flat=True)
+    )
+
+
+def _convert_follow_requests(owner_id, max_rounds=None):
+    """convert_follow_requests, also reporting whether it stopped because a
+    whole chunk's requesters were busy (no progress possible right now)."""
+    rounds = 0
+    while max_rounds is None or rounds < max_rounds:
+        rounds += 1
+        with transaction.atomic():
+            locked_owner = PositiveOnlySocialUser.objects.select_for_update(no_key=True).filter(pk=owner_id).first()
+            if locked_owner is None:
+                return True, False  # account deleted since; its requests cascaded away
+            if locked_owner.is_private:
+                return True, False
+            chunk = list(
+                FollowRequest.objects.filter(user_to=locked_owner).order_by('pk')
+                .values_list('pk', 'user_from_id', 'category')[:FOLLOW_REQUEST_BULK_BATCH_SIZE]
+            )
+            if not chunk:
+                return True, False
+            requester_ids = [requester_id for _, requester_id, _ in chunk]
+            locked_ids = _lock_free_requesters(requester_ids)
+            if not locked_ids:
+                # Every requester in the chunk is busy: the same chunk would be
+                # read again, so stop and let a later run pick it up.
+                return False, True
+            eligible = set(
+                same_age_band_users(PositiveOnlySocialUser.objects.filter(pk__in=locked_ids), locked_owner)
+                .values_list('pk', flat=True)
+            )
+            UserFollow.objects.bulk_create(
+                [UserFollow(user_from_id=requester_id, user_to=locked_owner, category=category)
+                 for _, requester_id, category in chunk if requester_id in eligible],
+                ignore_conflicts=True,
+            )
+            # A busy requester's request stays pending for a later run.
+            FollowRequest.objects.filter(
+                pk__in=[pk for pk, requester_id, _ in chunk if requester_id in locked_ids]).delete()
+    # Out of rounds: done only if nothing is left.
+    return not FollowRequest.objects.filter(user_to_id=owner_id).exists(), False
 
 
 def categorize_post(post_identifier):

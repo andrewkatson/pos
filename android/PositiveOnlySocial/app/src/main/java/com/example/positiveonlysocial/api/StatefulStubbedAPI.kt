@@ -57,6 +57,22 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // small, test-friendly numbers and is not the source of truth for the real
     // backend.
     private val POST_BATCH_SIZE = 10
+    // The Top posts windows and depth, matching backend/user_system/constants.py.
+    private val TOP_POST_PERIOD_DAYS = mapOf("day" to 1, "week" to 7, "month" to 30, "year" to 365)
+    private val TOP_POSTS_LIMIT = 100
+    // Hidden reasons meaning the classifier hasn't approved a post.
+    private val TOP_POST_UNAPPROVED_REASONS = setOf("pending_classification", "classifier", "classifier_final")
+
+    /** Mirrors visibility.is_minor: verified and not adult (issue #329). */
+    private fun isVerifiedMinor(user: UserMock?): Boolean =
+        user != null && user.isVerified && !user.isAdult
+
+    // Incoming follow requests per page (issue #96), matching the backend.
+    var followRequestBatchSize = 30
+    // Each pending request's id, keyed "ownerId|requesterId" — the keyset cursor
+    // the backend pages the request list by.
+    private val followRequestIds = mutableMapOf<String, Long>()
+    private var nextFollowRequestId = 1L
     private val COMMENT_BATCH_SIZE = 10
     private val LIKE_BATCH_SIZE = 10
 
@@ -101,6 +117,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var profileImageReasonCode: String? = null,
         // Free-text bio (issue #380); "" when unset.
         var bio: String = "",
+        // Private account (issue #96): only approved followers see its posts.
+        var isPrivate: Boolean = false,
+        // Incoming follow requests awaiting a decision, requester id -> the
+        // category they asked for, in arrival order.
+        val followRequests: LinkedHashMap<String, String> = linkedMapOf(),
         // Positive interest tags (issues #446/#35): weighting buckets (picks ∪
         // mapped freeform) and the freeform terms the user typed.
         val interestCategories: MutableList<String> = mutableListOf(),
@@ -592,6 +613,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         posts.removeIf { it.authorId == user.id }
         sessions.removeIf { it.userId == user.id }
         loginCookies.removeIf { it.userId == user.id }
+        // Pending follow requests both ways (issue #96), like the backend's
+        // CASCADE foreign keys — otherwise an owner's request count keeps
+        // counting a requester who no longer exists.
+        users.forEach { it.followRequests.remove(user.id) }
         users.remove(user)
 
         return Response.success(GenericResponse("User deleted successfully", null))
@@ -630,7 +655,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun getCurrentUser(token: String): Response<CurrentUserResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Invalid session")
-        return Response.success(CurrentUserResponse(username = user.username, email = user.email))
+        return Response.success(
+            CurrentUserResponse(username = user.username, email = user.email, isPrivate = user.isPrivate))
     }
 
     override suspend fun changePassword(token: String, request: ChangePasswordRequest): Response<GenericResponse> {
@@ -777,6 +803,20 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
      * with a category close enough for the audience's nested tier — a "friends"
      * post reaches friends and family, "family" only family.
      */
+    /** Mirrors visibility.privacy_admits (issue #96): a private account's posts
+     * reach only the account itself and the people who follow it. */
+    private fun privacyAdmits(authorId: String, viewer: UserMock): Boolean {
+        val author = users.find { it.id == authorId } ?: return true
+        return !author.isPrivate || authorId == viewer.id || viewer.following.contains(authorId)
+    }
+
+    /** [privacyAdmits] for the post a comment sits on: a comment on a private
+     * account's post is out of reach for a non-follower (issue #96). */
+    private fun postPrivacyAdmits(postId: String, viewer: UserMock): Boolean {
+        val post = posts.find { it.postIdentifier == postId } ?: return false
+        return privacyAdmits(post.authorId, viewer)
+    }
+
     private fun audienceAdmits(post: PostMock, viewerId: String): Boolean {
         if (post.audience == PostAudience.PUBLIC.value || post.authorId == viewerId) return true
         val author = users.find { it.id == post.authorId } ?: return false
@@ -921,7 +961,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun reportPost(token: String, postId: String, request: ReportRequest): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val post = posts.find { it.postIdentifier == postId }
+        // A private account's post reads as missing to a non-follower (issue #96).
+        val post = posts.find { it.postIdentifier == postId }?.takeIf { privacyAdmits(it.authorId, user) }
             ?: return error(404, "No post with that identifier")
 
         if (post.authorId == user.id) return error(400, "Cannot report own post")
@@ -942,7 +983,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun retractReportPost(token: String, postId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val post = posts.find { it.postIdentifier == postId }
+        // Undo actions treat a private account's post as missing to a
+        // non-follower too (issue #96).
+        val post = posts.find { it.postIdentifier == postId }?.takeIf { privacyAdmits(it.authorId, user) }
             ?: return error(404, "No post with that identifier")
 
         if (!post.reports.contains(user.id)) return error(400, "Post not reported yet")
@@ -955,7 +998,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun likePost(token: String, postId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val post = posts.find { it.postIdentifier == postId }
+        // A private account's post reads as missing to a non-follower (issue #96).
+        val post = posts.find { it.postIdentifier == postId }?.takeIf { privacyAdmits(it.authorId, user) }
             ?: return error(404, "No post with that identifier")
 
         if (post.authorId == user.id) return error(404, "Cannot like own post")
@@ -967,7 +1011,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun unlikePost(token: String, postId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val post = posts.find { it.postIdentifier == postId } ?: return error(404, "No post")
+        // Undo actions treat a private account's post as missing to a
+        // non-follower too (issue #96).
+        val post = posts.find { it.postIdentifier == postId }?.takeIf { privacyAdmits(it.authorId, user) }
+            ?: return error(404, "No post")
 
         if (post.likes.contains(user.id)) {
             post.likes.remove(user.id)
@@ -992,7 +1039,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun savePost(token: String, postId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val post = posts.find { it.postIdentifier == postId }
+        // A private account's post reads as missing to a non-follower (issue #96).
+        val post = posts.find { it.postIdentifier == postId }?.takeIf { privacyAdmits(it.authorId, user) }
             ?: return error(404, "No post with that identifier")
         // Mirror the backend (save_post): a repeat save is rejected with 400
         // ("Already saved post"), like a double-like — so the client's optimistic
@@ -1023,6 +1071,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             !it.hidden &&
             !user.blocked.contains(it.authorId) &&
             !user.blockedBy.contains(it.authorId) &&
+            privacyAdmits(it.authorId, user) &&
             audienceAdmits(it, user.id)
         }.sortedByDescending { it.creationTime }
         val batched = getBatch(allPosts, batch, POST_BATCH_SIZE)
@@ -1055,6 +1104,39 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(dtos)
     }
 
+    /** Mirrors get_top_posts (issue #558): public, live, same-age-band posts by
+     * public accounts, created within the period, most likes first, then newest, then post id,
+     * capped at the top 100. */
+    override suspend fun getTopPosts(token: String, batch: Int, period: String): Response<List<Post>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val days = TOP_POST_PERIOD_DAYS[period] ?: return errorGeneric(400, "Invalid period")
+        val since = System.currentTimeMillis() - days * 24L * 60 * 60 * 1000
+
+        val ranked = posts.filter {
+            // As get_top_posts: unapproved posts never rank, and other hidden
+            // (report-hidden) posts only for their own author.
+            it.hiddenReason !in TOP_POST_UNAPPROVED_REASONS &&
+            (it.authorId == user.id || !it.hidden) &&
+            it.audience == PostAudience.PUBLIC.value &&
+            users.find { u -> u.id == it.authorId }?.isPrivate != true &&
+            it.creationTime >= since &&
+            !user.blocked.contains(it.authorId) &&
+            !user.blockedBy.contains(it.authorId) &&
+            // Same age band only (issue #329), as visible_posts enforces.
+            isVerifiedMinor(users.find { u -> u.id == it.authorId }) == isVerifiedMinor(user)
+        }.sortedWith(
+            compareByDescending<PostMock> { it.likes.size }
+                .thenByDescending { it.creationTime }
+                .thenBy { it.postIdentifier }
+        ).take(TOP_POSTS_LIMIT)
+
+        val dtos = getBatch(ranked, batch, POST_BATCH_SIZE).map { post ->
+            val author = users.find { it.id == post.authorId }!!
+            listingDto(post, author.username, user.id)
+        }
+        return Response.success(dtos)
+    }
+
     override suspend fun getPostsForUser(token: String, username: String, batch: Int): Response<List<Post>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val targetUser = users.find { it.username == username }
@@ -1072,6 +1154,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val userPosts = posts.filter { it.authorId == targetUser.id }
             .filter { it.hiddenReason != "classifier_final" }
             .filter { isOwnGrid || !it.hidden }
+            .filter { isOwnGrid || privacyAdmits(it.authorId, user) }
             .filter { isOwnGrid || audienceAdmits(it, user.id) }
             .sortedByDescending { it.creationTime }
 
@@ -1144,7 +1227,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             ?: return errorGeneric(404, "No post with that identifier")
         // Mirror can_view_post: a restricted post the viewer isn't in the
         // audience for reads exactly like a missing one (issue #392).
-        if (post.authorId != user.id && !audienceAdmits(post, user.id)) {
+        // A private account's post reads as missing to a non-follower (issue #96).
+        if (post.authorId != user.id &&
+            (!audienceAdmits(post, user.id) || !privacyAdmits(post.authorId, user))) {
             return errorGeneric(400, "No post with that identifier")
         }
         val author = users.find { it.id == post.authorId }!!
@@ -1182,6 +1267,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             .filter { it.hiddenReason != "classifier_final" }
             .filter { it.authorId == user.id || !it.hidden }
             .filter { !user.blocked.contains(it.authorId) && !user.blockedBy.contains(it.authorId) }
+            .filter { privacyAdmits(it.authorId, user) }
             .sortedByDescending { it.creationTime }
 
         val batched = getBatch(taggedPosts, batch, POST_BATCH_SIZE)
@@ -1218,7 +1304,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun commentOnPost(token: String, postId: String, request: CommentRequest): Response<CommentResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
-        val post = posts.find { it.postIdentifier == postId } ?: return errorGeneric(404, "Post not found")
+        // A private account's post reads as missing to a non-follower (issue #96).
+        val post = posts.find { it.postIdentifier == postId }?.takeIf { privacyAdmits(it.authorId, user) }
+            ?: return errorGeneric(404, "Post not found")
         // The author may disable commenting at creation or lock it afterward
         // (issue #492). Existing comments stay visible; only new ones blocked.
         if (post.commentsDisabled) return errorGeneric(403, "Comments are disabled for this post")
@@ -1238,7 +1326,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun replyToThread(token: String, postId: String, threadId: String, request: CommentRequest): Response<CommentResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // A thread on a private account's post reads as missing to a
+        // non-follower (issue #96).
         val thread = commentThreads.find { it.threadIdentifier == threadId && it.postId == postId }
+            ?.takeIf { postPrivacyAdmits(it.postId, user) }
             ?: return errorGeneric(404, "Thread not found")
         // The author may disable commenting at creation or lock it afterward
         // (issue #492). Existing replies stay visible; only new ones blocked.
@@ -1255,7 +1346,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun likeComment(token: String, postId: String, threadId: String, commentId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
+        val comment = findComment(postId, threadId, commentId)?.takeIf { postPrivacyAdmits(postId, user) }
+            ?: return error(404, "Comment not found")
 
         if (comment.authorId == user.id) return error(404, "Cannot like own comment")
         if (comment.likes.contains(user.id)) return error(404, "Already liked comment")
@@ -1266,7 +1358,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun unlikeComment(token: String, postId: String, threadId: String, commentId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
+        val comment = findComment(postId, threadId, commentId)?.takeIf { postPrivacyAdmits(postId, user) }
+            ?: return error(404, "Comment not found")
 
         if (comment.likes.contains(user.id)) {
             comment.likes.remove(user.id)
@@ -1304,7 +1397,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun reportComment(token: String, postId: String, threadId: String, commentId: String, request: ReportRequest): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
+        val comment = findComment(postId, threadId, commentId)?.takeIf { postPrivacyAdmits(postId, user) }
+            ?: return error(404, "Comment not found")
 
         if (comment.authorId == user.id) return error(400, "Cannot report own comment")
         if (comment.reports.contains(user.id)) return error(400, "Cannot report comment twice")
@@ -1322,7 +1416,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun retractReportComment(token: String, postId: String, threadId: String, commentId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val comment = findComment(postId, threadId, commentId) ?: return error(404, "Comment not found")
+        val comment = findComment(postId, threadId, commentId)?.takeIf { postPrivacyAdmits(postId, user) }
+            ?: return error(404, "Comment not found")
 
         if (!comment.reports.contains(user.id)) return error(400, "Comment not reported yet")
 
@@ -1332,6 +1427,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun getCommentsForPost(token: String, postId: String, batch: Int, category: String?): Response<List<CommentThreadDto>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // A private account's post reads as missing to a non-follower (issue #96),
+        // as the backend's can_view_post check makes it.
+        if (!postPrivacyAdmits(postId, user)) return errorGeneric(400, "No post with that identifier")
         // Only threads with a comment the viewer may see under the current filter
         // survive (issue #445), mirroring visible_comment_threads.
         val threads = commentThreads.filter {
@@ -1343,7 +1441,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun getCommentsForThread(token: String, threadId: String, batch: Int, category: String?): Response<List<CommentDto>> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // A thread on a private account's post reads as missing to a
+        // non-follower (issue #96).
         val thread = commentThreads.find { it.threadIdentifier == threadId }
+            ?.takeIf { postPrivacyAdmits(it.postId, user) }
             ?: return errorGeneric(404, "Thread not found")
 
         val comments = visibleComments(thread, user, category).sortedBy { it.creationTime }
@@ -1395,11 +1496,113 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         if (user.id == target.id) return error(404, "Cannot follow self")
         if (user.following.contains(target.id)) return error(404, "Already following")
 
+        // A private account (issue #96) gets a request, not a follow.
+        if (target.isPrivate) {
+            // A block in either direction refuses the request, like the backend.
+            // A block in either direction, or the two accounts being in
+            // different age bands, reads as a missing account, like the backend.
+            if (target.blocked.contains(user.id) || user.blocked.contains(target.id) ||
+                !inSameAgeBand(user, target)) {
+                return error(400, "User does not exist")
+            }
+            if (target.followRequests.containsKey(user.id)) return error(400, "Follow already requested")
+            target.followRequests[user.id] = FollowCategory.FOLLOWING.value
+            followRequestIds["${target.id}|${user.id}"] = nextFollowRequestId++
+            return Response.success(
+                GenericResponse("Follow requested", null, null, followRequestPending = true))
+        }
+
         user.following.add(target.id)
         user.followCategories[target.id] = FollowCategory.FOLLOWING.value
         target.followers.add(user.id)
         return Response.success(
-            GenericResponse("User followed", null, FollowCategory.FOLLOWING.value))
+            GenericResponse("User followed", null, FollowCategory.FOLLOWING.value, followRequestPending = false))
+    }
+
+    // ============================================================================================
+    // PRIVATE ACCOUNTS & FOLLOW REQUESTS (issue #96)
+    // ============================================================================================
+
+    /** Turns [owner]'s pending request from [requester] into the follow it asked for. */
+    private fun approveRequest(owner: UserMock, requester: UserMock) {
+        val category = owner.followRequests.remove(requester.id) ?: FollowCategory.FOLLOWING.value
+        if (!requester.following.contains(owner.id)) {
+            requester.following.add(owner.id)
+            requester.followCategories[owner.id] = category
+            owner.followers.add(requester.id)
+        }
+    }
+
+    override suspend fun getFollowRequests(token: String, after: Long?): Response<List<User>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        // Newest first and keyset-paginated by request id, like the backend;
+        // cross-band requesters are hidden there too.
+        val rows = user.followRequests.keys
+            .mapNotNull { id ->
+                val requester = users.find { it.id == id } ?: return@mapNotNull null
+                requester to (followRequestIds["${user.id}|$id"] ?: 0L)
+            }
+            .filter { (requester, requestId) ->
+                inSameAgeBand(user, requester) && (after == null || requestId < after)
+            }
+            .sortedByDescending { it.second }
+            .take(followRequestBatchSize)
+        return Response.success(rows.map { (u, requestId) ->
+            User(u.username, u.isVerified, approvedAvatarFor(u.id), approvedAvatarFor(u.id), requestId = requestId)
+        })
+    }
+
+    /** Mirrors visibility.in_same_age_band (issue #329): verified minors form
+     * one band, everyone else (adults and unverified accounts) the other. */
+    private fun inSameAgeBand(a: UserMock, b: UserMock): Boolean =
+        (a.isVerified && !a.isAdult) == (b.isVerified && !b.isAdult)
+
+    override suspend fun approveFollowRequest(token: String, username: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
+        // A requester who has since moved into the other age band reads as
+        // missing, like the backend, so their request can't become a cross-band follow.
+        val requester = users.find { it.username == username }?.takeIf { inSameAgeBand(user, it) }
+            ?: return error(400, "User does not exist")
+        if (!user.followRequests.containsKey(requester.id)) return error(400, "No follow request from user")
+        approveRequest(user, requester)
+        return Response.success(GenericResponse("Follow request approved", null))
+    }
+
+    override suspend fun denyFollowRequest(token: String, username: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
+        // A cross-band requester reads as missing here too, as in the list and
+        // on approval (issue #329).
+        val requester = users.find { it.username == username }?.takeIf { inSameAgeBand(user, it) }
+            ?: return error(400, "User does not exist")
+        if (user.followRequests.remove(requester.id) == null) return error(400, "No follow request from user")
+        return Response.success(GenericResponse("Follow request denied", null))
+    }
+
+    override suspend fun cancelFollowRequest(token: String, username: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
+        val target = users.find { it.username == username } ?: return error(400, "User does not exist")
+        if (target.followRequests.remove(user.id) == null) return error(400, "No follow request to cancel")
+        return Response.success(GenericResponse("Follow request cancelled", null))
+    }
+
+    override suspend fun setAccountPrivacy(
+        token: String, request: SetAccountPrivacyRequest
+    ): Response<SetAccountPrivacyResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        user.isPrivate = request.isPrivate
+        // Going public approves everyone still waiting, like the backend.
+        if (!request.isPrivate) {
+            user.followRequests.keys.toList().forEach { id ->
+                val requester = users.find { it.id == id }
+                // A requester now in the other age band is dropped, not approved.
+                if (requester != null && inSameAgeBand(user, requester)) {
+                    approveRequest(user, requester)
+                } else {
+                    user.followRequests.remove(id)
+                }
+            }
+        }
+        return Response.success(SetAccountPrivacyResponse(isPrivate = request.isPrivate))
     }
 
     override suspend fun setFollowCategory(
@@ -1458,6 +1661,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 target.followCategories.remove(user.id)
                 user.followers.remove(target.id)
             }
+            // ...and drop pending follow requests both ways (issue #96).
+            user.followRequests.remove(target.id)
+            target.followRequests.remove(user.id)
             
             return Response.success(GenericResponse("User blocked", null))
         }
@@ -1501,6 +1707,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val followCategory = if (isFollowing) user?.followCategories?.get(target.id) else null
         val isBlocked = user?.blocked?.contains(target.id) ?: false
         val isBlockedBy = user?.blockedBy?.contains(target.id) ?: false
+        // Private accounts (issue #96): a non-follower sees no counts.
+        val hideCounts = user == null || !privacyAdmits(target.id, user)
 
         if (isBlockedBy) {
              return Response.success(ProfileDetailsResponse(
@@ -1513,7 +1721,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 isBlocked = isBlocked,
                 membershipNumber = target.membershipNumber,
                 // Redacted for a blocked requester, like the stats/avatar above.
-                bio = ""
+                bio = "",
+                isPrivate = target.isPrivate,
+                followRequestPending = false
             ))
         }
 
@@ -1523,9 +1733,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val isOwnProfile = user != null && user.id == target.id
         return Response.success(ProfileDetailsResponse(
             username = target.username,
-            postCount = postCount,
-            followerCount = target.followers.size,
-            followingCount = target.following.size,
+            postCount = if (hideCounts) 0 else postCount,
+            followerCount = if (hideCounts) 0 else target.followers.size,
+            followingCount = if (hideCounts) 0 else target.following.size,
             isFollowing = isFollowing,
             followCategory = followCategory,
             isBlocked = isBlocked,
@@ -1537,7 +1747,15 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             profileImageStatus = if (isOwnProfile) target.profileImageStatus else null,
             profileImageReasonCode = if (isOwnProfile) target.profileImageReasonCode else null,
             pendingProfileImageUrl = if (isOwnProfile) target.pendingProfileImageUrl else null,
-            bio = target.bio
+            bio = target.bio,
+            isPrivate = target.isPrivate,
+            followRequestPending = user != null && target.followRequests.containsKey(user.id),
+            // Counted like the list: cross-band requesters are hidden from both.
+            followRequestCount = if (isOwnProfile) {
+                target.followRequests.keys.count { id ->
+                    users.find { it.id == id }?.let { inSameAgeBand(target, it) } == true
+                }
+            } else null
         ))
     }
 

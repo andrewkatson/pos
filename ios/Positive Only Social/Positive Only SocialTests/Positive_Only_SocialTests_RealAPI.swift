@@ -144,6 +144,19 @@ struct Positive_Only_SocialTests_RealAPI {
         #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/tags/sunset/posts/0")
     }
 
+    @Test func testGetTopPostsBuildsTopPathWithPeriod() async throws {
+        // The Top scoreboard hits feed/top/<batch>/?period=... (issue #558).
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().getTopPosts(
+            sessionManagementToken: "token", batch: 1, period: "month")
+
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/feed/top/1")
+        #expect(CapturingURLProtocol.lastRequestURL?.query == "period=month")
+    }
+
     /// GET /me/ backs the Settings "Contact Information" section (#194/#197).
     @Test func testGetCurrentUserUsesMePath() async throws {
         CapturingURLProtocol.lastRequestURL = nil

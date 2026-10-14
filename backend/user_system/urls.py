@@ -121,6 +121,9 @@ urlpatterns = [
     # GET /feed/followed/<int:batch>/ (Token in header)
     path('feed/followed/<int:batch>/', views.get_posts_for_followed_users, name='get_posts_for_followed_users'),
 
+    # GET /feed/top/<int:batch>/?period=day|week|month|year (Token in header)
+    path('feed/top/<int:batch>/', views.get_top_posts, name='get_top_posts'),
+
     # GET /users/<str:username>/posts/<int:batch>/ (Token in header)
     path('users/<str:username>/posts/<int:batch>/', views.get_posts_for_user, name='get_posts_for_user'),
 
@@ -245,6 +248,20 @@ urlpatterns = [
 
     # GET /users/blocked/ (Token in header)
     path('users/blocked/', views.get_blocked_users, name='get_blocked_users'),
+    # Private accounts & follow requests (issue #96).
+    # GET /users/follow-requests/ (Token in header) — the requester's own incoming requests
+    path('users/follow-requests/', views.get_follow_requests, name='get_follow_requests'),
+    # POST /users/<str:username>/follow-request/approve/ (Token in header)
+    path('users/<str:username>/follow-request/approve/', views.approve_follow_request,
+         name='approve_follow_request'),
+    # POST /users/<str:username>/follow-request/deny/ (Token in header)
+    path('users/<str:username>/follow-request/deny/', views.deny_follow_request,
+         name='deny_follow_request'),
+    # POST /users/<str:username>/follow-request/cancel/ (Token in header) — withdraw your own request
+    path('users/<str:username>/follow-request/cancel/', views.cancel_follow_request,
+         name='cancel_follow_request'),
+    # POST /profile/private/ (Token in header) — turn the private account setting on or off
+    path('profile/private/', views.set_account_privacy, name='set_account_privacy'),
 
     # GET /me/ (Token in header) — the signed-in account's own username + email
     path('me/', views.get_current_user, name='get_current_user'),
