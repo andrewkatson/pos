@@ -446,9 +446,11 @@ struct MockedAPI: Networking {
 
     func getFollowRequests(sessionManagementToken: String, after: Int?) async throws -> Data {
         guard after == nil else { return try encode([User]()) }
+        // Newest first, with request ids so the view model gets a cursor and
+        // "Load more" reaches the empty page above.
         let users = [
-            User(username: "requester_1", identityIsVerified: true),
-            User(username: "requester_2", identityIsVerified: false)
+            User(username: "requester_1", identityIsVerified: true, requestId: 2),
+            User(username: "requester_2", identityIsVerified: false, requestId: 1)
         ]
         return try encode(users)
     }
