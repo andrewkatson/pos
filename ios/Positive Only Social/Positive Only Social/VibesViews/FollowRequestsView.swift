@@ -43,12 +43,14 @@ struct FollowRequestsView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
+                    .accessibilityLabel("Approve \(user.username)")
                     .accessibilityIdentifier("ApproveFollowRequestButton")
                     Button("Deny") {
                         Task { await viewModel.deny(username: user.username) }
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .accessibilityLabel("Deny \(user.username)")
                     .accessibilityIdentifier("DenyFollowRequestButton")
                 }
                 .disabled(viewModel.decidingUsernames.contains(user.username))
