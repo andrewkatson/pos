@@ -14,7 +14,9 @@ website one batch leaves a partial last row of the three-column grid and, at
 common window sizes, empty screen below it, so the grid keeps fetching batches
 on its own until it ends on a full row and runs past the bottom of the window —
 re-checking when the window grows or is zoomed out — or a batch comes back
-empty (issue #538). Past that, **Load more** fetches one batch per press.
+empty (issue #538). Past that, **Load more** fetches the next batch, and the
+same filling then tops the grid up to a full row — so one press can bring in
+up to three batches (e.g. 30 → 40 → 50 → 60 posts).
 
 **User search** (`GET /users/search/<fragment>/?batch=N`) matches usernames by
 case-insensitive prefix and returns them in deterministic batches of ten,
