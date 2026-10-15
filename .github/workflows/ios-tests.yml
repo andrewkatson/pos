@@ -468,19 +468,52 @@ jobs:
             # once more - not the group, just the tests that did not pass.
             # "Did not pass" rather than "failed", so a test the dead runner
             # never reached, or that the watchdog cut off, is covered too.
-            # Matched by the "Class testName]' passed" XCTest line;
-            # -retry-tests-on-failure prints that for a test that passed on any
-            # iteration. Only method-level TESTS entries can be matched, which
-            # excludes Unit_Tests - those never touch Accessibility anyway.
+            # A method can run more than once - testLaunch runs once per UI
+            # configuration - so it passed only if every run did. Each run
+            # logs one "started (Iteration 1 of 3)" line and, under
+            # -retry-tests-on-failure, at most one "passed" line, so compare
+            # the counts; later iterations are retries, not runs. Only
+            # method-level TESTS entries can be matched, which excludes
+            # Unit_Tests - those never touch Accessibility anyway.
             #
             # The first run's log and result bundle are kept under *-ax-wedged
             # names and uploaded alongside the recovery run's on failure.
+            #
+            # The watchdog only guards xcodebuild, and simctl has no timeout of
+            # its own, so the reboot commands run through this instead: a hung
+            # shutdown/boot/bootstatus is stopped at STEP_DEADLINE and counts
+            # as a failed reboot, rather than running into the step's timeout.
+            # Past the deadline it starts nothing, so once one command has been
+            # stopped the rest of the sequence fails at once.
+            before_step_deadline() {
+              if [ "$(date +%s)" -ge "$STEP_DEADLINE" ]; then
+                echo "::error::No time left before the step's deadline to run '$*'" >&2
+                return 124
+              fi
+              "$@" &
+              local pid=$!
+              while kill -0 "$pid" 2>/dev/null; do
+                if [ "$(date +%s)" -ge "$STEP_DEADLINE" ]; then
+                  echo "::error::'$*' was still running at the step's deadline - stopping it" >&2
+                  kill "$pid" 2>/dev/null || true
+                  sleep 5
+                  kill -KILL "$pid" 2>/dev/null || true
+                  wait "$pid" 2>/dev/null || true
+                  return 124
+                fi
+                sleep 1
+              done
+              wait "$pid"
+            }
             if [ "$RC" -ne 0 ] && grep -qF 'kAXErrorIPCTimeout' xcodebuild.log 2>/dev/null; then
               RERUN_ARGS=()
               for t in "${TESTS[@]}"; do
                 IFS=/ read -r _ cls method <<< "$t"
                 [ -n "$method" ] || continue
-                if ! grep -qF ".$cls $method]' passed" xcodebuild.log; then
+                # || true: grep -c exits 1 on a count of 0, and errexit is on.
+                runs=$(grep -F ".$cls $method]' started" xcodebuild.log | grep -cvE '\(Iteration [2-9]' || true)
+                passes=$(grep -cF ".$cls $method]' passed" xcodebuild.log || true)
+                if [ "$passes" -eq 0 ] || [ "$passes" -lt "$runs" ]; then
                   RERUN_ARGS+=("-only-testing:$t")
                 fi
               done
@@ -496,9 +529,9 @@ jobs:
                 echo "Accessibility wedged the simulator, but only ${remaining}s remain; not re-running." >&2
               else
                 echo "::warning::kAXErrorIPCTimeout wedged the simulator's Accessibility; rebooting it and re-running ${#RERUN_ARGS[@]} test(s) that did not pass: ${RERUN_ARGS[*]}"
-                xcrun simctl shutdown "$SIM_ID" || true
-                xcrun simctl boot "$SIM_ID" || true
-                if xcrun simctl bootstatus "$SIM_ID" -b; then
+                before_step_deadline xcrun simctl shutdown "$SIM_ID" || true
+                before_step_deadline xcrun simctl boot "$SIM_ID" || true
+                if before_step_deadline xcrun simctl bootstatus "$SIM_ID" -b; then
                   mv xcodebuild.log xcodebuild-ax-wedged.log
                   if [ -d TestResults.xcresult ]; then
                     mv TestResults.xcresult TestResults-ax-wedged.xcresult
