@@ -225,11 +225,17 @@ jobs:
         # ~35 min each. The old 60 was a combined cap across both attempts, so a
         # slow second attempt was killed mid-flight and the retry bought
         # nothing. Kept under the job cap so failures still reach the log steps.
+        # STEP_DEADLINE below mirrors this value; change them together.
         timeout-minutes: 75
         shell: bash
         run: |
+            # When the simulator-reboot recovery at the end must stop: this
+            # step's timeout-minutes, less room for the watchdog's 30 s poll
+            # and 60 s SIGKILL grace, so xcodebuild ends on its own terms with
+            # a complete result bundle instead of being killed by the runner.
+            STEP_DEADLINE=$(( $(date +%s) + 75 * 60 - 180 ))
             cd "ios/Positive Only Social"
-            rm -rf TestResults.xcresult xcodebuild.log
+            rm -rf TestResults.xcresult xcodebuild.log TestResults-ax-wedged.xcresult xcodebuild-ax-wedged.log
             case "${{ matrix.test-group }}" in
               Unit_Tests)
                 TESTS=(
@@ -329,6 +335,10 @@ jobs:
             # before the first test has been ~4 min on CI, so leave wide margin.
             STALL_SECS=1200
             DEAD_RUNNER_STALL_SECS=180
+            # Epoch seconds after which the watchdog stops xcodebuild even if
+            # it is still logging. Empty (no limit) except for the recovery run
+            # at the end, which is the only one started late enough to need it.
+            RUN_DEADLINE=
             run_tests_once() {
               # Clear per-attempt outputs: xcodebuild refuses to overwrite an
               # existing result bundle, and a retry should not inherit scratch
@@ -358,8 +368,14 @@ jobs:
                     limit=$DEAD_RUNNER_STALL_SECS
                   fi
                   idle=$(( $(date +%s) - $(stat -f %m xcodebuild.log) ))
+                  reason=
                   if [ "$idle" -ge "$limit" ]; then
-                    echo "::error::xcodebuild.log silent for ${idle}s (limit ${limit}s) - treating xcodebuild as hung and stopping it" >&2
+                    reason="xcodebuild.log silent for ${idle}s (limit ${limit}s) - treating xcodebuild as hung"
+                  elif [ -n "$RUN_DEADLINE" ] && [ "$(date +%s)" -ge "$RUN_DEADLINE" ]; then
+                    reason="out of time before the step's timeout-minutes"
+                  fi
+                  if [ -n "$reason" ]; then
+                    echo "::error::$reason - stopping xcodebuild" >&2
                     pkill -x xcodebuild || true
                     sleep 60 </dev/null >/dev/null 2>&1
                     pkill -KILL -x xcodebuild || true
@@ -439,6 +455,62 @@ jobs:
               echo "Attempt $attempt failed with no failing test case, so the run itself broke; retrying." >&2
               attempt=$(( attempt + 1 ))
             done
+
+            # The one case where "already retried in-process" is false: an
+            # Accessibility IPC timeout (kAXErrorIPCTimeout) wedges the
+            # simulator's accessibility for the rest of the run. Every later
+            # iteration and test then fails in ~60 s at setUp's first device
+            # call, so the in-process retries ran against a broken simulator
+            # and tell us nothing about the tests. Only a simulator reboot
+            # clears it.
+            #
+            # So when the log shows that error, reboot the simulator and run
+            # once more - not the group, just the tests that did not pass.
+            # "Did not pass" rather than "failed", so a test the dead runner
+            # never reached, or that the watchdog cut off, is covered too.
+            # Matched by the "Class testName]' passed" XCTest line;
+            # -retry-tests-on-failure prints that for a test that passed on any
+            # iteration. Only method-level TESTS entries can be matched, which
+            # excludes Unit_Tests - those never touch Accessibility anyway.
+            #
+            # The first run's log and result bundle are kept under *-ax-wedged
+            # names and uploaded alongside the recovery run's on failure.
+            if [ "$RC" -ne 0 ] && grep -qF 'kAXErrorIPCTimeout' xcodebuild.log 2>/dev/null; then
+              RERUN_ARGS=()
+              for t in "${TESTS[@]}"; do
+                IFS=/ read -r _ cls method <<< "$t"
+                [ -n "$method" ] || continue
+                if ! grep -qF ".$cls $method]' passed" xcodebuild.log; then
+                  RERUN_ARGS+=("-only-testing:$t")
+                fi
+              done
+              # The slowest UI test passes in ~10 min on CI, and the boot plus
+              # xcodebuild's start-up add 2-3 min more. With less left than
+              # this, even one test would likely be stopped at RUN_DEADLINE,
+              # so report the original failure instead of burning the runner.
+              RECOVERY_MIN_SECS=900
+              remaining=$(( STEP_DEADLINE - $(date +%s) ))
+              if [ "${#RERUN_ARGS[@]}" -eq 0 ]; then
+                echo "Accessibility wedged the simulator, but no test that failed can be re-run on its own." >&2
+              elif [ "$remaining" -lt "$RECOVERY_MIN_SECS" ]; then
+                echo "Accessibility wedged the simulator, but only ${remaining}s remain; not re-running." >&2
+              else
+                echo "::warning::kAXErrorIPCTimeout wedged the simulator's Accessibility; rebooting it and re-running ${#RERUN_ARGS[@]} test(s) that did not pass: ${RERUN_ARGS[*]}"
+                xcrun simctl shutdown "$SIM_ID" || true
+                xcrun simctl boot "$SIM_ID" || true
+                if xcrun simctl bootstatus "$SIM_ID" -b; then
+                  mv xcodebuild.log xcodebuild-ax-wedged.log
+                  if [ -d TestResults.xcresult ]; then
+                    mv TestResults.xcresult TestResults-ax-wedged.xcresult
+                  fi
+                  ONLY_TESTING_ARGS=("${RERUN_ARGS[@]}")
+                  RUN_DEADLINE=$STEP_DEADLINE
+                  if run_tests_once; then RC=0; fi
+                else
+                  echo "The simulator did not come back from the reboot; reporting the original failure." >&2
+                fi
+              fi
+            fi
             exit "$RC"
 
       - name: Show failed tests
@@ -448,6 +520,12 @@ jobs:
           # Guard on the log existing: a failure before testing starts leaves no
           # log, and naming a missing file makes grep exit 2, which would print
           # the "(none found)" fallback right after real failures.
+          if [ -f xcodebuild-ax-wedged.log ]; then
+            echo "Accessibility wedged the simulator, so it was rebooted and the tests that"
+            echo "did not pass were re-run. Below is that re-run; the first run is in the"
+            echo "uploaded xcodebuild-ax-wedged.log and TestResults-ax-wedged.xcresult."
+            echo ""
+          fi
           echo "=== Failed test cases ==="
           if [ ! -f xcodebuild.log ]; then
             echo "(no log was produced — the run failed before testing started)"
@@ -515,3 +593,5 @@ jobs:
           path: |
             ios/Positive Only Social/xcodebuild.log
             ios/Positive Only Social/TestResults.xcresult
+            ios/Positive Only Social/xcodebuild-ax-wedged.log
+            ios/Positive Only Social/TestResults-ax-wedged.xcresult
