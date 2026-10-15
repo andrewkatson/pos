@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
@@ -41,16 +42,20 @@ const savedPosts: FeedPost[] = [
   },
 ]
 
-function renderPage() {
-  return render(
+function renderPageTree() {
+  return (
     <MemoryRouter initialEntries={['/saved']}>
       <Routes>
         <Route path="/saved" element={<SavedPostsPage />} />
         <Route path="/login" element={<div>Login page</div>} />
         <Route path="/post/:postId" element={<div>Post page</div>} />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
   )
+}
+
+function renderPage() {
+  return render(renderPageTree())
 }
 
 beforeEach(() => {
@@ -131,4 +136,64 @@ test('falls back to generic copy when the load error carries no message', async 
   mockGetSavedPosts.mockRejectedValue({})
   renderPage()
   expect(await screen.findByText('Failed to load your saved posts.')).toBeInTheDocument()
+})
+
+test('overlapping first loads under StrictMode fill the grid without duplicates (#538)', async () => {
+  // jsdom has no layout: 250px rows of three in an 800px viewport, so the grid
+  // keeps asking for pages until it holds 30 posts.
+  vi.stubGlobal('innerHeight', 800)
+  const layout = vi
+    .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockImplementation(function (this: HTMLElement) {
+      const height = this.classList.contains('post-grid')
+        ? Math.ceil(this.children.length / 3) * 250
+        : 0
+      return { top: 0, bottom: height, height, left: 0, right: 0, width: 0, x: 0, y: 0 } as DOMRect
+    })
+  const page = (batch: number): FeedPost[] =>
+    Array.from({ length: 10 }, (_, i) => ({
+      post_identifier: `p${batch * 10 + i}`,
+      image_url: null,
+      author_username: 'ada',
+      caption: '',
+      is_saved: true,
+    }))
+  const settle = () => new Promise(resolve => setTimeout(resolve, 150))
+  // StrictMode replays the mount effect, so page 0 is requested twice. The
+  // first (superseded) load answers at once; the second (current) one and the
+  // first page-1 request are held until released below.
+  let releaseCurrentFirstPage: (posts: FeedPost[]) => void = () => {}
+  let releaseFirstSecondPage: (posts: FeedPost[]) => void = () => {}
+  let firstPageLoads = 0
+  let secondPageLoads = 0
+  mockGetSavedPosts.mockImplementation(batch => {
+    if (batch === 0) {
+      firstPageLoads += 1
+      if (firstPageLoads === 1) return Promise.resolve(page(0))
+      return new Promise(resolve => (releaseCurrentFirstPage = resolve))
+    }
+    if (batch === 1) {
+      secondPageLoads += 1
+      if (secondPageLoads === 1) return new Promise(resolve => (releaseFirstSecondPage = resolve))
+      return Promise.resolve(page(1))
+    }
+    return Promise.resolve(batch === 2 ? page(2) : [])
+  })
+
+  render(<StrictMode>{renderPageTree()}</StrictMode>)
+
+  await waitFor(() => expect(firstPageLoads).toBe(2))
+  // Give the superseded load time to land and (if it were applied) start filling.
+  await settle()
+  releaseCurrentFirstPage(page(0))
+  await settle()
+  releaseFirstSecondPage(page(1))
+  await waitFor(() =>
+    expect(screen.getAllByRole('button', { name: 'Post by ada' })).toHaveLength(30),
+  )
+  await settle()
+  // Without the guard, a page 1 requested off the superseded load appends again.
+  expect(screen.getAllByRole('button', { name: 'Post by ada' })).toHaveLength(30)
+  expect(secondPageLoads).toBe(1)
+  layout.mockRestore()
 })
