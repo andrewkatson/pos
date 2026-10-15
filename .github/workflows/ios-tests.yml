@@ -311,6 +311,24 @@ jobs:
             # xcodebuild would otherwise CLONE the simulator and run several at
             # once. That is the contention this job was just measured to lose
             # badly to. All UI tests live in one class, so it buys nothing here.
+            #
+            # Stall watchdog limits. When the test runner dies, xcodebuild does
+            # not always notice: a runner that hit a Swift "Fatal error:" after
+            # an Accessibility IPC timeout left xcodebuild waiting silently for
+            # 66 minutes, until this step's timeout killed it and took the
+            # in-process retry with it. So stop xcodebuild once its raw log has
+            # gone quiet for too long. The outer loop below then treats it like
+            # any other broken run: no group re-run if a test already failed,
+            # one re-run if none did.
+            #
+            # A runner fatal error followed by silence is unambiguous, so it
+            # gets a short limit; an xcodebuild that recovers by restarting the
+            # runner keeps logging, which resets the clock. Otherwise the limit
+            # must clear the quietest legitimate stretch: UI tests log a step
+            # every few seconds and unit tests one line per test, but the gap
+            # before the first test has been ~4 min on CI, so leave wide margin.
+            STALL_SECS=1200
+            DEAD_RUNNER_STALL_SECS=180
             run_tests_once() {
               # Clear per-attempt outputs: xcodebuild refuses to overwrite an
               # existing result bundle, and a retry should not inherit scratch
@@ -325,6 +343,32 @@ jobs:
               # Declared before the pipeline so capturing PIPESTATUS afterwards
               # cannot be disturbed by the assignment itself.
               local -a stages
+
+              # Runs alongside the pipeline and judges it by the raw log's
+              # mtime, which tee refreshes on every line. sleep's output is
+              # detached so an orphaned sleep cannot hold the step's pipe open
+              # after the watchdog is killed. SIGTERM ends xcodebuild cleanly
+              # ("** BUILD INTERRUPTED **"); SIGKILL is the backstop.
+              local watchdog
+              (
+                while sleep 30 </dev/null >/dev/null 2>&1; do
+                  [ -f xcodebuild.log ] || continue
+                  limit=$STALL_SECS
+                  if grep -qF 'Fatal error:' xcodebuild.log; then
+                    limit=$DEAD_RUNNER_STALL_SECS
+                  fi
+                  idle=$(( $(date +%s) - $(stat -f %m xcodebuild.log) ))
+                  if [ "$idle" -ge "$limit" ]; then
+                    echo "::error::xcodebuild.log silent for ${idle}s (limit ${limit}s) - treating xcodebuild as hung and stopping it" >&2
+                    pkill -x xcodebuild || true
+                    sleep 60 </dev/null >/dev/null 2>&1
+                    pkill -KILL -x xcodebuild || true
+                    exit 0
+                  fi
+                done
+              ) &
+              watchdog=$!
+
               xcodebuild test-without-building \
                 -xctestrun "$XCTESTRUN" \
                 -destination "id=$SIM_ID" \
@@ -336,6 +380,9 @@ jobs:
                 "${ONLY_TESTING_ARGS[@]}" \
                 2>&1 | tee xcodebuild.log | xcpretty
               stages=("${PIPESTATUS[@]}")
+              # Redirecting wait's stderr also hides bash's "Terminated" notice.
+              kill "$watchdog" 2>/dev/null || true
+              wait "$watchdog" 2>/dev/null || true
 
               # Surface a broken log pipeline without failing on it. Whether the
               # tests passed is xcodebuild's answer alone; tee or xcpretty dying
