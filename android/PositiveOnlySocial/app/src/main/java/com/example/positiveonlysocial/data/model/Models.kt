@@ -827,7 +827,13 @@ data class CommentViewData(
 data class CommentThreadViewData(
     val id: String,
     val comments: List<CommentViewData>
-)
+) {
+    /** Ids of the comments that have a later reply in this thread — every
+     * comment but the last. Only these get a collapse control: there is nothing
+     * below the last one to fold away (issue #537). */
+    val commentIdsWithReplies: Set<String>
+        get() = comments.dropLast(1).map { it.id }.toSet()
+}
 // =============================================================================
 // APPEALS (backend appeal endpoints)
 // =============================================================================

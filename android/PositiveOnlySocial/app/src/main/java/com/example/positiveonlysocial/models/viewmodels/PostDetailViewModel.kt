@@ -20,6 +20,10 @@ import java.util.Date
 
 private const val TAG = "PostDetailViewModel"
 
+/** Comments per thread-comments page, matching the backend's COMMENT_BATCH_SIZE.
+ * A page shorter than this is the thread's last. */
+const val COMMENT_BATCH_SIZE = 30
+
 class PostDetailViewModel(
     private val postIdentifier: String,
     private val api: PositiveOnlySocialAPI,
@@ -252,8 +256,18 @@ class PostDetailViewModel(
             val loadedThreads = coroutineScope {
                 threadIdentifiers.map { threadId ->
                     async {
-                        val commentsResponse = api.getCommentsForThread(token, threadId, 0, category)
-                        val comments = commentsResponse.body() ?: emptyList()
+                        // Keep fetching while a page is full, so the whole
+                        // thread is loaded and a comment at a page boundary
+                        // still knows it has replies (issue #537).
+                        val comments = mutableListOf<CommentDto>()
+                        var commentBatch = 0
+                        while (true) {
+                            val page = api.getCommentsForThread(token, threadId, commentBatch, category)
+                                .body() ?: emptyList()
+                            comments.addAll(page)
+                            if (page.size < COMMENT_BATCH_SIZE) break
+                            commentBatch++
+                        }
                         // Sort comments by date (oldest first)
                         val sortedComments = comments.sortedBy { it.creationTime }
 

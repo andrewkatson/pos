@@ -289,6 +289,9 @@ final class StatefulStubbedAPI: Networking {
     public var pageSize = 2 // Make this small for easier testing
     // Incoming follow requests per page (issue #96), matching the backend.
     public var followRequestPageSize = 30
+    // Comments per thread-comments page, matching the backend (and the
+    // client's PostDetailViewModel.commentBatchSize).
+    public let commentPageSize = 30
     private var nextFollowRequestId = 1
     public private(set) var getPostsInFeedCallCount = 0
     public private(set) var getPostsForFollowedUsersCallCount = 0
@@ -1863,8 +1866,14 @@ final class StatefulStubbedAPI: Networking {
         // non-follower (issue #96).
         guard threadPostPrivacyAdmits(commentThreadIdentifier, viewer: user) else { throw APIError.badServerResponse(statusCode: 400) }
         let categoryFilter = category.flatMap { FollowCategory(rawValue: $0) }
-        let relevantComments = visibleComments(inThread: commentThreadIdentifier, viewer: user, category: categoryFilter)
+        let threadComments = visibleComments(inThread: commentThreadIdentifier, viewer: user, category: categoryFilter)
             .sorted { $0.createdDate < $1.createdDate }
+        // Paged like the backend, so the client's keep-fetching-while-full loop
+        // (issue #537) ends instead of getting the same comments every batch.
+        let startIndex = batch * commentPageSize
+        let relevantComments = startIndex < threadComments.count
+            ? Array(threadComments[startIndex..<min(startIndex + commentPageSize, threadComments.count)])
+            : []
 
         if relevantComments.isEmpty {
             // If there are no comments return gracefully

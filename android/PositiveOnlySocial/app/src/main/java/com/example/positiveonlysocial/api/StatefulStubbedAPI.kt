@@ -74,6 +74,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private val followRequestIds = mutableMapOf<String, Long>()
     private var nextFollowRequestId = 1L
     private val COMMENT_BATCH_SIZE = 10
+    // Comments per thread-comments page, matching the backend.
+    private val THREAD_COMMENT_BATCH_SIZE = 30
     private val LIKE_BATCH_SIZE = 10
 
     // ============================================================================================
@@ -1448,7 +1450,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             ?: return errorGeneric(404, "Thread not found")
 
         val comments = visibleComments(thread, user, category).sortedBy { it.creationTime }
-        val batched = getBatch(comments, batch, COMMENT_BATCH_SIZE)
+        // Paged like the backend, so the client's keep-fetching-while-full
+        // loop (issue #537) sees full pages exactly when more remain.
+        val batched = getBatch(comments, batch, THREAD_COMMENT_BATCH_SIZE)
 
         val dtos = batched.map { c ->
             val author = users.find { it.id == c.authorId }!!

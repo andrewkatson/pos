@@ -13,7 +13,11 @@ import Combine
 
 @MainActor
 final class PostDetailViewModel: ObservableObject {
-    
+
+    /// Comments per thread-comments page, matching the backend's
+    /// COMMENT_BATCH_SIZE. A page shorter than this is the thread's last.
+    nonisolated static let commentBatchSize = 30
+
     // MARK: - Published State
     @Published var postDetail: PostDisplayData?
     @Published var commentThreads: [CommentThreadViewData] = []
@@ -211,18 +215,26 @@ final class PostDetailViewModel: ObservableObject {
                 try await withThrowingTaskGroup(of: [CommentViewData].self) { group in
                     for threadId in threadIdentifiers {
                         group.addTask {
-                            let commentsData = try await self.api.getCommentsForThread(sessionManagementToken: token, commentThreadIdentifier: threadId, batch: 0, category: categoryFilter)
+                            // Keep fetching while a page is full, so the whole
+                            // thread is loaded and a comment at a page boundary
+                            // still knows it has replies (issue #537).
+                            var commentFields: [CommentFields] = []
+                            for commentBatch in 0... {
+                                let commentsData = try await self.api.getCommentsForThread(sessionManagementToken: token, commentThreadIdentifier: threadId, batch: commentBatch, category: categoryFilter)
 
-                            // `await` is required even though decodeList is
-                            // synchronous: this ViewModel is @MainActor-isolated
-                            // and decodeList inherits that isolation, but we are
-                            // inside a detached withThrowingTaskGroup task, so the
-                            // call hops back to the main actor (an actor hop is an
-                            // async operation — it does NOT warn "no async
-                            // operations occur"). Dropping the await fails the
-                            // build with "main actor-isolated ... cannot be called
-                            // from outside of the actor".
-                            let commentFields = try await self.decodeList(from: commentsData, type: CommentFields.self)
+                                // `await` is required even though decodeList is
+                                // synchronous: this ViewModel is @MainActor-isolated
+                                // and decodeList inherits that isolation, but we are
+                                // inside a detached withThrowingTaskGroup task, so the
+                                // call hops back to the main actor (an actor hop is an
+                                // async operation — it does NOT warn "no async
+                                // operations occur"). Dropping the await fails the
+                                // build with "main actor-isolated ... cannot be called
+                                // from outside of the actor".
+                                let page = try await self.decodeList(from: commentsData, type: CommentFields.self)
+                                commentFields.append(contentsOf: page)
+                                if page.count < Self.commentBatchSize { break }
+                            }
 
                             // 4. Convert network models to View Models
                             return commentFields.map { field in
