@@ -260,11 +260,21 @@ class PostDetailViewModel(
                         // thread is loaded and a comment at a page boundary
                         // still knows it has replies (issue #537).
                         val comments = mutableListOf<CommentDto>()
+                        val seenIds = mutableSetOf<String>()
                         var commentBatch = 0
                         while (true) {
-                            val page = api.getCommentsForThread(token, threadId, commentBatch, category)
-                                .body() ?: emptyList()
-                            comments.addAll(page)
+                            val response = api.getCommentsForThread(token, threadId, commentBatch, category)
+                            if (!response.isSuccessful) {
+                                // A failed page (e.g. rate limited) keeps the pages
+                                // already loaded; pull-to-refresh retries the rest.
+                                Log.w(TAG, "Comment page $commentBatch of thread $threadId failed: ${response.code()}")
+                                break
+                            }
+                            val page = response.body() ?: emptyList()
+                            // The thread is paged by a live ranking, so a comment can
+                            // shift onto the next page between requests; keep the
+                            // first copy. The full-page check uses the raw page.
+                            page.filterTo(comments) { seenIds.add(it.commentIdentifier) }
                             if (page.size < COMMENT_BATCH_SIZE) break
                             commentBatch++
                         }

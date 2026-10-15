@@ -289,4 +289,48 @@ class PostDetailViewModelTest {
         assertEquals(COMMENT_BATCH_SIZE, thread.commentIdsWithReplies.size)
         assertTrue(thread.commentIdsWithReplies.contains("c$COMMENT_BATCH_SIZE"))
     }
+
+    private fun stubFullFirstCommentPage(): List<CommentDto> {
+        val firstPage = (1..COMMENT_BATCH_SIZE).map {
+            val time = "2024-01-%02dT00:00:00Z".format(it)
+            CommentDto("c$it", "comment $it", "someone", time, time, 0)
+        }
+        runBlocking {
+            whenever(api.getCommentsForPost("token123", postIdentifier, 0)).thenReturn(
+                Response.success(listOf(CommentThreadDto("t1")))
+            )
+            whenever(api.getCommentsForThread("token123", "t1", 0, null)).thenReturn(Response.success(firstPage))
+        }
+        return firstPage
+    }
+
+    @Test
+    fun `loadAllData skips a comment repeated on the next page`() = runTest {
+        val firstPage = stubFullFirstCommentPage()
+        // The ranking shifted between requests, so the last comment of the
+        // first page comes back again ahead of the new one.
+        val newComment = CommentDto("c31", "comment 31", "someone", "2024-02-01T00:00:00Z", "2024-02-01T00:00:00Z", 0)
+        whenever(api.getCommentsForThread("token123", "t1", 1, null)).thenReturn(
+            Response.success(listOf(firstPage.last(), newComment))
+        )
+
+        val pagedViewModel = PostDetailViewModel(postIdentifier, api, keychainHelper)
+
+        val ids = pagedViewModel.commentThreads.value.single().comments.map { it.id }
+        assertEquals((1..COMMENT_BATCH_SIZE + 1).map { "c$it" }, ids)
+    }
+
+    @Test
+    fun `loadAllData keeps the loaded pages when a later comment page fails`() = runTest {
+        stubFullFirstCommentPage()
+        whenever(api.getCommentsForThread("token123", "t1", 1, null)).thenReturn(
+            Response.error(429, "rate limited".toResponseBody())
+        )
+
+        val pagedViewModel = PostDetailViewModel(postIdentifier, api, keychainHelper)
+
+        assertEquals(COMMENT_BATCH_SIZE, pagedViewModel.commentThreads.value.single().comments.size)
+        // No further page is requested after the failure.
+        verify(api, never()).getCommentsForThread("token123", "t1", 2, null)
+    }
 }

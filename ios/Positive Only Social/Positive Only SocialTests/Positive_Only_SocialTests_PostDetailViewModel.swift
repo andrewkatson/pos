@@ -595,6 +595,14 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(CommentThreadViewData(comments: [only]).commentIdsWithReplies.isEmpty)
     }
 
+    @Test func testAppendingNewComments_SkipsACommentRepeatedOnTheNextPage() {
+        // The ranking shifted between requests, so "c30" comes back again.
+        let merged = PostDetailViewModel.appendingNewComments(
+            ["c30", "c31"], to: ["c29", "c30"], id: { $0 }
+        )
+        #expect(merged == ["c29", "c30", "c31"])
+    }
+
     @Test func testLoadAllData_LoadsEveryCommentPage() async throws {
         // Given: A thread longer than one comment page
         let account = "commentPages_account"
