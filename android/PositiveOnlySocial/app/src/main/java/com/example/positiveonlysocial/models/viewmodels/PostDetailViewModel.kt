@@ -9,6 +9,7 @@ import com.example.positiveonlysocial.data.model.*
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.util.PostEvents
 import com.example.positiveonlysocial.util.parseBackendDate
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -263,10 +264,20 @@ class PostDetailViewModel(
                         val seenIds = mutableSetOf<String>()
                         var commentBatch = 0
                         while (true) {
-                            val response = api.getCommentsForThread(token, threadId, commentBatch, category)
+                            // A failed page (e.g. rate limited, or a dropped
+                            // connection) keeps the pages already loaded;
+                            // pull-to-refresh retries the rest. A failure on the
+                            // first page still fails the load as before.
+                            val response = try {
+                                api.getCommentsForThread(token, threadId, commentBatch, category)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                if (commentBatch == 0) throw e
+                                Log.w(TAG, "Comment page $commentBatch of thread $threadId failed", e)
+                                break
+                            }
                             if (!response.isSuccessful) {
-                                // A failed page (e.g. rate limited) keeps the pages
-                                // already loaded; pull-to-refresh retries the rest.
                                 Log.w(TAG, "Comment page $commentBatch of thread $threadId failed: ${response.code()}")
                                 break
                             }

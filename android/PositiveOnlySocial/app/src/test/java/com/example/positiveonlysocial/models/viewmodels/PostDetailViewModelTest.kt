@@ -333,4 +333,17 @@ class PostDetailViewModelTest {
         // No further page is requested after the failure.
         verify(api, never()).getCommentsForThread("token123", "t1", 2, null)
     }
+
+    @Test
+    fun `loadAllData keeps the loaded pages when a later comment page throws`() = runTest {
+        stubFullFirstCommentPage()
+        whenever(api.getCommentsForThread("token123", "t1", 1, null)).thenAnswer {
+            throw java.io.IOException("connection reset")
+        }
+
+        val pagedViewModel = PostDetailViewModel(postIdentifier, api, keychainHelper)
+
+        assertEquals(COMMENT_BATCH_SIZE, pagedViewModel.commentThreads.value.single().comments.size)
+        assertEquals(null, pagedViewModel.alertMessage.value)
+    }
 }
