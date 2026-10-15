@@ -68,6 +68,11 @@ function SavedPostsView() {
     void Promise.resolve().then(() => load(0, true))
   }, [load])
 
+  const loadNext = useCallback(() => {
+    setIsLoading(true)
+    void load(page, false)
+  }, [load, page])
+
   const dropPost = useCallback((postIdentifier: string) => {
     setPosts(prev => prev.filter(post => post.post_identifier !== postIdentifier))
   }, [])
@@ -108,6 +113,7 @@ function SavedPostsView() {
             // Unsaving removes the post from the collection, so drop its tile.
             onPostUnsaved={dropPost}
             onError={setErrorMessage}
+            onFillRequest={canLoadMore && !isLoading ? loadNext : undefined}
           />
         )}
 
@@ -120,10 +126,7 @@ function SavedPostsView() {
           <button
             type="button"
             className="load-more"
-            onClick={() => {
-              setIsLoading(true)
-              void load(page, false)
-            }}
+            onClick={loadNext}
           >
             Load more
           </button>

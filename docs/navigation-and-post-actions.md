@@ -9,6 +9,13 @@ hosts the user-search bar; while a search is active the results list replaces
 the profile body. Follow and Block are hidden on your own profile, since
 neither applies to yourself.
 
+Post grids (profiles, Saved Posts and tag pages) page in batches of ten. On the
+website one batch leaves a partial last row of the three-column grid and, at
+common window sizes, empty screen below it, so the grid keeps fetching batches
+on its own until it ends on a full row and runs past the bottom of the window —
+re-checking when the window grows or is zoomed out — or a batch comes back
+empty (issue #538). Past that, **Load more** fetches one batch per press.
+
 **User search** (`GET /users/search/<fragment>/?batch=N`) matches usernames by
 case-insensitive prefix and returns them in deterministic batches of ten,
 ordered by username; `batch` defaults to 0, and a batch shorter than ten means

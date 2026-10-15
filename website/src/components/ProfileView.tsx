@@ -242,6 +242,11 @@ function ProfileView({
     [fetchPosts],
   )
 
+  const loadNextPosts = useCallback(() => {
+    setIsLoadingPosts(true)
+    void loadPosts(page, false)
+  }, [loadPosts, page])
+
   // Deferred to a microtask so the fetch's setState calls don't run
   // synchronously inside the effect (React flags that as cascading renders).
   useEffect(() => {
@@ -919,6 +924,7 @@ function ProfileView({
           onError={setErrorMessage}
           // No session, no in-place actions: the tiles still open each post.
           readOnly={!isSignedIn}
+          onFillRequest={canLoadMore && !isLoadingPosts ? loadNextPosts : undefined}
         />
       )}
 
@@ -931,10 +937,7 @@ function ProfileView({
         <button
           type="button"
           className="load-more"
-          onClick={() => {
-            setIsLoadingPosts(true)
-            void loadPosts(page, false)
-          }}
+          onClick={loadNextPosts}
         >
           Load more
         </button>

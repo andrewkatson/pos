@@ -92,6 +92,11 @@ function TagFeed({ tag, currentUsername }: TagFeedProps) {
     void Promise.resolve().then(() => loadPosts(0, true))
   }, [loadPosts])
 
+  const loadNextPosts = useCallback(() => {
+    setIsLoading(true)
+    void loadPosts(page, false)
+  }, [loadPosts, page])
+
   const handlePostDeleted = useCallback((postIdentifier: string) => {
     setPosts(prev => prev.filter(p => p.post_identifier !== postIdentifier))
   }, [])
@@ -120,6 +125,7 @@ function TagFeed({ tag, currentUsername }: TagFeedProps) {
           currentUsername={currentUsername}
           onPostDeleted={handlePostDeleted}
           onError={setErrorMessage}
+          onFillRequest={canLoadMore && !isLoading ? loadNextPosts : undefined}
         />
       )}
 
@@ -132,10 +138,7 @@ function TagFeed({ tag, currentUsername }: TagFeedProps) {
         <button
           type="button"
           className="load-more"
-          onClick={() => {
-            setIsLoading(true)
-            void loadPosts(page, false)
-          }}
+          onClick={loadNextPosts}
         >
           Load more
         </button>

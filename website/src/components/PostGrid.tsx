@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router'
 import type { FeedPost } from '../api/types'
 import PostThumbnail from './PostThumbnail'
@@ -19,7 +20,16 @@ interface PostGridProps {
    * (issue #510), who can open a post but has no session to like, save, report
    * or delete with. Sharing a single post is offered on the post page itself. */
   readOnly?: boolean
+  /** Asks the owner for the next batch while the grid doesn't yet fill the
+   * screen or ends on a partial row (issue #538). The owner passes it only
+   * while another batch may exist and none is in flight, and omits it
+   * otherwise; each new batch re-checks, so loading stops once the grid is
+   * filled. "Load more" still pages past that. */
+  onFillRequest?: () => void
 }
+
+/** Columns in `.post-grid` (MainApp.css); keep the two in sync. */
+const POST_GRID_COLUMNS = 3
 
 /** Overlay label for the author's own pending/rejected grid tiles (#282). */
 function statusBadgeLabel(post: FeedPost): string | null {
@@ -44,8 +54,10 @@ function PostGrid({
   onPostUnsaved,
   onError,
   readOnly = false,
+  onFillRequest,
 }: PostGridProps) {
   const navigate = useNavigate()
+  const gridRef = useRef<HTMLDivElement>(null)
   const { stateFor, toggleLike, toggleSave, openMenu, openMenuPostId, openLikes, dialogs } =
     usePostActions({
       currentUsername,
@@ -54,9 +66,37 @@ function PostGrid({
       onError,
     })
 
+  // One batch of 10 leaves a partial last row and, at common window sizes,
+  // empty screen below the grid until "Load more" is pressed (issue #538), so
+  // keep asking for batches until the grid ends on a full row and runs past
+  // the bottom of the viewport. Re-checked on resize, since zooming out or
+  // enlarging the window can open up space again.
+  useEffect(() => {
+    if (!onFillRequest || posts.length === 0) return
+    let requested = false
+    const check = () => {
+      const grid = gridRef.current
+      if (requested || !grid) return
+      const rect = grid.getBoundingClientRect()
+      // A grid with no layout box isn't on screen, so there's nothing to fill.
+      if (rect.height === 0) return
+      const endsOnPartialRow = posts.length % POST_GRID_COLUMNS !== 0
+      const leavesGapBelow = rect.bottom < window.innerHeight
+      if (endsOnPartialRow || leavesGapBelow) {
+        // At most one request per check cycle: the owner withdraws the
+        // callback while that batch loads, which re-runs this effect.
+        requested = true
+        onFillRequest()
+      }
+    }
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [posts.length, onFillRequest])
+
   return (
     <>
-      <div className="post-grid">
+      <div ref={gridRef} className="post-grid">
         {posts.map(post => {
           const badge = statusBadgeLabel(post)
           return (
