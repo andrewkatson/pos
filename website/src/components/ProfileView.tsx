@@ -216,12 +216,28 @@ function ProfileView({
     void Promise.resolve().then(() => loadProfile())
   }, [loadProfile])
 
+  // Bumped by every grid replacement (mount, refresh, the classification
+  // poll's reload): a page still in flight from before it would otherwise
+  // append onto the fresh first page, duplicating tiles and skewing `page`.
+  const postsGeneration = useRef(0)
+
   const loadPosts = useCallback(
     async (pageToLoad: number, replace: boolean) => {
       const generation = loadGeneration.current
+      if (replace) {
+        postsGeneration.current += 1
+        // Holds off automatic filling and Load more until the new first page
+        // lands, so no page is requested against the grid being replaced.
+        setIsLoadingPosts(true)
+      }
+      const postsGen = postsGeneration.current
+      const isCurrent = () =>
+        isMounted.current &&
+        generation === loadGeneration.current &&
+        postsGen === postsGeneration.current
       try {
         const newPosts = await fetchPosts(pageToLoad)
-        if (!isMounted.current || generation !== loadGeneration.current) return
+        if (!isCurrent()) return
         if (replace) {
           setPosts(newPosts)
           setCanLoadMore(newPosts.length > 0)
@@ -233,10 +249,10 @@ function ProfileView({
           setPage(prev => prev + 1)
         }
       } catch {
-        if (isMounted.current && generation === loadGeneration.current) setCanLoadMore(false)
+        if (isCurrent()) setCanLoadMore(false)
       } finally {
         // A superseded load leaves the spinner to the load that replaced it.
-        if (isMounted.current && generation === loadGeneration.current) setIsLoadingPosts(false)
+        if (isCurrent()) setIsLoadingPosts(false)
       }
     },
     [fetchPosts],

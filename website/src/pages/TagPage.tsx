@@ -59,11 +59,21 @@ function TagFeed({ tag, currentUsername }: TagFeedProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
+  // The route reuses this page across tags, so a page still in flight for the
+  // previous tag (e.g. from automatic filling) must not land on the new one.
+  const loadGeneration = useRef(0)
+
   const loadPosts = useCallback(
     async (pageToLoad: number, replace: boolean) => {
+      if (replace) {
+        loadGeneration.current += 1
+        setIsLoading(true)
+      }
+      const generation = loadGeneration.current
+      const isCurrent = () => isMounted.current && generation === loadGeneration.current
       try {
         const newPosts = await apiClient.getPostsByTag(tag, pageToLoad)
-        if (!isMounted.current) return
+        if (!isCurrent()) return
         if (replace) {
           setPosts(newPosts)
           setCanLoadMore(newPosts.length > 0)
@@ -75,12 +85,12 @@ function TagFeed({ tag, currentUsername }: TagFeedProps) {
           setPage(prev => prev + 1)
         }
       } catch {
-        if (isMounted.current) {
+        if (isCurrent()) {
           setCanLoadMore(false)
           setErrorMessage(`Could not load posts for #${tag}.`)
         }
       } finally {
-        if (isMounted.current) setIsLoading(false)
+        if (isCurrent()) setIsLoading(false)
       }
     },
     [tag],
