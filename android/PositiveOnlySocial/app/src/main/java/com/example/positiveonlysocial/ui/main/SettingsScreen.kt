@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
@@ -583,7 +585,10 @@ fun SettingsScreen(
                     // Disabled until the setting loads, and while a save is in flight.
                     enabled = currentUser?.isPrivate != null && !isSavingPrivacy,
                     onCheckedChange = { viewModel.setAccountPrivacy(it) },
-                    modifier = Modifier.testTag("PrivateAccountSwitch")
+                    modifier = Modifier
+                        .testTag("PrivateAccountSwitch")
+                        // The label is a separate Text node; name the switch itself.
+                        .semantics { contentDescription = "Private Account" }
                 )
             }
 

@@ -523,12 +523,13 @@ struct User: Codable, Identifiable, Hashable {
 
     init(username: String, identityIsVerified: Bool,
          authorProfileImageUrl: String? = nil, authorProfileImageOriginalUrl: String? = nil,
-         authorProfileImageBlurHash: String? = nil) {
+         authorProfileImageBlurHash: String? = nil, requestId: Int? = nil) {
         self.username = username
         self.identityIsVerified = identityIsVerified
         self.authorProfileImageUrl = authorProfileImageUrl
         self.authorProfileImageOriginalUrl = authorProfileImageOriginalUrl
         self.authorProfileImageBlurHash = authorProfileImageBlurHash
+        self.requestId = requestId
     }
 
     enum CodingKeys: String, CodingKey {

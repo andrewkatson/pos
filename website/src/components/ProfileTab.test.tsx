@@ -806,3 +806,70 @@ test('shows a moderation rejection inline and keeps the editor open (#380)', asy
   // Still editing so the user can fix it.
   expect(screen.getByLabelText('Your bio')).toBeInTheDocument()
 })
+
+test('a status-poll reload drops a fill page still in flight from the old grid (#538)', async () => {
+  // jsdom has no layout: 250px rows of three in an 800px viewport, so 10 posts
+  // end on a partial row and the grid asks for the next page on its own.
+  vi.stubGlobal('innerHeight', 800)
+  const layout = vi
+    .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockImplementation(function (this: HTMLElement) {
+      const height = this.classList.contains('post-grid')
+        ? Math.ceil(this.children.length / 3) * 250
+        : 0
+      return { top: 0, bottom: height, height, left: 0, right: 0, width: 0, x: 0, y: 0 } as DOMRect
+    })
+  const post = (i: number, status: 'pending' | 'approved' = 'approved') => ({
+    post_identifier: `p${i}`,
+    image_url: null,
+    author_username: 'ada',
+    caption: '',
+    status,
+  })
+  const range = (start: number, end: number) =>
+    Array.from({ length: end - start }, (_, i) => post(start + i))
+  let releaseStalePage: (posts: ReturnType<typeof range>) => void = () => {}
+  let firstPageLoads = 0
+  let secondPageLoads = 0
+  mockGetPosts.mockImplementation((_username, batch) => {
+    if (batch === 0) {
+      firstPageLoads += 1
+      // The first load carries a pending post; the poll's reload sees it approved.
+      return Promise.resolve(
+        firstPageLoads === 1 ? [post(0, 'pending'), ...range(1, 10)] : range(0, 10),
+      )
+    }
+    secondPageLoads += 1
+    // The fill page requested against the first grid hangs until released.
+    if (secondPageLoads === 1) return new Promise(resolve => (releaseStalePage = resolve))
+    return Promise.resolve(range(10, 12))
+  })
+  mockGetPostStatus.mockResolvedValue({
+    post_identifier: 'p0',
+    status: 'approved',
+    reason_code: null,
+    appealable: false,
+    hidden: false,
+    hidden_reason: '',
+  })
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    renderTab()
+    expect(await screen.findByText('In review')).toBeInTheDocument()
+    await waitFor(() => expect(secondPageLoads).toBe(1))
+
+    await vi.advanceTimersByTimeAsync(3100)
+    // The reload replaces the grid, and the fill asks for page 1 afresh.
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'Post by ada' })).toHaveLength(12),
+    )
+    // The page requested before the reload lands late and must not append.
+    releaseStalePage(range(10, 20))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(screen.getAllByRole('button', { name: 'Post by ada' })).toHaveLength(12)
+    expect(secondPageLoads).toBe(2)
+  } finally {
+    vi.useRealTimers()
+    layout.mockRestore()
+  }
+})

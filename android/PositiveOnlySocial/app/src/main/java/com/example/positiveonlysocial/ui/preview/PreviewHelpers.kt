@@ -675,10 +675,12 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
 
     override suspend fun getFollowRequests(token: String, after: Long?): Response<List<User>> {
         if (after != null) return Response.success(emptyList())
+        // Newest first, with request ids so the view model gets a cursor and
+        // "Load more" reaches the empty page above.
         return Response.success(
             listOf(
-                User(username = "requester_1", identityIsVerified = true),
-                User(username = "requester_2", identityIsVerified = false)
+                User(username = "requester_1", identityIsVerified = true, requestId = 2),
+                User(username = "requester_2", identityIsVerified = false, requestId = 1)
             )
         )
     }

@@ -12,6 +12,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -112,7 +114,9 @@ fun FollowRequestsScreen(
                         Button(
                             onClick = { viewModel.approve(user.username) },
                             enabled = !deciding,
-                            modifier = Modifier.testTag("approveFollowRequestButton")
+                            modifier = Modifier
+                                .testTag("approveFollowRequestButton")
+                                .semantics { contentDescription = "Approve ${user.username}" }
                         ) {
                             Text("Approve")
                         }
@@ -120,7 +124,9 @@ fun FollowRequestsScreen(
                         OutlinedButton(
                             onClick = { viewModel.deny(user.username) },
                             enabled = !deciding,
-                            modifier = Modifier.testTag("denyFollowRequestButton")
+                            modifier = Modifier
+                                .testTag("denyFollowRequestButton")
+                                .semantics { contentDescription = "Deny ${user.username}" }
                         ) {
                             Text("Deny")
                         }
