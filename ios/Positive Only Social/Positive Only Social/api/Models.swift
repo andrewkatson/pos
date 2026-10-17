@@ -951,6 +951,13 @@ struct CommentViewData: Identifiable, Equatable {
 struct CommentThreadViewData: Identifiable, Equatable {
     var id: String { comments.first?.threadId ?? UUID().uuidString }
     var comments: [CommentViewData]
+
+    /// Ids of the comments that have a later reply in this thread — every
+    /// comment but the last. Only these get a collapse control: there is
+    /// nothing below the last one to fold away (issue #537).
+    var commentIdsWithReplies: Set<String> {
+        Set(comments.dropLast().map(\.id))
+    }
 }
 
 // MARK: - Text formatting (issue #318)

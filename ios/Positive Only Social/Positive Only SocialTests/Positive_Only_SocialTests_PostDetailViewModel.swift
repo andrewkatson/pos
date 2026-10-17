@@ -574,6 +574,60 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(sut.collapsedCommentIds == ["c2"])
     }
 
+    // MARK: - Collapse control only with replies (issue #537)
+
+    @Test func testCommentIdsWithReplies_ExcludesTheLastComment() async throws {
+        // Given: A thread of a root comment and one reply
+        let (sut, _, _, commentID) = try await setupTestEnvironment(account: "hasReplies_account")
+        let thread = try #require(sut.commentThreads.first)
+        let reply = try #require(thread.comments.last)
+
+        // Then: Only the root has a comment below it to fold away
+        #expect(thread.commentIdsWithReplies == [commentID])
+        #expect(!thread.commentIdsWithReplies.contains(reply.id))
+    }
+
+    @Test func testCommentIdsWithReplies_EmptyForASingleComment() async throws {
+        // A one-comment thread has nothing to collapse.
+        let only = CommentViewData(id: "c1", threadId: "t1", authorUsername: "someone",
+                                   body: "love this", likeCount: 0, isLiked: false,
+                                   createdDate: Date())
+        #expect(CommentThreadViewData(comments: [only]).commentIdsWithReplies.isEmpty)
+    }
+
+    @Test func testAppendingNewComments_SkipsACommentRepeatedOnTheNextPage() {
+        // The ranking shifted between requests, so "c30" comes back again.
+        let merged = PostDetailViewModel.appendingNewComments(
+            ["c30", "c31"], to: ["c29", "c30"], id: { $0 }
+        )
+        #expect(merged == ["c29", "c30", "c31"])
+    }
+
+    @Test func testLoadAllData_LoadsEveryCommentPage() async throws {
+        // Given: A thread longer than one comment page
+        let account = "commentPages_account"
+        _ = try await setupLoggedInUser(username: "viewer", account: account)
+        let ownerToken = try await registerUserAndGetToken(username: "postOwner")
+        let postID = try await makePostAndGetID(token: ownerToken, caption: "Long thread")
+        let (threadID, _) = try await commentOnPostAndGetIDs(token: ownerToken, postID: postID, body: "Reply 0")
+        let pageSize = PostDetailViewModel.commentBatchSize
+        for index in 1...pageSize {
+            _ = try await replyToCommentAndGetID(token: ownerToken, postID: postID, threadID: threadID, body: "Reply \(index)")
+        }
+
+        // When: The post detail loads
+        let sut = PostDetailViewModel(postIdentifier: postID, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        await yield()
+
+        // Then: The comment past the first page is loaded, so the last comment
+        // of the first page knows it has a reply below it
+        let thread = try #require(sut.commentThreads.first)
+        #expect(thread.comments.count == pageSize + 1)
+        #expect(thread.comments.last?.body == "Reply \(pageSize)")
+        #expect(thread.commentIdsWithReplies.count == pageSize)
+        #expect(thread.commentIdsWithReplies.contains(thread.comments[pageSize - 1].id))
+    }
+
     // MARK: - Text formatting (issue #318)
 
     @Test func testCaptionStyleRoundTrips() async throws {

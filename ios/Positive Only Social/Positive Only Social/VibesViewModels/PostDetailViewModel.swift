@@ -13,7 +13,21 @@ import Combine
 
 @MainActor
 final class PostDetailViewModel: ObservableObject {
-    
+
+    /// Comments per thread-comments page, matching the backend's
+    /// COMMENT_BATCH_SIZE. A page shorter than this is the thread's last.
+    nonisolated static let commentBatchSize = 30
+
+    /// `loaded` followed by the comments of `page` it does not already hold.
+    /// Thread pages come from a live like-weighted ranking, so a comment can
+    /// reappear on the next page if the ranking shifts between requests.
+    nonisolated static func appendingNewComments<Comment>(
+        _ page: [Comment], to loaded: [Comment], id: (Comment) -> String
+    ) -> [Comment] {
+        var seen = Set(loaded.map(id))
+        return loaded + page.filter { seen.insert(id($0)).inserted }
+    }
+
     // MARK: - Published State
     @Published var postDetail: PostDisplayData?
     @Published var commentThreads: [CommentThreadViewData] = []
@@ -211,18 +225,38 @@ final class PostDetailViewModel: ObservableObject {
                 try await withThrowingTaskGroup(of: [CommentViewData].self) { group in
                     for threadId in threadIdentifiers {
                         group.addTask {
-                            let commentsData = try await self.api.getCommentsForThread(sessionManagementToken: token, commentThreadIdentifier: threadId, batch: 0, category: categoryFilter)
+                            // Keep fetching while a page is full, so the whole
+                            // thread is loaded and a comment at a page boundary
+                            // still knows it has replies (issue #537).
+                            var commentFields: [CommentFields] = []
+                            for commentBatch in 0... {
+                                let page: [CommentFields]
+                                do {
+                                    let commentsData = try await self.api.getCommentsForThread(sessionManagementToken: token, commentThreadIdentifier: threadId, batch: commentBatch, category: categoryFilter)
 
-                            // `await` is required even though decodeList is
-                            // synchronous: this ViewModel is @MainActor-isolated
-                            // and decodeList inherits that isolation, but we are
-                            // inside a detached withThrowingTaskGroup task, so the
-                            // call hops back to the main actor (an actor hop is an
-                            // async operation — it does NOT warn "no async
-                            // operations occur"). Dropping the await fails the
-                            // build with "main actor-isolated ... cannot be called
-                            // from outside of the actor".
-                            let commentFields = try await self.decodeList(from: commentsData, type: CommentFields.self)
+                                    // `await` is required even though decodeList is
+                                    // synchronous: this ViewModel is @MainActor-isolated
+                                    // and decodeList inherits that isolation, but we are
+                                    // inside a detached withThrowingTaskGroup task, so the
+                                    // call hops back to the main actor (an actor hop is an
+                                    // async operation — it does NOT warn "no async
+                                    // operations occur"). Dropping the await fails the
+                                    // build with "main actor-isolated ... cannot be called
+                                    // from outside of the actor".
+                                    page = try await self.decodeList(from: commentsData, type: CommentFields.self)
+                                } catch let error where commentBatch > 0 && !error.isCancellation {
+                                    // A later page failing (e.g. rate limited) keeps the
+                                    // pages already loaded rather than failing the whole
+                                    // post; pull-to-refresh retries the rest.
+                                    NSLog("%@", "Comment page \(commentBatch) of thread \(threadId) failed to load: \(error)")
+                                    break
+                                }
+                                // The thread is paged by a live ranking, so a comment can
+                                // shift onto the next page between requests; keep the
+                                // first copy. The full-page check uses the raw page.
+                                commentFields = Self.appendingNewComments(page, to: commentFields, id: \.comment_identifier)
+                                if page.count < Self.commentBatchSize { break }
+                            }
 
                             // 4. Convert network models to View Models
                             return commentFields.map { field in

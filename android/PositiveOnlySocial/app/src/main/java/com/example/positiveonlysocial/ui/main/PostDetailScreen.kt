@@ -535,6 +535,9 @@ fun CommentThreadView(
     val collapseIndex = thread.comments.indexOfFirst { collapsedCommentIds.contains(it.id) }
     val visibleComments =
         if (collapseIndex == -1) thread.comments else thread.comments.take(collapseIndex + 1)
+    // Computed over the whole thread, not just the visible part, so a collapsed
+    // comment keeps its control to expand again.
+    val commentIdsWithReplies = thread.commentIdsWithReplies
 
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         visibleComments.firstOrNull()?.let { rootComment ->
@@ -543,6 +546,7 @@ fun CommentThreadView(
                 isOwn = rootComment.authorUsername == currentUsername,
                 isReported = rootComment.isReported || reportedCommentIds.contains(rootComment.id),
                 isCollapsed = collapsedCommentIds.contains(rootComment.id),
+                hasReplies = commentIdsWithReplies.contains(rootComment.id),
                 onToggleCollapse = { viewModel.toggleCommentCollapsed(rootComment.id) },
                 onLike = { viewModel.likeComment(rootComment, rootComment.threadId) },
                 onUnlike = { viewModel.unlikeComment(rootComment, rootComment.threadId) },
@@ -571,6 +575,7 @@ fun CommentThreadView(
                         isOwn = reply.authorUsername == currentUsername,
                         isReported = reply.isReported || reportedCommentIds.contains(reply.id),
                         isCollapsed = collapsedCommentIds.contains(reply.id),
+                        hasReplies = commentIdsWithReplies.contains(reply.id),
                         onToggleCollapse = { viewModel.toggleCommentCollapsed(reply.id) },
                         onLike = { viewModel.likeComment(reply, reply.threadId) },
                         onUnlike = { viewModel.unlikeComment(reply, reply.threadId) },
@@ -592,6 +597,10 @@ fun CommentRow(
     isOwn: Boolean,
     isReported: Boolean,
     isCollapsed: Boolean,
+    /** Whether any later comment in the thread sits below this one. Without one
+     * there is nothing to fold, so the chevron is hidden and a tap does nothing
+     * (issue #537). */
+    hasReplies: Boolean,
     onToggleCollapse: () -> Unit,
     onLike: () -> Unit,
     onUnlike: () -> Unit,
@@ -624,8 +633,9 @@ fun CommentRow(
                 // profile — that inner handler wins over this one. This lives on
                 // the row's own combinedClickable (rather than a nested
                 // clickable) so it can't swallow the long-press that opens the
-                // action menu.
-                onClick = { onToggleCollapse() }
+                // action menu. A comment with no replies has nothing to fold,
+                // so a tap on it does nothing (issue #537).
+                onClick = { if (hasReplies) onToggleCollapse() }
             ),
         verticalAlignment = Alignment.Top
     ) {
@@ -698,8 +708,11 @@ fun CommentRow(
                     menu()
                 }
                 Spacer(modifier = Modifier.weight(1f))
-                // Chevron hint for the collapse state of the thread below.
-                Text(if (isCollapsed) "▸" else "▾", fontSize = 12.sp, color = Color.Gray)
+                // Chevron hint for the collapse state of the thread below, shown
+                // only when there is a thread below to collapse.
+                if (hasReplies) {
+                    Text(if (isCollapsed) "▸" else "▾", fontSize = 12.sp, color = Color.Gray)
+                }
             }
             // The comment body sits below the username/time header line, with
             // any inline bold/italic/size formatting applied (issue #318).

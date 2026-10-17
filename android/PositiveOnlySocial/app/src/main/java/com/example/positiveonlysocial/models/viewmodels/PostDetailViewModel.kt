@@ -9,6 +9,7 @@ import com.example.positiveonlysocial.data.model.*
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.util.PostEvents
 import com.example.positiveonlysocial.util.parseBackendDate
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -19,6 +20,10 @@ import kotlinx.coroutines.launch
 import java.util.Date
 
 private const val TAG = "PostDetailViewModel"
+
+/** Comments per thread-comments page, matching the backend's COMMENT_BATCH_SIZE.
+ * A page shorter than this is the thread's last. */
+const val COMMENT_BATCH_SIZE = 30
 
 class PostDetailViewModel(
     private val postIdentifier: String,
@@ -252,8 +257,38 @@ class PostDetailViewModel(
             val loadedThreads = coroutineScope {
                 threadIdentifiers.map { threadId ->
                     async {
-                        val commentsResponse = api.getCommentsForThread(token, threadId, 0, category)
-                        val comments = commentsResponse.body() ?: emptyList()
+                        // Keep fetching while a page is full, so the whole
+                        // thread is loaded and a comment at a page boundary
+                        // still knows it has replies (issue #537).
+                        val comments = mutableListOf<CommentDto>()
+                        val seenIds = mutableSetOf<String>()
+                        var commentBatch = 0
+                        while (true) {
+                            // A failed page (e.g. rate limited, or a dropped
+                            // connection) keeps the pages already loaded;
+                            // pull-to-refresh retries the rest. A failure on the
+                            // first page still fails the load as before.
+                            val response = try {
+                                api.getCommentsForThread(token, threadId, commentBatch, category)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                if (commentBatch == 0) throw e
+                                Log.w(TAG, "Comment page $commentBatch of thread $threadId failed", e)
+                                break
+                            }
+                            if (!response.isSuccessful) {
+                                Log.w(TAG, "Comment page $commentBatch of thread $threadId failed: ${response.code()}")
+                                break
+                            }
+                            val page = response.body() ?: emptyList()
+                            // The thread is paged by a live ranking, so a comment can
+                            // shift onto the next page between requests; keep the
+                            // first copy. The full-page check uses the raw page.
+                            page.filterTo(comments) { seenIds.add(it.commentIdentifier) }
+                            if (page.size < COMMENT_BATCH_SIZE) break
+                            commentBatch++
+                        }
                         // Sort comments by date (oldest first)
                         val sortedComments = comments.sortedBy { it.creationTime }
 

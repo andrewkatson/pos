@@ -2,6 +2,8 @@ package com.example.positiveonlysocial.models.viewmodels
 
 import com.example.positiveonlysocial.MainDispatcherRule
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.CommentDto
+import com.example.positiveonlysocial.data.model.CommentThreadDto
 import com.example.positiveonlysocial.data.model.CommentViewData
 import com.example.positiveonlysocial.data.model.CommentThreadViewData
 import com.example.positiveonlysocial.data.model.GenericResponse
@@ -17,6 +19,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -243,5 +246,104 @@ class PostDetailViewModelTest {
         // Expanding one leaves the other collapsed.
         viewModel.toggleCommentCollapsed("c1")
         assertEquals(setOf("c2"), viewModel.collapsedCommentIds.value)
+    }
+
+    // --- Collapse control only with replies (issue #537) ---
+
+    @Test
+    fun `commentIdsWithReplies is empty for a single comment`() {
+        val only = CommentViewData("c1", "t1", "someone", "love this", 0, false, Date())
+
+        assertEquals(emptySet<String>(), CommentThreadViewData("t1", listOf(only)).commentIdsWithReplies)
+    }
+
+    @Test
+    fun `commentIdsWithReplies excludes the last reply`() {
+        val root = CommentViewData("c1", "t1", "someone", "love this", 0, false, Date())
+        val reply = CommentViewData("c2", "t1", "other", "totally agree", 0, false, Date())
+
+        // Only the root has another comment below it; the last reply has nothing to fold.
+        assertEquals(setOf("c1"), CommentThreadViewData("t1", listOf(root, reply)).commentIdsWithReplies)
+    }
+
+    @Test
+    fun `loadAllData loads the next comment page before deciding which comments have replies`() = runTest {
+        fun commentDto(index: Int, creationTime: String) =
+            CommentDto("c$index", "comment $index", "someone", creationTime, creationTime, 0)
+        val firstPage = (1..COMMENT_BATCH_SIZE).map { commentDto(it, "2024-01-%02dT00:00:00Z".format(it)) }
+        val nextPage = listOf(commentDto(COMMENT_BATCH_SIZE + 1, "2024-02-01T00:00:00Z"))
+        whenever(api.getCommentsForPost("token123", postIdentifier, 0)).thenReturn(
+            Response.success(listOf(CommentThreadDto("t1")))
+        )
+        whenever(api.getCommentsForThread("token123", "t1", 0, null)).thenReturn(Response.success(firstPage))
+        whenever(api.getCommentsForThread("token123", "t1", 1, null)).thenReturn(Response.success(nextPage))
+
+        val pagedViewModel = PostDetailViewModel(postIdentifier, api, keychainHelper)
+
+        verify(api).getCommentsForThread("token123", "t1", 0, null)
+        verify(api).getCommentsForThread("token123", "t1", 1, null)
+        val thread = pagedViewModel.commentThreads.value.single()
+        assertEquals(COMMENT_BATCH_SIZE + 1, thread.comments.size)
+        assertEquals("comment ${COMMENT_BATCH_SIZE + 1}", thread.comments.last().body)
+        // The last comment of the first page has a reply on the second page.
+        assertEquals(COMMENT_BATCH_SIZE, thread.commentIdsWithReplies.size)
+        assertTrue(thread.commentIdsWithReplies.contains("c$COMMENT_BATCH_SIZE"))
+    }
+
+    private fun stubFullFirstCommentPage(): List<CommentDto> {
+        val firstPage = (1..COMMENT_BATCH_SIZE).map {
+            val time = "2024-01-%02dT00:00:00Z".format(it)
+            CommentDto("c$it", "comment $it", "someone", time, time, 0)
+        }
+        runBlocking {
+            whenever(api.getCommentsForPost("token123", postIdentifier, 0)).thenReturn(
+                Response.success(listOf(CommentThreadDto("t1")))
+            )
+            whenever(api.getCommentsForThread("token123", "t1", 0, null)).thenReturn(Response.success(firstPage))
+        }
+        return firstPage
+    }
+
+    @Test
+    fun `loadAllData skips a comment repeated on the next page`() = runTest {
+        val firstPage = stubFullFirstCommentPage()
+        // The ranking shifted between requests, so the last comment of the
+        // first page comes back again ahead of the new one.
+        val newComment = CommentDto("c31", "comment 31", "someone", "2024-02-01T00:00:00Z", "2024-02-01T00:00:00Z", 0)
+        whenever(api.getCommentsForThread("token123", "t1", 1, null)).thenReturn(
+            Response.success(listOf(firstPage.last(), newComment))
+        )
+
+        val pagedViewModel = PostDetailViewModel(postIdentifier, api, keychainHelper)
+
+        val ids = pagedViewModel.commentThreads.value.single().comments.map { it.id }
+        assertEquals((1..COMMENT_BATCH_SIZE + 1).map { "c$it" }, ids)
+    }
+
+    @Test
+    fun `loadAllData keeps the loaded pages when a later comment page fails`() = runTest {
+        stubFullFirstCommentPage()
+        whenever(api.getCommentsForThread("token123", "t1", 1, null)).thenReturn(
+            Response.error(429, "rate limited".toResponseBody())
+        )
+
+        val pagedViewModel = PostDetailViewModel(postIdentifier, api, keychainHelper)
+
+        assertEquals(COMMENT_BATCH_SIZE, pagedViewModel.commentThreads.value.single().comments.size)
+        // No further page is requested after the failure.
+        verify(api, never()).getCommentsForThread("token123", "t1", 2, null)
+    }
+
+    @Test
+    fun `loadAllData keeps the loaded pages when a later comment page throws`() = runTest {
+        stubFullFirstCommentPage()
+        whenever(api.getCommentsForThread("token123", "t1", 1, null)).thenAnswer {
+            throw java.io.IOException("connection reset")
+        }
+
+        val pagedViewModel = PostDetailViewModel(postIdentifier, api, keychainHelper)
+
+        assertEquals(COMMENT_BATCH_SIZE, pagedViewModel.commentThreads.value.single().comments.size)
+        assertEquals(null, pagedViewModel.alertMessage.value)
     }
 }
