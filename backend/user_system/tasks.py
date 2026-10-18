@@ -40,7 +40,7 @@ from .constants import (
 )
 from .models import Post, PositiveOnlySocialUser, InterestCategory, ModerationReview, FollowRequest, UserFollow
 from .visibility import same_age_band_users
-from . import push
+from . import notifications, push
 from .s3 import delete_image
 
 # Module-level aliases so tests can patch the classifiers here, mirroring the
@@ -583,6 +583,10 @@ def classify_post(post_identifier):
         # carries no retry budget, so a categorization hiccup never disturbs the
         # (already committed) approval.
         enqueue_post_categorization(post_identifier)
+        # Tell the author's followers (issue #444). Rides the same one-time
+        # pending -> visible transition, so each follower hears about a post
+        # once; best-effort and queued, so it never touches the approval.
+        notifications.notify_new_post(post_identifier)
         return
     logger.info("classify_post: post %s rejected (final=%s, reason=%s).",
                 post_identifier, final, reason_result.public_reason_code())

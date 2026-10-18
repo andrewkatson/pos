@@ -25,6 +25,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.example.positiveonlysocial.data.model.TotpSetupResponse
+import com.example.positiveonlysocial.data.model.visibleNotificationRows
 import com.example.positiveonlysocial.data.model.InterestOption
 import com.example.positiveonlysocial.data.model.RejectedInterest
 import com.example.positiveonlysocial.ui.components.InterestPicker
@@ -601,18 +602,19 @@ fun SettingsScreen(
             HorizontalDivider()
 
             // Notifications section (#342/#343): one toggle per push type. Renders
-            // only once the backend has reported at least one type.
+            // only once the backend has reported at least one type. Rows nest
+            // under their parent and hide while it is off (#444).
             if (notificationPreferences.isNotEmpty()) {
                 Text(
                     text = "Notifications",
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(16.dp)
                 )
-                notificationPreferences.forEach { pref ->
+                visibleNotificationRows(notificationPreferences).forEach { (pref, depth) ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(start = 16.dp + 16.dp * depth, end = 16.dp, top = 8.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {

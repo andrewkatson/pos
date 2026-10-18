@@ -1918,7 +1918,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse(message = "Device registered.", error = null))
     }
 
-    // Per-type push preferences, mirroring the backend's PUSH_TYPE_CHOICES.
+    // Per-type push preferences, mirroring the backend's PUSH_TYPE_TREE (#444).
     // Defaults to enabled; toggling stores an override.
     private val notificationOverrides = mutableMapOf<String, Boolean>()
 
@@ -1926,11 +1926,24 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         token: String
     ): Response<NotificationPreferencesResponse> {
         getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
-        val prefs = listOf(
-            NotificationPreference(
-                type = "post_rejected", label = "Post moderation",
-                enabled = notificationOverrides["post_rejected"] ?: true)
+        fun sources(kind: String, withOther: Boolean) = listOfNotNull(
+            Triple("${kind}_following", "From people I follow", kind),
+            Triple("${kind}_friend", "From friends", kind),
+            Triple("${kind}_family", "From family", kind),
+            if (withOther) Triple("${kind}_other", "From everyone else", kind) else null
         )
+        val tree = listOf<Triple<String, String, String?>>(
+            Triple("all", "Push notifications", null),
+            Triple("post_rejected", "Post moderation", "all"),
+            Triple("new_post", "New posts", "all")
+        ) + sources("new_post", false) +
+            Triple("new_comment", "Comments and replies", "all") + sources("new_comment", true) +
+            Triple("new_like", "Likes", "all") + sources("new_like", true)
+        val prefs = tree.map { (type, label, parent) ->
+            NotificationPreference(
+                type = type, label = label, parent = parent,
+                enabled = notificationOverrides[type] ?: true)
+        }
         return Response.success(NotificationPreferencesResponse(preferences = prefs))
     }
 

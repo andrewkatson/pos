@@ -28,7 +28,7 @@ from django.conf import settings
 
 from .constants import (
     DEVICE_PLATFORM_IOS, DEVICE_PLATFORM_ANDROID, DEVICE_PLATFORM_WEB,
-    PUSH_TYPE_POST_REJECTED,
+    PUSH_TYPE_POST_REJECTED, PUSH_TYPE_PARENTS,
 )
 from .models import DeviceToken, NotificationPreference
 
@@ -83,13 +83,57 @@ def build_rejection_payload(post, final):
     }
 
 
+# Longest slice of a caption or comment quoted in an activity push body. Lock
+# screens truncate long bodies anyway; this keeps the payload small and stops a
+# long post from being mirrored wholesale into the notification shade.
+ACTIVITY_PREVIEW_LENGTH = 100
+
+
+def _preview(text):
+    text = " ".join((text or "").split())
+    if len(text) <= ACTIVITY_PREVIEW_LENGTH:
+        return text
+    return text[:ACTIVITY_PREVIEW_LENGTH - 1].rstrip() + "\u2026"
+
+
+def build_activity_payload(kind, post, title, body_text):
+    """Build the push payload for social activity on a post (issue #444): a new
+    post from someone the recipient follows, or a comment, reply or like.
+
+    ``kind`` is the data ``type`` the clients branch on (new_post / new_comment
+    / new_like); every kind deep-links to ``post`` the same way a rejection
+    does. As with build_rejection_payload, every data value is a string.
+    """
+    post_id = str(post.post_identifier)
+    return {
+        "title": title,
+        "body": _preview(body_text),
+        "data": {
+            "type": kind,
+            "post_identifier": post_id,
+            "deep_link": f"{settings.FRONTEND_BASE_URL}/post/{post_id}",
+        },
+    }
+
+
+def _push_type_chain(notification_type):
+    """The type followed by each of its ancestors up to the master switch."""
+    chain = []
+    while notification_type is not None:
+        chain.append(notification_type)
+        notification_type = PUSH_TYPE_PARENTS.get(notification_type)
+    return chain
+
+
 def is_push_type_enabled(user, notification_type):
-    """Whether the user wants push for this type. Defaults to enabled — a row
-    exists only once the user has toggled the type off (or back on) in Settings,
-    so its absence means on."""
-    pref = NotificationPreference.objects.filter(
-        user=user, notification_type=notification_type).first()
-    return pref.enabled if pref is not None else True
+    """Whether the user wants push for this type: the type itself and every
+    ancestor in the preference tree (issue #444) must be on, so turning off the
+    master switch or a kind's switch silences everything beneath it. Defaults
+    to enabled — a row exists only once the user has toggled a type off (or
+    back on) in Settings, so its absence means on."""
+    return not NotificationPreference.objects.filter(
+        user=user, notification_type__in=_push_type_chain(notification_type), enabled=False,
+    ).exists()
 
 
 def send_push(user, payload, notification_type):

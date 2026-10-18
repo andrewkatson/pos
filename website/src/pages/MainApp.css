@@ -987,6 +987,18 @@
   gap: 1rem;
 }
 
+/* Nested notification toggles (issue #444): a kind under the master switch, a
+   relationship source under its kind. */
+.settings-row--toggle[data-depth='1'] {
+  margin-left: 1.25rem;
+  width: calc(100% - 1.25rem);
+}
+
+.settings-row--toggle[data-depth='2'] {
+  margin-left: 2.5rem;
+  width: calc(100% - 2.5rem);
+}
+
 .settings-row__value {
   color: #5ba4dc;
   font-weight: 600;

@@ -2585,7 +2585,7 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedResponse(fields: Fields(message: "Device registered."))
     }
 
-    // Per-type push preferences, mirroring the backend's PUSH_TYPE_CHOICES.
+    // Per-type push preferences, mirroring the backend's PUSH_TYPE_TREE (#444).
     // Defaults to enabled; toggling stores an override in this map.
     private var notificationOverrides: [String: Bool] = [:]
 
@@ -2594,9 +2594,23 @@ final class StatefulStubbedAPI: Networking {
         guard findUser(bySessionToken: sessionManagementToken) != nil else {
             throw APIError.badServerResponse(statusCode: 401)
         }
-        let prefs = [NotificationPreference(
-            type: "post_rejected", label: "Post moderation",
-            enabled: notificationOverrides["post_rejected"] ?? true)]
+        func sources(_ kind: String, withOther: Bool) -> [(String, String, String?)] {
+            var rows = [("\(kind)_following", "From people I follow", kind),
+                        ("\(kind)_friend", "From friends", kind),
+                        ("\(kind)_family", "From family", kind)]
+            if withOther { rows.append(("\(kind)_other", "From everyone else", kind)) }
+            return rows
+        }
+        let tree: [(String, String, String?)] =
+            [("all", "Push notifications", nil),
+             ("post_rejected", "Post moderation", "all"),
+             ("new_post", "New posts", "all")] + sources("new_post", withOther: false)
+            + [("new_comment", "Comments and replies", "all")] + sources("new_comment", withOther: true)
+            + [("new_like", "Likes", "all")] + sources("new_like", withOther: true)
+        let prefs = tree.map { type, label, parent in
+            NotificationPreference(type: type, label: label,
+                                   enabled: notificationOverrides[type] ?? true, parent: parent)
+        }
         return try createSerializedResponse(fields: NotificationPreferencesResponse(preferences: prefs))
     }
 

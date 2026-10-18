@@ -410,3 +410,45 @@ struct Positive_Only_SocialTests_SettingsViewModel {
     }
 }
 
+
+/// The Settings → Notifications tree (issue #444): rows nest under their parent
+/// and hide while any ancestor is off.
+struct Positive_Only_SocialTests_NotificationPreferenceTree {
+
+    private func tree(off: Set<String> = []) -> [NotificationPreference] {
+        [("all", nil), ("post_rejected", "all"), ("new_post", "all"),
+         ("new_post_friend", "new_post"), ("new_like", "all"), ("new_like_other", "new_like")]
+            .map { NotificationPreference(type: $0.0, label: $0.0, enabled: !off.contains($0.0), parent: $0.1) }
+    }
+
+    private func shown(_ prefs: [NotificationPreference]) -> [String] {
+        NotificationPreference.visibleRows(prefs).map { "\($0.depth):\($0.pref.type)" }
+    }
+
+    @Test func indentsEachRowUnderItsParent() {
+        #expect(shown(tree()) == ["0:all", "1:post_rejected", "1:new_post", "2:new_post_friend",
+                                  "1:new_like", "2:new_like_other"])
+    }
+
+    @Test func offParentHidesItsSubtree() {
+        #expect(shown(tree(off: ["new_post"])) == ["0:all", "1:post_rejected", "1:new_post",
+                                                   "1:new_like", "2:new_like_other"])
+        #expect(shown(tree(off: ["all"])) == ["0:all"])
+    }
+
+    @Test func rowsWithoutAKnownParentStayAtTheTop() {
+        let prefs = [NotificationPreference(type: "post_rejected", label: "Post moderation", enabled: true),
+                     NotificationPreference(type: "x", label: "X", enabled: true, parent: "missing")]
+        #expect(shown(prefs) == ["0:post_rejected", "0:x"])
+    }
+
+    @Test func decodesParentAndToleratesItsAbsence() throws {
+        let json = """
+        {"preferences": [{"type": "all", "label": "Push notifications", "parent": null, "enabled": true},
+                         {"type": "new_like", "label": "Likes", "parent": "all", "enabled": false},
+                         {"type": "legacy", "label": "Legacy", "enabled": true}]}
+        """.data(using: .utf8)!
+        let prefs = try JSONDecoder().decode(NotificationPreferencesResponse.self, from: json).preferences ?? []
+        #expect(prefs.map(\.parent) == [nil, "all", nil])
+    }
+}

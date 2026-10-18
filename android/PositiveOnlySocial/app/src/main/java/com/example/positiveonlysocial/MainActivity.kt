@@ -81,14 +81,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Route to the rejected post if this intent came from a notification tap.
-     * FCM delivers the payload's data keys as string extras (issues #342/#343). */
+    /** Route to the post a tapped notification is about — a rejected post, a
+     * new post, or one that was commented on or liked (issues #342/#343/#444).
+     * FCM delivers the payload's data keys as string extras. */
     private fun handleNotificationIntent(intent: Intent?) {
         val postId = intent?.getStringExtra(PosFirebaseMessagingService.KEY_POST_IDENTIFIER)
         val type = intent?.getStringExtra(PosFirebaseMessagingService.KEY_TYPE)
         // Gate on the payload's type (like iOS) so a future push kind that also
         // carries post_identifier can't misroute to a post.
-        if (!postId.isNullOrEmpty() && type == PosFirebaseMessagingService.TYPE_POST_REJECTED) {
+        if (!postId.isNullOrEmpty() && type in PosFirebaseMessagingService.POST_TYPES) {
             PushNavigator.openPost(postId)
             // Consume them so an Activity recreation (rotation / process death)
             // doesn't re-read the same extras and navigate again.

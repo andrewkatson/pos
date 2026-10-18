@@ -428,8 +428,31 @@ struct NotificationPreference: Codable, Identifiable {
     let type: String
     let label: String
     let enabled: Bool
+    /// The type this row sits under in the preference tree (issue #444): nil
+    /// for the master switch, or from an older backend that sends no tree.
+    var parent: String? = nil
 
     var id: String { type }
+
+    /// The toggles to show, in order, each with how deep it is indented. The
+    /// backend lists every parent before its children; a row is hidden while
+    /// any ancestor is off (an off parent silences everything beneath it), and
+    /// a row whose parent is missing shows at the top level.
+    static func visibleRows(_ prefs: [NotificationPreference]) -> [(pref: NotificationPreference, depth: Int)] {
+        let byType = Dictionary(prefs.map { ($0.type, $0) }, uniquingKeysWith: { first, _ in first })
+        var shownDepth: [String: Int] = [:]
+        var rows: [(pref: NotificationPreference, depth: Int)] = []
+        for pref in prefs {
+            var depth = 0
+            if let parentType = pref.parent, let parent = byType[parentType] {
+                guard parent.enabled, let parentDepth = shownDepth[parentType] else { continue }
+                depth = parentDepth + 1
+            }
+            shownDepth[pref.type] = depth
+            rows.append((pref, depth))
+        }
+        return rows
+    }
 }
 
 struct NotificationPreferencesResponse: Codable {

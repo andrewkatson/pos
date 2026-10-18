@@ -34,6 +34,28 @@ class NotificationPreferencesViewTests(PositiveOnlySocialTestCase):
         self.assertTrue(row['enabled'])
         self.assertTrue(row['label'])  # a human-facing label for the toggle
 
+    def test_get_returns_the_type_tree_parents_first(self):
+        # Issue #444: a master switch, a switch per kind, then per-source leaves.
+        prefs = self._get().json()['preferences']
+        parents = {p['type']: p['parent'] for p in prefs}
+        self.assertIsNone(parents['all'])
+        self.assertEqual(parents[PUSH_TYPE_POST_REJECTED], 'all')
+        self.assertEqual(parents['new_post'], 'all')
+        self.assertEqual(parents['new_post_friend'], 'new_post')
+        self.assertEqual(parents['new_comment_other'], 'new_comment')
+        self.assertEqual(parents['new_like_family'], 'new_like')
+        self.assertNotIn('new_post_other', parents)  # new posts only come from follows
+        seen = set()
+        for row in prefs:
+            self.assertTrue(row['parent'] is None or row['parent'] in seen)
+            seen.add(row['type'])
+
+    def test_disabling_a_parent_leaves_children_settings_alone(self):
+        self._post({'type': 'new_like', 'enabled': False})
+        prefs = {p['type']: p['enabled'] for p in self._get().json()['preferences']}
+        self.assertFalse(prefs['new_like'])
+        self.assertTrue(prefs['new_like_friend'])
+
     def test_post_disables_a_type_and_get_reflects_it(self):
         response = self._post({'type': PUSH_TYPE_POST_REJECTED, 'enabled': False})
         self.assertEqual(response.status_code, 200)

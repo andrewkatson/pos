@@ -25,7 +25,7 @@ from django.views.decorators.http import require_POST, require_GET, require_http
 from django_ratelimit.decorators import ratelimit
 from django_ratelimit.exceptions import Ratelimited
 
-from . import link_preview, moderation, tasks
+from . import link_preview, moderation, notifications, tasks
 from .classifiers import image_classifier, text_classifier, interest_classifier, model_chain
 from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_CODE
 from .classifiers.prefilter import prefilter_text
@@ -50,7 +50,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, \
     INTEREST_CATEGORY_CHOICES, INTEREST_CATEGORY_SLUGS, \
     MAX_FREEFORM_INTERESTS, MAX_FREEFORM_INTEREST_LENGTH, REJECTED_TEXT_ECHO_LIMIT, \
     DEVICE_PLATFORMS, MAX_DEVICE_TOKEN_LENGTH, \
-    PUSH_TYPE_CHOICES, PUSH_TYPES, \
+    PUSH_TYPE_TREE, PUSH_TYPES, \
     GOOGLE_SIGN_IN_UNAVAILABLE, INVALID_GOOGLE_TOKEN, GOOGLE_EMAIL_UNVERIFIED, \
     GOOGLE_EMAIL_AMBIGUOUS, \
     GENERATED_USERNAME_FALLBACK_PREFIX, MIN_GENERATED_USERNAME_LENGTH, \
@@ -2390,6 +2390,7 @@ def like_post(request, post_identifier):
             return log_and_return_json("like_post", {'error': "Already liked post"}, status=400)
 
         logger.info(f"Post liked successful: post_id: {post_identifier} by user_id: {request.user.id}")
+        notifications.notify_post_like(post, request.user)
         return log_and_return_json("like_post", {'message': 'Post liked'})
     else:
         logger.warning(f"Like post failed: Post {post_identifier} not found")
@@ -3330,6 +3331,9 @@ def comment_on_post(request, post_identifier):
                                     "but you can appeal the decision.")
     else:
         logger.info(f"Comment on post successful: post_id: {post_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
+        # Best-effort push to the post's author (issue #444); a comment hidden
+        # pending appeal stays quiet, since nobody else can see it.
+        notifications.notify_new_comment(new_comment)
     return log_and_return_json("comment_on_post", response_data, status=201)
 
 
@@ -3438,6 +3442,8 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
                                     "but you can appeal the decision.")
     else:
         logger.info(f"Reply to comment successful: comment_thread_id: {comment_thread_identifier}, comment_id: {new_comment.comment_identifier} for user_id: {request.user.id}")
+        # As in comment_on_post: push to the thread's starter and the post's author (issue #444).
+        notifications.notify_new_comment(new_comment)
     return log_and_return_json("reply_to_comment_thread", response_data, status=201)
 
 
@@ -3495,6 +3501,7 @@ def like_comment(request, post_identifier, comment_thread_identifier, comment_id
         return log_and_return_json("like_comment", {'error': "Already liked comment"}, status=400)
 
     logger.info(f"Like comment successful: comment_id: {comment_identifier} for user_id: {request.user.id}")
+    notifications.notify_comment_like(comment, request.user)
     return log_and_return_json("like_comment", {'message': 'Comment liked'})
 
 
@@ -5350,11 +5357,16 @@ def notification_preferences(request):
     """Read or update the caller's push notification preferences (issues
     #342/#343; the Settings "Notifications" toggles).
 
-    GET returns one {type, label, enabled} row per known push type — the clients
-    render a toggle per row generically, so a new type shows up everywhere with
-    no client change. Preferences default to enabled. POST {type, enabled}
-    upserts one type's preference; send_push consults these before sending, so a
-    type toggled off is never delivered on any device.
+    GET returns one {type, label, parent, enabled} row per known push type, in
+    display order with every parent before its children (issue #444: a master
+    switch, then a switch per kind, then one per relationship source). The
+    clients render a toggle per row generically — indented under `parent` and
+    hidden while an ancestor is off — so a new type shows up everywhere with no
+    client change. Each row's `enabled` is the user's own setting for that row,
+    not the effective one; send_push requires the whole ancestor chain to be on.
+    Preferences default to enabled. POST {type, enabled} upserts one type's
+    preference; send_push consults these before sending, so a type toggled off
+    (or under a parent toggled off) is never delivered on any device.
     """
     if request.method == 'GET':
         overrides = {p.notification_type: p.enabled
@@ -5362,8 +5374,9 @@ def notification_preferences(request):
         prefs = [{
             Fields.notification_type: notification_type,
             Fields.label: label,
+            Fields.parent: parent,
             Fields.enabled: overrides.get(notification_type, True),
-        } for notification_type, label in PUSH_TYPE_CHOICES]
+        } for notification_type, label, parent in PUSH_TYPE_TREE]
         return log_and_return_json("notification_preferences", {Fields.preferences: prefs})
 
     if request.method == 'POST':
