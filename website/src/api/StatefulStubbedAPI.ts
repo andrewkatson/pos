@@ -32,6 +32,8 @@ import type {
   CurrentUser,
   DisableTotpRequest,
   DisableTotpResponse,
+  EditCommentResponse,
+  EditPostResponse,
   FeedPost,
   FollowCategory,
   FollowRequestRow,
@@ -213,6 +215,8 @@ interface PostMock {
   captionFont: CaptionFont
   backgroundColor: BackgroundColor
   creationTime: number
+  /** When the author last edited the caption (issue #462); absent if never. */
+  editedTime?: number
   hidden: boolean
   hiddenReason: string
   /** Who may see the post (issue #392). */
@@ -236,6 +240,8 @@ interface CommentMock {
   /** Who may see this comment (issue #445). */
   audience: PostAudience
   creationTime: number
+  /** When the author last edited the comment (issue #462); absent if never. */
+  editedTime?: number
   hidden: boolean
   hiddenReason: string
   likes: Set<string>
@@ -1091,6 +1097,33 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'Post deleted' }
   }
 
+  async editPost(postIdentifier: string, caption: string): Promise<EditPostResponse> {
+    const user = this.requireUser()
+    const post = this.findPost(postIdentifier)
+    if (post.authorId !== user.id) {
+      throw new ApiError(400, 'No post with that identifier by that user')
+    }
+    // Only a live post is the author's to rewrite (issue #462).
+    if (post.hidden) {
+      throw new ApiError(409, "This post can't be edited right now")
+    }
+    if (caption !== post.caption) {
+      // The stub classifier: the same 'negative' trigger createPost uses. A
+      // rejected edit leaves the original caption alone.
+      if (caption.includes('negative')) {
+        throw new ApiError(400, 'Your edit was not saved because your caption did not meet our positivity guidelines. Your original caption is unchanged.')
+      }
+      post.caption = caption
+      post.tags = extractTags(caption).sort()
+      post.editedTime = Date.now()
+    }
+    return {
+      caption: post.caption,
+      edited_time: post.editedTime ? new Date(post.editedTime).toISOString() : null,
+      tags: post.tags,
+    }
+  }
+
   async lockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse> {
     const user = this.requireUser()
     const post = this.findPost(postIdentifier)
@@ -1412,6 +1445,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       caption_font: post.captionFont,
       background_color: post.backgroundColor,
       creation_time: new Date(post.creationTime).toISOString(),
+      edited_time: post.editedTime ? new Date(post.editedTime).toISOString() : null,
       post_likes: post.likes.size,
       is_liked: post.likes.has(user.id),
       is_saved: user.savedPostIds.includes(post.postIdentifier),
@@ -1494,6 +1528,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       caption_font: post.captionFont,
       background_color: post.backgroundColor,
       creation_time: new Date(post.creationTime).toISOString(),
+      edited_time: post.editedTime ? new Date(post.editedTime).toISOString() : null,
       post_likes: post.likes.size,
       author_username: author ? author.username : '',
       audience: post.audience,
@@ -1607,6 +1642,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         ...this.authorAvatarFields(c.authorId),
         creation_time: time,
         updated_time: time,
+        edited_time: c.editedTime ? new Date(c.editedTime).toISOString() : null,
         comment_likes: c.likes.size,
       }
     })
@@ -1783,6 +1819,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         ...this.authorAvatarFields(c.authorId),
         creation_time: time,
         updated_time: time,
+        edited_time: c.editedTime ? new Date(c.editedTime).toISOString() : null,
         comment_likes: c.likes.size,
         is_liked: c.likes.has(user.id),
         is_reported: c.reports.has(user.id),
@@ -1869,6 +1906,50 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     }
     thread.comments = thread.comments.filter((c) => c.commentIdentifier !== commentIdentifier)
     return { message: 'Comment deleted' }
+  }
+
+  async editComment(
+    postIdentifier: string,
+    commentThreadIdentifier: string,
+    commentIdentifier: string,
+    commentText: string,
+    formatting?: CommentFormatSpan[],
+  ): Promise<EditCommentResponse> {
+    const user = this.requireUser()
+    const comment = this.findReachableComment(
+      postIdentifier,
+      commentThreadIdentifier,
+      commentIdentifier,
+      user,
+    )
+    // Someone else's comment answers like a missing one (issue #462).
+    if (comment.authorId !== user.id) {
+      throw new ApiError(400, 'Comment not found')
+    }
+    const post = this.findPost(postIdentifier)
+    if (post.commentsDisabled) {
+      throw new ApiError(403, 'Comments are disabled for this post')
+    }
+    if (comment.hidden) {
+      throw new ApiError(409, "This comment can't be edited right now")
+    }
+    const bodyFormatting = formatting && formatting.length > 0 ? formatting : null
+    const changed =
+      commentText !== comment.body ||
+      JSON.stringify(bodyFormatting) !== JSON.stringify(comment.bodyFormatting)
+    if (changed) {
+      if (commentText !== comment.body && commentText.includes('negative')) {
+        throw new ApiError(400, 'Your edit was not saved because your comment did not meet our positivity guidelines. Your original comment is unchanged.')
+      }
+      comment.body = commentText
+      comment.bodyFormatting = bodyFormatting
+      comment.editedTime = Date.now()
+    }
+    return {
+      body: comment.body,
+      body_formatting: comment.bodyFormatting,
+      edited_time: comment.editedTime ? new Date(comment.editedTime).toISOString() : null,
+    }
   }
 
   async reportComment(

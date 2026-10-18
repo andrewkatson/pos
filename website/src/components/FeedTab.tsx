@@ -69,7 +69,7 @@ function FeedTab() {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const { stateFor, toggleLike, toggleSave, openMenu, openMenuPostId, openLikes, dialogs } =
+  const { stateFor, withEdits, toggleLike, toggleSave, openMenu, openMenuPostId, openLikes, dialogs } =
     usePostActions({
       currentUsername: getCurrentUsername(),
       // Deleting from the feed drops the row rather than reloading the whole
@@ -265,7 +265,7 @@ function FeedTab() {
         <p className="muted">No posts here yet.</p>
       ) : (
         <div className="feed-list">
-          {posts.map((post, index) => (
+          {posts.map(withEdits).map((post, index) => (
             <article key={post.post_identifier}>
               <div className="author-line">
                 {/* The scoreboard position (issue #558). Deleting a row from

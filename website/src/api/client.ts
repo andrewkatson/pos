@@ -24,6 +24,8 @@ import type {
   CreateUploadUrlResponse,
   DisableTotpRequest,
   DisableTotpResponse,
+  EditCommentResponse,
+  EditPostResponse,
   FeedPost,
   FollowCategory,
   FollowRequestRow,
@@ -531,6 +533,13 @@ export class ApiClient implements PositiveOnlySocialAPI {
     })
   }
 
+  editPost(postIdentifier: string, caption: string): Promise<EditPostResponse> {
+    return this.request<EditPostResponse>('POST', `/posts/${postIdentifier}/edit/`, {
+      auth: true,
+      body: { caption },
+    })
+  }
+
   lockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse> {
     return this.request<SetCommentsDisabledResponse>(
       'POST',
@@ -785,6 +794,20 @@ export class ApiClient implements PositiveOnlySocialAPI {
       'POST',
       `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/delete/`,
       { auth: true },
+    )
+  }
+
+  editComment(
+    postIdentifier: string,
+    commentThreadIdentifier: string,
+    commentIdentifier: string,
+    commentText: string,
+    formatting?: CommentFormatSpan[],
+  ): Promise<EditCommentResponse> {
+    return this.request<EditCommentResponse>(
+      'POST',
+      `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/edit/`,
+      { auth: true, body: { comment_text: commentText, ...formattingBody(formatting) } },
     )
   }
 

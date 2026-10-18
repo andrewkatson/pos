@@ -762,4 +762,95 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(sut.commentThreads.first(where: { $0.id == threadID })?.comments.count == commentCountBefore)
         #expect(sut.alertMessage != nil)
     }
+
+    // --- Editing (issue #462) ---
+
+    @Test func testEditCaption_OwnPost_SavesCaptionAndMarksEdited() async throws {
+        let (sut, postID, _) = try await setupOwnContentEnvironment(account: "editCaption_account")
+        #expect(sut.canEditPost, "Pre-condition: a live post of your own is editable")
+        #expect(sut.postDetail?.isEdited == false)
+
+        sut.editCaption("My edited post")
+        await yield()
+
+        #expect(sut.postDetail?.caption == "My edited post")
+        #expect(sut.postDetail?.isEdited == true)
+        // The edit is server-side, so it survives a reload.
+        await sut.refresh()
+        #expect(sut.postDetail?.caption == "My edited post")
+        #expect(sut.postDetail?.isEdited == true)
+        _ = postID
+    }
+
+    @Test func testEditCaption_Rejected_KeepsOriginalAndAlerts() async throws {
+        let (sut, _, _) = try await setupOwnContentEnvironment(account: "editCaptionRejected_account")
+
+        sut.editCaption("a negative caption")
+        await yield()
+
+        #expect(sut.postDetail?.caption == "My own post")
+        #expect(sut.postDetail?.isEdited == false)
+        #expect(sut.alertMessage != nil)
+    }
+
+    @Test func testEditComment_OwnComment_SavesBodyAndFormatting() async throws {
+        let (sut, _, commentID) = try await setupOwnContentEnvironment(account: "editComment_account")
+        let comment = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(sut.canEditComment(comment))
+
+        let bold = [CommentFormatSpan(start: 0, end: 2, bold: true)]
+        sut.editComment(comment, commentText: "My edited comment", formatting: bold)
+        await yield()
+
+        let edited = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(edited.body == "My edited comment")
+        #expect(edited.formatting == bold)
+        #expect(edited.isEdited)
+        await sut.refresh()
+        let reloaded = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(reloaded.body == "My edited comment")
+        #expect(reloaded.isEdited)
+    }
+
+    @Test func testEditComment_Rejected_KeepsOriginalAndAlerts() async throws {
+        let (sut, _, commentID) = try await setupOwnContentEnvironment(account: "editCommentRejected_account")
+        let comment = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+
+        sut.editComment(comment, commentText: "negative now", formatting: nil)
+        await yield()
+
+        let after = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(after.body == "My own comment")
+        #expect(!after.isEdited)
+        #expect(sut.alertMessage != nil)
+    }
+
+    @Test func testEdit_NotOfferedOnOthersContent() async throws {
+        let (sut, _, _, commentID) = try await setupTestEnvironment(account: "editOthers_account")
+        #expect(!sut.canEditPost)
+        let comment = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(!sut.canEditComment(comment))
+    }
+
+    @Test func testEditComment_NotOfferedOnceCommentsAreLocked() async throws {
+        let account = "editLockedComment_account"
+        let (sut, postID, commentID) = try await setupOwnContentEnvironment(account: account)
+        let session = try #require(try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account))
+        _ = try await stubAPI.lockComments(sessionManagementToken: session.sessionToken, postIdentifier: postID)
+        await sut.refresh()
+
+        let comment = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(!sut.canEditComment(comment))
+    }
+
+    @Test func testComposerController_SeedsTextAndFormattingForAnEdit() {
+        let spans = [CommentFormatSpan(start: 0, end: 4, bold: true), CommentFormatSpan(start: 5, end: 9, italic: true, size: "large")]
+        let controller = CommentFormatController(text: "love this", spans: spans)
+        #expect(controller.text == "love this")
+        #expect(controller.spans == spans)
+        #expect(controller.isSubmittable)
+
+        let caption = CommentFormatController(text: String(repeating: "a", count: GVOAppConstants.maxCaptionLength + 1), maxLength: GVOAppConstants.maxCaptionLength)
+        #expect(!caption.isSubmittable, "A caption edit is held to the caption limit, not the comment one")
+    }
 }

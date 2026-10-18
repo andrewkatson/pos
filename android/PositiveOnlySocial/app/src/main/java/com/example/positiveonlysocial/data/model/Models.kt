@@ -356,7 +356,37 @@ data class Post(
     // Nullable because Gson ignores Kotlin defaults for absent JSON (an older
     // response omitting it yields null); read as `commentsDisabled == true`.
     // Appended last so positional constructions are unaffected.
-    @SerializedName("comments_disabled") val commentsDisabled: Boolean? = false
+    @SerializedName("comments_disabled") val commentsDisabled: Boolean? = false,
+    // When the author last edited the caption (issue #462); null if never, and
+    // absent on older responses. Appended last so positional constructions are
+    // unaffected.
+    @SerializedName("edited_time") val editedTime: String? = null
+)
+
+// --- Editing (issue #462) ---
+
+data class EditPostRequest(
+    val caption: String
+)
+
+/** The caption as editPost saved it, with its hashtags re-parsed. */
+data class EditPostResponse(
+    val caption: String,
+    @SerializedName("edited_time") val editedTime: String? = null,
+    val tags: List<String>? = null
+)
+
+data class EditCommentRequest(
+    @SerializedName("comment_text") val commentText: String,
+    // Null omits the field, which the backend reads as a plain comment.
+    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null
+)
+
+/** The comment as editComment saved it. */
+data class EditCommentResponse(
+    val body: String,
+    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null,
+    @SerializedName("edited_time") val editedTime: String? = null
 )
 
 // --- Comment DTOs ---
@@ -405,7 +435,9 @@ data class CommentDto(
     // The comment author avatar's BlurHash (issue #460), shown blurred while the
     // avatar loads. Nullable (Gson ignores Kotlin defaults for absent JSON) and
     // appended last so positional constructions are unaffected.
-    @SerializedName("author_profile_image_blurhash") val authorProfileImageBlurHash: String? = null
+    @SerializedName("author_profile_image_blurhash") val authorProfileImageBlurHash: String? = null,
+    // When the author last edited it (issue #462); null if never. Appended last.
+    @SerializedName("edited_time") val editedTime: String? = null
 )
 
 // --- User/Profile DTOs ---
@@ -821,7 +853,9 @@ data class CommentViewData(
     // Who may see this comment (issue #445); null/"public" shows no scope badge.
     val audience: String? = null,
     // That avatar's BlurHash (issue #460), shown blurred while the photo loads.
-    val authorProfileImageBlurHash: String? = null
+    val authorProfileImageBlurHash: String? = null,
+    // Whether the author changed it after posting (issue #462).
+    val isEdited: Boolean = false
 )
 
 data class CommentThreadViewData(

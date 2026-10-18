@@ -87,6 +87,10 @@ urlpatterns = [
     # — owner only, re-allows new comments/replies (issue #492)
     path('posts/<uuid:post_identifier>/comments/unlock/', views.unlock_comments, name='unlock_comments'),
 
+    # POST /posts/<uuid:post_identifier>/edit/ (Token in header) — owner-only
+    # caption edit, re-classified before it replaces anything (issue #462)
+    path('posts/<uuid:post_identifier>/edit/', views.edit_post, name='edit_post'),
+
     # POST /posts/<uuid:post_identifier>/report/ (Token in header)
     path('posts/<uuid:post_identifier>/report/', views.report_post, name='report_post'),
 
@@ -171,6 +175,12 @@ urlpatterns = [
     path(
         'posts/<uuid:post_identifier>/threads/<uuid:comment_thread_identifier>/comments/<uuid:comment_identifier>/delete/',
         views.delete_comment, name='delete_comment'),
+
+    # POST /.../comments/<uuid:comment_identifier>/edit/ (Token in header) —
+    # author-only, re-classified before it replaces anything (issue #462)
+    path(
+        'posts/<uuid:post_identifier>/threads/<uuid:comment_thread_identifier>/comments/<uuid:comment_identifier>/edit/',
+        views.edit_comment, name='edit_comment'),
 
     # POST /.../comments/<uuid:comment_identifier>/report/ (Token in header)
     path(

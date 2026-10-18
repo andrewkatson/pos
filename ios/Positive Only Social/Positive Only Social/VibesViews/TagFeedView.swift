@@ -159,7 +159,7 @@ struct TagFeedView: View {
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
                                         blurHash: post.blurHash,
-                                        caption: post.caption,
+                                        caption: postActions.caption(for: post),
                                         // A text-only post's tile keeps the
                                         // author's font/background here too
                                         // (issues #318, #450).

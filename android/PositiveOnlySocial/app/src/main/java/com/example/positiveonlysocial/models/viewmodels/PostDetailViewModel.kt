@@ -101,6 +101,14 @@ class PostDetailViewModel(
     private val _showAddCommentDialog = MutableStateFlow(false)
     val showAddCommentDialog: StateFlow<Boolean> = _showAddCommentDialog.asStateFlow()
 
+    // Drive the same composer dialog, prefilled, for editing the caption or one
+    // of the user's own comments (issue #462).
+    private val _showEditCaptionDialog = MutableStateFlow(false)
+    val showEditCaptionDialog: StateFlow<Boolean> = _showEditCaptionDialog.asStateFlow()
+
+    private val _commentToEdit = MutableStateFlow<CommentViewData?>(null)
+    val commentToEdit: StateFlow<CommentViewData?> = _commentToEdit.asStateFlow()
+
     // Ids of comments whose thread below them is collapsed. Tapping a comment's
     // username/time header toggles its presence here (issue #243).
     private val _collapsedCommentIds = MutableStateFlow<Set<String>>(emptySet())
@@ -138,6 +146,23 @@ class PostDetailViewModel(
     fun setThreadToReplyTo(thread: CommentThreadViewData?) {
         _threadToReplyTo.value = thread
     }
+
+    fun setShowEditCaptionDialog(show: Boolean) {
+        _showEditCaptionDialog.value = show
+    }
+
+    fun setCommentToEdit(comment: CommentViewData?) {
+        _commentToEdit.value = comment
+    }
+
+    /** Edit is offered on the user's own post once it's live — a pending,
+     * rejected or hidden post isn't theirs to rewrite (issue #462). */
+    fun canEditPost(): Boolean = isOwnPost() && _postDetail.value?.hidden != true
+
+    /** Edit is offered on the user's own comments while the post accepts
+     * comments: turning commenting off (issue #492) freezes existing ones too. */
+    fun canEditComment(comment: CommentViewData): Boolean =
+        isOwnComment(comment) && _postDetail.value?.commentsDisabled != true
 
     fun setShowAddCommentDialog(show: Boolean) {
         _showAddCommentDialog.value = show
@@ -308,7 +333,8 @@ class PostDetailViewModel(
                                 authorProfileImageUrl = c.authorProfileImageUrl,
                                 authorProfileImageOriginalUrl = c.authorProfileImageOriginalUrl,
                                 audience = c.audience,
-                                authorProfileImageBlurHash = c.authorProfileImageBlurHash
+                                authorProfileImageBlurHash = c.authorProfileImageBlurHash,
+                                isEdited = c.editedTime != null
                             )
                         }
 
@@ -714,6 +740,82 @@ class PostDetailViewModel(
                 }
             } catch (e: Exception) {
                 _alertMessage.value = ApiErrors.messageFor(e, fallback = "Failed to post reply. Please try again.")
+            }
+        }
+    }
+
+    /**
+     * Saves an edited caption (issue #462). The backend judges the new caption
+     * before it replaces anything and keeps the original on a rejection, so the
+     * post on screen only changes once the save succeeds.
+     */
+    fun editCaption(caption: String) {
+        val current = _postDetail.value ?: return
+        if (caption.isEmpty() || caption == current.caption) return
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.editPost(userSession.sessionToken, postIdentifier, EditPostRequest(caption))
+                val saved = response.body()
+                if (response.isSuccessful && saved != null) {
+                    _postDetail.value = _postDetail.value?.copy(
+                        caption = saved.caption,
+                        tags = saved.tags,
+                        editedTime = saved.editedTime
+                    )
+                    // Lists already showing this post pick up the new caption.
+                    PostEvents.captionEdited(postIdentifier, saved.caption, saved.tags.orEmpty())
+                } else {
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to edit the caption. Please try again.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to edit caption", e)
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            }
+        }
+    }
+
+    /** Saves an edit to one of the user's own comments, with the same
+     * change-only-on-success behaviour as [editCaption]. */
+    fun editComment(comment: CommentViewData, commentText: String, formatting: List<CommentFormatSpan>?) {
+        if (commentText.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.editComment(
+                    userSession.sessionToken,
+                    postIdentifier,
+                    comment.threadId,
+                    comment.id,
+                    EditCommentRequest(commentText, formatting)
+                )
+                val saved = response.body()
+                if (response.isSuccessful && saved != null) {
+                    _commentThreads.value = _commentThreads.value.map { thread ->
+                        if (thread.id != comment.threadId) thread
+                        else thread.copy(comments = thread.comments.map {
+                            if (it.id != comment.id) it
+                            else it.copy(
+                                body = saved.body,
+                                formatting = saved.bodyFormatting,
+                                isEdited = saved.editedTime != null
+                            )
+                        })
+                    }
+                } else {
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to edit the comment. Please try again.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to edit comment", e)
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
     }

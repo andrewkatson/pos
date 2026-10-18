@@ -3,6 +3,7 @@ package com.example.positiveonlysocial.models.viewmodels
 import android.util.Log
 import com.example.positiveonlysocial.api.ApiErrors
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.EditPostRequest
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.ReportRequest
 import com.example.positiveonlysocial.data.model.UserSession
@@ -66,6 +67,10 @@ class PostListActions(
     private val _postToRetract = MutableStateFlow<Post?>(null)
     val postToRetract: StateFlow<Post?> = _postToRetract.asStateFlow()
 
+    // The post whose caption the edit composer is open for (issue #462).
+    private val _postToEdit = MutableStateFlow<Post?>(null)
+    val postToEdit: StateFlow<Post?> = _postToEdit.asStateFlow()
+
     // The post whose "who liked this" dialog is showing (issue #478). Only ever
     // set for the signed-in user's own posts — the count is inert on everyone
     // else's, and the backend refuses them.
@@ -92,7 +97,18 @@ class PostListActions(
                 applyCommentsDisabled(postId, disabled)
             }
         }
+        // And show a caption edited anywhere — this list included — in place
+        // (issue #462), without refetching and reshuffling the list.
+        scope.launch {
+            PostEvents.captionEdits.collect { (postId, caption, tags) ->
+                updatePost(postId) { it.copy(caption = caption, tags = tags) }
+            }
+        }
     }
+
+    /** Edit is offered on your own post once it's live — a pending, rejected or
+     * hidden one isn't yours to rewrite (issue #462). */
+    fun canEdit(post: Post): Boolean = isOwnPost(post) && post.hidden != true
 
     /** Whether [post] was authored by the signed-in user. */
     fun isOwnPost(post: Post): Boolean {
@@ -116,6 +132,36 @@ class PostListActions(
 
     fun setPostToRetract(post: Post?) {
         _postToRetract.value = post?.let { currentVersionOf(it) ?: it }
+    }
+
+    fun setPostToEdit(post: Post?) {
+        _postToEdit.value = post?.let { currentVersionOf(it) ?: it }
+    }
+
+    /**
+     * Saves an edited caption for one of the user's own posts (issue #462). The
+     * backend judges the new caption first and keeps the original on a
+     * rejection, so the row only changes once the save succeeds; the saved
+     * caption is then announced so every list showing the post updates.
+     */
+    fun editCaption(post: Post, caption: String) {
+        val current = currentVersionOf(post) ?: post
+        if (caption.isEmpty() || caption == current.caption) return
+        scope.launch {
+            val token = sessionToken() ?: return@launch
+            try {
+                val response = api.editPost(token, post.postIdentifier, EditPostRequest(caption))
+                val saved = response.body()
+                if (response.isSuccessful && saved != null) {
+                    PostEvents.captionEdited(post.postIdentifier, saved.caption, saved.tags.orEmpty())
+                } else {
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to edit the caption. Please try again.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to edit caption", e)
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            }
+        }
     }
 
     /**
@@ -393,5 +439,6 @@ class PostListActions(
         if (_postForAction.value?.postIdentifier == postIdentifier) _postForAction.value = null
         if (_postToReport.value?.postIdentifier == postIdentifier) _postToReport.value = null
         if (_postToRetract.value?.postIdentifier == postIdentifier) _postToRetract.value = null
+        if (_postToEdit.value?.postIdentifier == postIdentifier) _postToEdit.value = null
     }
 }

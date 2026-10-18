@@ -1,8 +1,10 @@
 import { useState, type ReactNode } from 'react'
 import { apiClient } from '../api/client'
 import type { FeedPost } from '../api/types'
+import { MAX_CAPTION_LENGTH } from '../auth/requirements'
 import { postShareUrl, shareLink } from '../utils/shareLink'
 import AnchoredMenu, { AnchoredMenuItem } from './AnchoredMenu'
+import CommentComposerDialog from './CommentComposerDialog'
 import LikesModal from './LikesModal'
 import type { MenuAnchor } from './menuAnchor'
 
@@ -24,6 +26,9 @@ interface PostOverride {
   isReported?: boolean
   reportReason?: string | null
   commentsDisabled?: boolean
+  /** The caption as last saved from the Edit dialog (issue #462). */
+  caption?: string
+  tags?: string[]
 }
 
 /** What the UI needs to render one post's controls. */
@@ -49,6 +54,8 @@ type Dialog =
   | { kind: 'report'; post: FeedPost }
   | { kind: 'retract'; post: FeedPost }
   | { kind: 'delete'; post: FeedPost }
+  // Editing your own caption (issue #462), in the comment composer dialog.
+  | { kind: 'edit'; post: FeedPost }
   // Who liked one of your own posts (issue #478). Only reachable from your own
   // rows: the count is inert on everyone else's, and the backend refuses them.
   | { kind: 'likes'; post: FeedPost }
@@ -87,6 +94,9 @@ export function usePostActions({
   onError,
 }: UsePostActionsOptions): {
   stateFor: (post: FeedPost) => PostActionState
+  /** The post as the list should render it, with a caption edited from this
+   * menu (issue #462) applied over the fetched one. */
+  withEdits: (post: FeedPost) => FeedPost
   toggleLike: (post: FeedPost) => void
   toggleSave: (post: FeedPost) => void
   openMenu: (post: FeedPost, anchor: MenuAnchor) => void
@@ -116,6 +126,12 @@ export function usePostActions({
           : (post.report_reason ?? null),
       commentsDisabled: override.commentsDisabled ?? post.comments_disabled ?? false,
     }
+  }
+
+  function withEdits(post: FeedPost): FeedPost {
+    const override = overrides[post.post_identifier]
+    if (override?.caption === undefined) return post
+    return { ...post, caption: override.caption, tags: override.tags ?? post.tags }
   }
 
   function setOverride(postIdentifier: string, patch: PostOverride) {
@@ -227,6 +243,18 @@ export function usePostActions({
     }
   }
 
+  // Nothing changes on screen until the save succeeds: the backend judges the
+  // new caption first, and a rejection keeps the original (issue #462).
+  async function submitEdit(post: FeedPost, caption: string) {
+    setDialog(null)
+    try {
+      const saved = await apiClient.editPost(post.post_identifier, caption)
+      setOverride(post.post_identifier, { caption: saved.caption, tags: saved.tags })
+    } catch (err) {
+      onError(messageFrom(err, 'Failed to edit caption.'))
+    }
+  }
+
   async function submitDelete() {
     if (dialog?.kind !== 'delete') return
     const { post } = dialog
@@ -260,6 +288,13 @@ export function usePostActions({
                 : 'Turn off commenting'}
             </AnchoredMenuItem>
           )}
+          {/* Edit the caption (issue #462): your own posts, once live — a
+              pending or hidden one isn't yours to rewrite. */}
+          {stateFor(dialog.post).isOwn && !dialog.post.hidden && (
+            <AnchoredMenuItem onClick={() => setDialog({ kind: 'edit', post: dialog.post })}>
+              Edit
+            </AnchoredMenuItem>
+          )}
           {stateFor(dialog.post).isOwn ? (
             <AnchoredMenuItem
               destructive
@@ -282,6 +317,20 @@ export function usePostActions({
             </AnchoredMenuItem>
           )}
         </AnchoredMenu>
+      )}
+
+      {dialog?.kind === 'edit' && (
+        <CommentComposerDialog
+          title="Edit caption"
+          submitLabel="Save"
+          initialText={withEdits(dialog.post).caption}
+          allowFormatting={false}
+          showAudience={false}
+          maxLength={MAX_CAPTION_LENGTH}
+          textLabel="Caption text"
+          onCancel={() => setDialog(null)}
+          onSubmit={text => void submitEdit(dialog.post, text)}
+        />
       )}
 
       {dialog?.kind === 'likes' && (
@@ -388,6 +437,7 @@ export function usePostActions({
 
   return {
     stateFor,
+    withEdits,
     toggleLike: post => void toggleLikeAsync(post),
     toggleSave: post => void toggleSaveAsync(post),
     openMenu: (post, anchor) => setDialog({ kind: 'menu', post, anchor }),

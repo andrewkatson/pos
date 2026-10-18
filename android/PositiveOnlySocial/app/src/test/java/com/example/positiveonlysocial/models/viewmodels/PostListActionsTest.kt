@@ -2,6 +2,8 @@ package com.example.positiveonlysocial.models.viewmodels
 
 import com.example.positiveonlysocial.MainDispatcherRule
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
+import com.example.positiveonlysocial.data.model.EditPostRequest
+import com.example.positiveonlysocial.data.model.EditPostResponse
 import com.example.positiveonlysocial.data.model.GenericResponse
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.ReportRequest
@@ -350,6 +352,51 @@ class PostListActionsTest {
         advanceUntilIdle()
 
         assertEquals(true, postWithId("2").commentsDisabled)
+    }
+
+    @Test
+    fun `editCaption shows the saved caption in place without reloading (#462)`() = runTest {
+        loadFeed()
+        whenever(api.editPost("token123", "2", EditPostRequest("still mine")))
+            .thenReturn(Response.success(EditPostResponse("still mine", "2024-01-02T00:00:00Z", listOf("tag"))))
+        assertTrue(actions.canEdit(ownPost))
+
+        actions.editCaption(ownPost, "still mine")
+        advanceUntilIdle()
+
+        assertEquals("still mine", postWithId("2").caption)
+        assertEquals(listOf("tag"), postWithId("2").tags)
+        verify(api).getPostsInFeed("token123", 0)
+    }
+
+    @Test
+    fun `a rejected caption edit leaves the row alone (#462)`() = runTest {
+        loadFeed()
+        whenever(api.editPost(eq("token123"), eq("2"), any()))
+            .thenReturn(Response.error(400, "{\"error\":\"Your edit was not saved\"}".toResponseBody()))
+
+        actions.editCaption(ownPost, "negative")
+        advanceUntilIdle()
+
+        assertEquals("caption2", postWithId("2").caption)
+        assertEquals("Your edit was not saved", actions.alertMessage.value)
+    }
+
+    @Test
+    fun `edit is only offered on your own live posts (#462)`() = runTest {
+        assertFalse(actions.canEdit(otherPost))
+        assertFalse(actions.canEdit(ownPost.copy(hidden = true)))
+        assertTrue(actions.canEdit(ownPost))
+    }
+
+    @Test
+    fun `a caption edited on the detail screen reaches the list (#462)`() = runTest {
+        loadFeed()
+
+        PostEvents.captionEdited("2", "edited elsewhere", emptyList())
+        advanceUntilIdle()
+
+        assertEquals("edited elsewhere", postWithId("2").caption)
     }
 
     @Test

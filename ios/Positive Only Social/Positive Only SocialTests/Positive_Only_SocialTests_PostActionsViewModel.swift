@@ -382,6 +382,74 @@ struct Positive_Only_SocialTests_PostActionsViewModel {
         #expect(sut.state(for: post).commentsDisabled == true)
     }
 
+    // --- Caption Edit Tests (issue #462) ---
+
+    @Test func testEditCaption_OnOwnPost_ShowsTheSavedCaptionInPlace() async throws {
+        let account = "editFromList_account"
+        let token = try await setupLoggedInUser(username: "listEditor", account: account)
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "img/1", caption: "Mine")
+
+        let data = try await stubAPI.getPostsForUser(sessionManagementToken: token, username: "listEditor", batch: 0)
+        let post = try unwrap(try JSONDecoder().decode([Post].self, from: data).first, "the user's own post")
+
+        let center = NotificationCenter()
+        let sut = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account, notificationCenter: center)
+        #expect(sut.canEdit(post))
+
+        sut.editCaption(post, caption: "Still mine")
+        await yield()
+
+        #expect(sut.alertMessage == nil)
+        #expect(sut.caption(for: post) == "Still mine")
+        let refreshed = try await stubAPI.getPostsForUser(sessionManagementToken: token, username: "listEditor", batch: 0)
+        #expect(try unwrap(try JSONDecoder().decode([Post].self, from: refreshed).first, "the edited post").caption == "Still mine")
+    }
+
+    @Test func testEditCaption_Rejected_KeepsTheOriginalCaption() async throws {
+        let account = "editRejectedFromList_account"
+        let token = try await setupLoggedInUser(username: "listRejected", account: account)
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "img/1", caption: "Mine")
+
+        let data = try await stubAPI.getPostsForUser(sessionManagementToken: token, username: "listRejected", batch: 0)
+        let post = try unwrap(try JSONDecoder().decode([Post].self, from: data).first, "the user's own post")
+        let sut = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        sut.editCaption(post, caption: "negative")
+        await yield()
+
+        #expect(sut.alertMessage != nil)
+        #expect(sut.caption(for: post) == "Mine")
+    }
+
+    @Test func testEdit_NotOfferedOnSomeoneElsesPost() async throws {
+        let account = "editOthersFromList_account"
+        let viewerToken = try await setupLoggedInUser(username: "notTheEditor", account: account)
+        let authorToken = try await registerUserAndGetToken(username: "editAuthor")
+        _ = try await stubAPI.makePost(sessionManagementToken: authorToken, imageURL: "img/1", caption: "Theirs")
+
+        let post = try await firstFeedPost(token: viewerToken)
+        let sut = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account)
+        #expect(!sut.canEdit(post))
+    }
+
+    @Test func testCaptionEditedOnDetailScreen_ReachesTheRow() async throws {
+        let account = "editFromDetail_account"
+        let token = try await setupLoggedInUser(username: "detailEditor", account: account)
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "img/1", caption: "Mine")
+
+        let data = try await stubAPI.getPostsForUser(sessionManagementToken: token, username: "detailEditor", batch: 0)
+        let post = try unwrap(try JSONDecoder().decode([Post].self, from: data).first, "the user's own post")
+
+        let center = NotificationCenter()
+        let sut = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account, notificationCenter: center)
+
+        // PostDetailViewModel announces a saved caption edit this way.
+        center.post(name: .postCaptionEdited, object: post.id, userInfo: ["caption": "Edited elsewhere"])
+        await yield()
+
+        #expect(sut.caption(for: post) == "Edited elsewhere")
+    }
+
     // --- Delete Tests ---
 
     @Test func testDelete_DropsThePostFromLoadedListsWithoutReloading() async throws {

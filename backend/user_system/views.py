@@ -28,6 +28,7 @@ from django_ratelimit.exceptions import Ratelimited
 from . import link_preview, moderation, tasks
 from .classifiers import image_classifier, text_classifier, interest_classifier, model_chain
 from .classifiers.classifier_constants import REASON_PHRASES, GENERIC_REASON_CODE
+from .classifiers.classifier_utils import get_available_apis
 from .classifiers.prefilter import prefilter_text
 from .constants import Patterns, Params, POST_BATCH_SIZE, \
     MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, MAX_BIO_LENGTH, \
@@ -36,6 +37,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, \
     ACCOUNT_BANNED, EMAIL_NOT_VERIFIED, EMAIL_VERIFICATION_TOKEN_HOURS, BAN_TYPE_OUTRIGHT, \
     HIDDEN_REASON_NONE, HIDDEN_REASON_CLASSIFIER, HIDDEN_REASON_CLASSIFIER_FINAL, \
     HIDDEN_REASON_PENDING_CLASSIFICATION, NON_APPEALABLE_HIDDEN_REASONS, \
+    REVIEW_STATUS_PENDING, REVIEW_STATUS_ESCALATED, \
     POST_STATUS_PENDING, POST_STATUS_REJECTED, POST_STATUS_REJECTED_FINAL, \
     TOP_POST_PERIOD_DAYS, TOP_POST_DEFAULT_PERIOD, TOP_POSTS_LIMIT, \
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
@@ -2037,6 +2039,45 @@ def create_upload_url(request):
     })
 
 
+def _is_valid_caption(caption):
+    """Whether `caption` passes the character rules a post caption must meet,
+    on create and on edit alike. Length is checked separately so it can carry
+    its own error message."""
+    return (bool(caption)
+            and isinstance(caption, str)
+            and ";" not in caption
+            and is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars))
+
+
+def _is_valid_comment_text(comment_text):
+    """The comment/reply counterpart of _is_valid_caption."""
+    return (bool(comment_text)
+            and isinstance(comment_text, str)
+            and ";" not in comment_text
+            and is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars))
+
+
+def _under_open_review(content):
+    """Whether a report review of this post or comment is still being worked
+    (issue #467): queued for the automated re-review, or waiting on a human
+    moderator. Edits are refused meanwhile (issue #462) — the reviewer has to
+    judge what was reported, not whatever the author swapped in afterward."""
+    return content.reviews.filter(status__in=(REVIEW_STATUS_PENDING, REVIEW_STATUS_ESCALATED)).exists()
+
+
+def _rejected_edit_response(view_name, what, text_result):
+    """The 400 for an edit the classifier turned down (issue #462). Unlike a
+    rejected new comment, nothing is created hidden: the original stays exactly
+    as it was, so there is nothing to appeal — the author can just try other
+    wording."""
+    return log_and_return_json(view_name, {
+        'error': f"Your edit was not saved because your {what} {text_result.public_reason()}. "
+                 f"Your original {what} is unchanged.",
+        Fields.reason_code: text_result.public_reason_code(),
+        Fields.appealable: False,
+    }, status=400)
+
+
 @csrf_exempt
 @api_login_required
 @ratelimit(key='user', rate='10/h', block=True)
@@ -2089,10 +2130,7 @@ def make_post(request):
         # The key must be scoped to this user (clients upload to `{user_id}/...`).
         elif not image_url_to_key(image_url).startswith(f"{request.user.id}/"):
             invalid_fields.append(Params.image)
-    if (not caption
-            or not isinstance(caption, str)
-            or ";" in caption
-            or not is_valid_pattern(caption, Patterns.alphanumeric_with_special_chars)):
+    if not _is_valid_caption(caption):
         invalid_fields.append(Params.caption)
 
     # Who may see the post (issue #392). Absent/null/"" keep the historical
@@ -2238,6 +2276,91 @@ def unlock_comments(request, post_identifier):
     post.save(update_fields=['comments_disabled'])
     logger.info(f"Comments unlocked: post_id: {post_identifier} by user_id: {request.user.id}")
     return log_and_return_json("unlock_comments", {Fields.comments_disabled: False})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def edit_post(request, post_identifier):
+    """Owner-only: replace a post's caption (issue #462).
+
+    The new caption is judged like new text before it replaces anything: the
+    pre-filter, then the text cascade, inline — a caption is text-only and the
+    image is unchanged, so this is the same worst case as posting a comment
+    rather than the async image review make_post defers (#282). Any rejection
+    refuses the edit and leaves the approved original in place; the post never
+    drops out of view while an edit is judged. Only a live post can be edited:
+    a pending, rejected or hidden one is not the author's to rewrite, and
+    neither is one whose report review is still open."""
+    logger.info("Endpoint edit_post invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("edit_post", {'error': "Invalid JSON data"}, status=400)
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        return log_and_return_json("edit_post", {'error': "Invalid post identifier"}, status=400)
+
+    caption = data.get(Fields.caption)
+    if not _is_valid_caption(caption):
+        return log_and_return_json("edit_post", {'error': f"Invalid fields {[Params.caption]}"}, status=400)
+    if len(caption) > MAX_CAPTION_LENGTH:
+        return log_and_return_json("edit_post", {'error': f"Caption exceeds maximum length of {MAX_CAPTION_LENGTH} characters"}, status=400)
+
+    try:
+        post = request.user.post_set.get(post_identifier=post_identifier)
+    except Post.DoesNotExist:
+        logger.warning(f"Edit post failed: Post {post_identifier} not found for user_id: {request.user.id}")
+        return log_and_return_json("edit_post", {'error': "No post with that identifier by that user"}, status=400)
+
+    if post.hidden:
+        return log_and_return_json("edit_post", {'error': "This post can't be edited right now"}, status=409)
+    if _under_open_review(post):
+        return log_and_return_json("edit_post", {'error': "This post can't be edited while it is being reviewed"}, status=409)
+
+    # Saving the same caption again is not an edit: no classifier call and no
+    # "edited" label.
+    if caption == post.caption:
+        return log_and_return_json("edit_post", {
+            Fields.caption: post.caption,
+            Fields.edited_time: post.edited_time,
+            **_post_tags(post),
+        })
+
+    prefilter_result = prefilter_text(caption)
+    if not prefilter_result:
+        logger.warning(f"Edit post failed: Caption failed the pre-filter for user_id: {request.user.id}")
+        return _rejected_edit_response("edit_post", "caption", prefilter_result)
+
+    text_result = text_classifier_class.is_text_positive(caption)
+    if text_result.provider_failure:
+        return log_and_return_json("edit_post", {'error': "Your edit couldn't be reviewed right now. Please try again."}, status=503)
+    if not text_result:
+        logger.warning(f"Edit post failed: Caption rejected by the classifier for user_id: {request.user.id}")
+        return _rejected_edit_response("edit_post", "caption", text_result)
+
+    with transaction.atomic():
+        # The post may have been hidden (a report review, a moderator),
+        # reported, or deleted while the classifier ran.
+        locked = Post.objects.select_for_update().filter(pk=post.pk, hidden=False).first()
+        if locked is None or _under_open_review(locked):
+            return log_and_return_json("edit_post", {'error': "This post can't be edited right now"}, status=409)
+        locked.caption = caption
+        locked.edited_time = timezone.now()
+        # Fold the caption's judges into the post's model chain (issue #511)
+        # rather than starting a new one: the chain also covers the image,
+        # which this edit leaves as it was.
+        model_chain.apply_round(locked, [text_result], get_available_apis())
+        locked.save(update_fields=['caption', 'edited_time', 'updated_time', *model_chain.CHAIN_FIELDS])
+        set_post_tags(locked, caption)
+    # The interest buckets were drawn from the old caption (issues #446/#35).
+    tasks.enqueue_post_categorization(locked.post_identifier)
+
+    logger.info(f"Post caption edited: post_id: {post_identifier} by user_id: {request.user.id}")
+    return log_and_return_json("edit_post", {
+        Fields.caption: locked.caption,
+        Fields.edited_time: locked.edited_time,
+        **_post_tags(locked),
+    })
 
 
 @csrf_exempt
@@ -3116,6 +3239,7 @@ def get_post_details(request, post_identifier):
             Fields.caption: post.caption,
             **_caption_style_fields(post),
             Fields.creation_time: post.creation_time,
+            Fields.edited_time: post.edited_time,
             Fields.post_likes: total_likes,
             Fields.is_liked: post.postlike_set.filter(user=request.user).exists(),
             Fields.is_saved: post.savedpost_set.filter(user=request.user).exists(),
@@ -3242,10 +3366,7 @@ def comment_on_post(request, post_identifier):
 
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
         return log_and_return_json("comment_on_post", {'error': "Invalid post_identifier"}, status=400)
-    if (not comment_text
-            or not isinstance(comment_text, str)
-            or ";" in comment_text
-            or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars)):
+    if not _is_valid_comment_text(comment_text):
         return log_and_return_json("comment_on_post", {'error': "Invalid comment text"}, status=400)
     if len(comment_text) > MAX_COMMENT_LENGTH:
         return log_and_return_json("comment_on_post", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
@@ -3351,7 +3472,7 @@ def reply_to_comment_thread(request, post_identifier, comment_thread_identifier)
         invalid_fields.append(Params.post_identifier)
     if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
         invalid_fields.append(Params.comment_thread_identifier)
-    if not comment_text or not isinstance(comment_text, str) or ";" in comment_text or not is_valid_pattern(comment_text, Patterns.alphanumeric_with_special_chars):
+    if not _is_valid_comment_text(comment_text):
         invalid_fields.append(Params.comment_text)
 
     if len(invalid_fields) > 0:
@@ -3635,6 +3756,121 @@ def delete_comment(request, post_identifier, comment_thread_identifier, comment_
 @api_login_required
 @ratelimit(key='user', rate='20/h', block=True)
 @require_POST
+def edit_comment(request, post_identifier, comment_thread_identifier, comment_identifier):
+    """Author-only: replace a comment's (or reply's) text and formatting
+    (issue #462).
+
+    Judged inline by the text cascade like a new comment, but any rejection
+    refuses the edit and keeps the original: a comment that already passed is
+    never swapped for, or hidden behind, text that did not. The comment keeps
+    its audience. A comment on a post whose author has turned commenting off
+    (#492) is frozen as it stands, and so is one that is hidden or whose report
+    review is still open."""
+    logger.info("Endpoint edit_comment invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("edit_comment", {'error': "Invalid JSON data"}, status=400)
+    invalid_fields = []
+    if not is_valid_pattern(post_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.post_identifier)
+    if not is_valid_pattern(comment_thread_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_thread_identifier)
+    if not is_valid_pattern(comment_identifier, Patterns.uuid4):
+        invalid_fields.append(Params.comment_identifier)
+    if len(invalid_fields) > 0:
+        return log_and_return_json("edit_comment", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    comment_text = data.get(Fields.comment_text)
+    if not _is_valid_comment_text(comment_text):
+        return log_and_return_json("edit_comment", {'error': "Invalid comment text"}, status=400)
+    if len(comment_text) > MAX_COMMENT_LENGTH:
+        return log_and_return_json("edit_comment", {'error': f"Comment exceeds maximum length of {MAX_COMMENT_LENGTH} characters"}, status=400)
+    # Formatting spans index into the text, so they are always resent with it;
+    # omitting them means the edited comment is plain.
+    body_formatting, formatting_error = validate_comment_formatting(
+        data.get(Fields.body_formatting), comment_text)
+    if formatting_error is not None:
+        return log_and_return_json("edit_comment", {'error': f"Invalid formatting: {formatting_error}"}, status=400)
+
+    # Someone else's comment answers exactly like a missing one, so the
+    # endpoint can't be used to probe whose comment an identifier names.
+    comment = (Comment.objects.select_related('comment_thread__post')
+               .filter(comment_identifier=comment_identifier,
+                       comment_thread__comment_thread_identifier=comment_thread_identifier,
+                       comment_thread__post__post_identifier=post_identifier,
+                       author=request.user)
+               .first())
+    post = comment.comment_thread.post if comment is not None else None
+    # A post the author can no longer see (hidden, blocked, gone private) is
+    # treated as missing, as when commenting on it.
+    if comment is None or not can_view_post(post, request.user):
+        logger.warning(f"Edit comment failed: Comment {comment_identifier} not found for user_id: {request.user.id}")
+        return log_and_return_json("edit_comment", {'error': "Comment not found"}, status=400)
+
+    if post.comments_disabled:
+        return log_and_return_json("edit_comment", {'error': "Comments are disabled for this post"}, status=403)
+    if comment.hidden:
+        return log_and_return_json("edit_comment", {'error': "This comment can't be edited right now"}, status=409)
+    if _under_open_review(comment):
+        return log_and_return_json("edit_comment", {'error': "This comment can't be edited while it is being reviewed"}, status=409)
+
+    if comment_text == comment.body and body_formatting == comment.body_formatting:
+        return log_and_return_json("edit_comment", {
+            Fields.body: comment.body,
+            Fields.body_formatting: comment.body_formatting,
+            Fields.edited_time: comment.edited_time,
+        })
+
+    # Only the text is judged — formatting is presentation over the same
+    # characters — so a formatting-only change skips the classifier.
+    if comment_text != comment.body:
+        text_result = text_classifier_class.is_text_positive(comment_text)
+        if text_result.provider_failure:
+            return log_and_return_json("edit_comment", {'error': "Your edit couldn't be reviewed right now. Please try again."}, status=503)
+        if not text_result:
+            logger.warning(f"Edit comment failed: Text rejected by the classifier for user_id: {request.user.id}")
+            return _rejected_edit_response("edit_comment", "comment", text_result)
+    else:
+        text_result = None
+
+    with transaction.atomic():
+        # Re-check what the classifier's run could have changed: the owner
+        # locking comments (#492) or going private (#96), or the comment being
+        # hidden or deleted.
+        locked_comments = _comments_locked_for_update(post)
+        if locked_comments is None:
+            return log_and_return_json("edit_comment", {'error': "Comment not found"}, status=400)
+        if locked_comments:
+            return log_and_return_json("edit_comment", {'error': "Comments are disabled for this post"}, status=403)
+        if not _post_author_still_admits(post, request.user):
+            return log_and_return_json("edit_comment", {'error': "Comment not found"}, status=400)
+        locked = Comment.objects.select_for_update().filter(pk=comment.pk, hidden=False).first()
+        if locked is None or _under_open_review(locked):
+            return log_and_return_json("edit_comment", {'error': "This comment can't be edited right now"}, status=409)
+        update_fields = ['body', 'body_formatting', 'edited_time', 'updated_time']
+        locked.body = comment_text
+        locked.body_formatting = body_formatting
+        locked.edited_time = timezone.now()
+        if text_result is not None:
+            # New text is new content: a fresh model chain, as for a new
+            # comment (issue #511).
+            locked.classification_models_tried, locked.classification_model_chain = \
+                model_chain.record_round([], [], [text_result])
+            update_fields.extend(model_chain.CHAIN_FIELDS)
+        locked.save(update_fields=update_fields)
+
+    logger.info(f"Comment edited: comment_id: {comment_identifier} by user_id: {request.user.id}")
+    return log_and_return_json("edit_comment", {
+        Fields.body: locked.body,
+        Fields.body_formatting: locked.body_formatting,
+        Fields.edited_time: locked.edited_time,
+    })
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
 def report_comment(request, post_identifier, comment_thread_identifier, comment_identifier):
     logger.info("Endpoint report_comment invoked by IP or User")
     # user is on request.user
@@ -3875,6 +4111,7 @@ def get_comments_for_thread(request, comment_thread_identifier, batch):
             **_author_avatar_fields(comment.author),
             Fields.creation_time: comment.creation_time,
             Fields.updated_time: comment.updated_time,
+            Fields.edited_time: comment.edited_time,
             Fields.comment_likes: like_counts.get(comment.comment_identifier, 0),
             Fields.is_liked: comment.comment_identifier in liked_comment_ids,
             Fields.is_reported: comment.comment_identifier in my_report_reasons,
@@ -3937,6 +4174,7 @@ def _public_post_fields(post, post_likes=None):
         Fields.caption: post.caption,
         **_caption_style_fields(post),
         Fields.creation_time: post.creation_time,
+        Fields.edited_time: post.edited_time,
         Fields.post_likes: post.postlike_set.count() if post_likes is None else post_likes,
         Fields.author_username: post.author.username,
         Fields.audience: post.audience,
@@ -4058,6 +4296,7 @@ def get_public_comments_for_thread(request, comment_thread_identifier, batch):
             **_author_avatar_fields(comment.author),
             Fields.creation_time: comment.creation_time,
             Fields.updated_time: comment.updated_time,
+            Fields.edited_time: comment.edited_time,
             Fields.comment_likes: like_counts.get(comment.comment_identifier, 0),
         }
         for comment in batched_comments

@@ -3,6 +3,11 @@ package com.example.positiveonlysocial.models.viewmodels
 import com.example.positiveonlysocial.MainDispatcherRule
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.CommentDto
+import com.example.positiveonlysocial.data.model.CommentFormatSpan
+import com.example.positiveonlysocial.data.model.EditCommentRequest
+import com.example.positiveonlysocial.data.model.EditCommentResponse
+import com.example.positiveonlysocial.data.model.EditPostRequest
+import com.example.positiveonlysocial.data.model.EditPostResponse
 import com.example.positiveonlysocial.data.model.CommentThreadDto
 import com.example.positiveonlysocial.data.model.CommentViewData
 import com.example.positiveonlysocial.data.model.CommentThreadViewData
@@ -345,5 +350,84 @@ class PostDetailViewModelTest {
 
         assertEquals(COMMENT_BATCH_SIZE, pagedViewModel.commentThreads.value.single().comments.size)
         assertEquals(null, pagedViewModel.alertMessage.value)
+    }
+
+    // --- Editing (issue #462) ---
+
+    private fun ownPostViewModel(commentsDisabled: Boolean = false, hidden: Boolean? = null): PostDetailViewModel {
+        runBlocking {
+            whenever(api.getPostDetails("token123", postIdentifier)).thenReturn(
+                Response.success(
+                    Post(postIdentifier, "url", "caption", "testuser", 1, hidden = hidden, commentsDisabled = commentsDisabled)
+                )
+            )
+            whenever(api.getCommentsForPost("token123", postIdentifier, 0)).thenReturn(
+                Response.success(listOf(CommentThreadDto("t1")))
+            )
+            whenever(api.getCommentsForThread("token123", "t1", 0, null)).thenReturn(
+                Response.success(listOf(CommentDto("c1", "my comment", "testuser", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z", 0)))
+            )
+        }
+        return PostDetailViewModel(postIdentifier, api, keychainHelper)
+    }
+
+    @Test
+    fun `editCaption saves the caption and marks the post edited`() = runTest {
+        val own = ownPostViewModel()
+        whenever(api.editPost("token123", postIdentifier, EditPostRequest("new caption"))).thenReturn(
+            Response.success(EditPostResponse("new caption", "2024-01-02T00:00:00Z", emptyList()))
+        )
+        assertTrue(own.canEditPost())
+
+        own.editCaption("new caption")
+
+        assertEquals("new caption", own.postDetail.value?.caption)
+        assertNotNull(own.postDetail.value?.editedTime)
+    }
+
+    @Test
+    fun `a rejected caption edit keeps the original and alerts`() = runTest {
+        val own = ownPostViewModel()
+        whenever(api.editPost(any(), any(), any())).thenReturn(
+            Response.error(400, "{\"error\":\"Your edit was not saved\"}".toResponseBody())
+        )
+
+        own.editCaption("negative")
+
+        assertEquals("caption", own.postDetail.value?.caption)
+        assertEquals(null, own.postDetail.value?.editedTime)
+        assertNotNull(own.alertMessage.value)
+    }
+
+    @Test
+    fun `editComment updates the comment in place and marks it edited`() = runTest {
+        val own = ownPostViewModel()
+        val comment = own.commentThreads.value.single().comments.single()
+        val bold = listOf(CommentFormatSpan(0, 2, true, false, "normal"))
+        whenever(api.editComment("token123", postIdentifier, "t1", "c1", EditCommentRequest("edited", bold))).thenReturn(
+            Response.success(EditCommentResponse("edited", bold, "2024-01-02T00:00:00Z"))
+        )
+        assertTrue(own.canEditComment(comment))
+
+        own.editComment(comment, "edited", bold)
+
+        val edited = own.commentThreads.value.single().comments.single()
+        assertEquals("edited", edited.body)
+        assertEquals(bold, edited.formatting)
+        assertTrue(edited.isEdited)
+    }
+
+    @Test
+    fun `edit is not offered on someone else's post or comment`() = runTest {
+        val othersComment = CommentViewData("c1", "t1", "someoneelse", "body", 0, false, Date())
+        assertFalse(viewModel.canEditPost())
+        assertFalse(viewModel.canEditComment(othersComment))
+    }
+
+    @Test
+    fun `edit is not offered on a hidden post or once comments are locked`() = runTest {
+        assertFalse(ownPostViewModel(hidden = true).canEditPost())
+        val locked = ownPostViewModel(commentsDisabled = true)
+        assertFalse(locked.canEditComment(locked.commentThreads.value.single().comments.single()))
     }
 }

@@ -30,6 +30,8 @@ vi.mock('../api/client', () => ({
     reportComment: vi.fn(),
     retractReportComment: vi.fn(),
     deleteComment: vi.fn(),
+    editPost: vi.fn(),
+    editComment: vi.fn(),
   },
 }))
 
@@ -52,6 +54,8 @@ const mockRetractReportPost = vi.mocked(apiClient.retractReportPost)
 const mockRetractReportComment = vi.mocked(apiClient.retractReportComment)
 const mockGetPostLikers = vi.mocked(apiClient.getPostLikers)
 const mockGetCommentLikers = vi.mocked(apiClient.getCommentLikers)
+const mockEditPost = vi.mocked(apiClient.editPost)
+const mockEditComment = vi.mocked(apiClient.editComment)
 
 const post: PostDetails = {
   post_identifier: 'p1',
@@ -114,6 +118,16 @@ beforeEach(() => {
   mockRetractReportComment.mockReset().mockResolvedValue({ message: 'ok' })
   mockGetPostLikers.mockReset().mockResolvedValue([])
   mockGetCommentLikers.mockReset().mockResolvedValue([])
+  mockEditPost.mockReset().mockImplementation(async (_id, caption) => ({
+    caption,
+    edited_time: '2024-01-02T00:00:00.000Z',
+    tags: [],
+  }))
+  mockEditComment.mockReset().mockImplementation(async (_p, _t, _c, text, formatting) => ({
+    body: text,
+    body_formatting: formatting ?? null,
+    edited_time: '2024-01-02T00:00:00.000Z',
+  }))
 })
 
 afterEach(() => {
@@ -881,4 +895,137 @@ test("the like count on someone else's comment is plain text", async () => {
     screen.queryByRole('button', { name: /see who liked this comment/ }),
   ).not.toBeInTheDocument()
   expect(mockGetCommentLikers).not.toHaveBeenCalled()
+})
+
+test('own post: Edit opens the composer prefilled with the caption and saves it (#462)', async () => {
+  localStorage.setItem('username', 'ada')
+  renderDetail()
+  await screen.findByText('sunshine')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  await userEvent.click(
+    within(screen.getByRole('menu', { name: 'Post options' })).getByRole('menuitem', { name: 'Edit' }),
+  )
+  const dialog = screen.getByRole('dialog', { name: 'Edit caption' })
+  const field = within(dialog).getByLabelText('Caption text')
+  expect(field).toHaveValue('sunshine')
+  // A caption is styled whole, and keeps its audience — neither control shows.
+  expect(within(dialog).queryByRole('group', { name: 'Text formatting' })).not.toBeInTheDocument()
+  expect(within(dialog).queryByLabelText('Comment audience')).not.toBeInTheDocument()
+
+  await userEvent.clear(field)
+  await userEvent.type(field, 'moonlight')
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+  await waitFor(() => expect(mockEditPost).toHaveBeenCalledWith('p1', 'moonlight'))
+  expect(await screen.findByText('moonlight')).toBeInTheDocument()
+  expect(screen.getByText(/edited/)).toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Edit caption' })).not.toBeInTheDocument()
+})
+
+test('a rejected caption edit keeps the original and shows why (#462)', async () => {
+  localStorage.setItem('username', 'ada')
+  mockEditPost.mockRejectedValue(new Error('Your edit was not saved.'))
+  renderDetail()
+  await screen.findByText('sunshine')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  await userEvent.click(
+    within(screen.getByRole('menu', { name: 'Post options' })).getByRole('menuitem', { name: 'Edit' }),
+  )
+  const field = screen.getByLabelText('Caption text')
+  await userEvent.clear(field)
+  await userEvent.type(field, 'gloom')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Your edit was not saved.')
+  expect(screen.getByText('sunshine')).toBeInTheDocument()
+})
+
+test("someone else's post offers no Edit (#462)", async () => {
+  renderDetail()
+  await screen.findByText('sunshine')
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  expect(
+    within(screen.getByRole('menu', { name: 'Post options' })).queryByRole('menuitem', { name: 'Edit' }),
+  ).not.toBeInTheDocument()
+})
+
+test('own pending post offers no Edit (#462)', async () => {
+  localStorage.setItem('username', 'ada')
+  mockGetDetails.mockResolvedValue({ ...post, hidden: true, status: 'pending' })
+  renderDetail()
+  await screen.findByText('sunshine')
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  expect(
+    within(screen.getByRole('menu', { name: 'Post options' })).queryByRole('menuitem', { name: 'Edit' }),
+  ).not.toBeInTheDocument()
+})
+
+test('own comment: Edit opens the composer prefilled with its text and formatting (#462)', async () => {
+  localStorage.setItem('username', 'bob')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([
+    {
+      ...comment,
+      body_formatting: [{ start: 0, end: 4, bold: true, italic: false, size: 'normal' }],
+    },
+  ])
+  renderDetail()
+  await screen.findByText('love')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
+  await userEvent.click(
+    within(screen.getByRole('menu', { name: 'Comment options' })).getByRole('menuitem', { name: 'Edit' }),
+  )
+  const dialog = screen.getByRole('dialog', { name: 'Edit comment' })
+  const field = within(dialog).getByLabelText('Comment text')
+  expect(field).toHaveValue('love this')
+  // The formatting toolbar is there; the audience picker is not — an edit
+  // keeps who the comment was shared with.
+  expect(within(dialog).getByRole('group', { name: 'Text formatting' })).toBeInTheDocument()
+  expect(within(dialog).queryByLabelText('Comment audience')).not.toBeInTheDocument()
+
+  await userEvent.type(field, ' a lot')
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+  // The existing bold span over "love" survives the edit.
+  await waitFor(() =>
+    expect(mockEditComment).toHaveBeenCalledWith('p1', 't1', 'c1', 'love this a lot', [
+      { start: 0, end: 4, bold: true, italic: false, size: 'normal' },
+    ]),
+  )
+  expect(await screen.findByText(/edited/)).toBeInTheDocument()
+})
+
+test("someone else's comment offers no Edit (#462)", async () => {
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  renderDetail()
+  await screen.findByText('love this')
+  await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
+  expect(
+    within(screen.getByRole('menu', { name: 'Comment options' })).queryByRole('menuitem', { name: 'Edit' }),
+  ).not.toBeInTheDocument()
+})
+
+test('your own comment on a post with comments turned off offers no Edit (#462)', async () => {
+  localStorage.setItem('username', 'bob')
+  mockGetDetails.mockResolvedValue({ ...post, comments_disabled: true })
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  renderDetail()
+  await screen.findByText('love this')
+  await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
+  expect(
+    within(screen.getByRole('menu', { name: 'Comment options' })).queryByRole('menuitem', { name: 'Edit' }),
+  ).not.toBeInTheDocument()
+})
+
+test('an edited comment is labelled as edited (#462)', async () => {
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([{ ...comment, edited_time: '2024-01-02T00:00:00.000Z' }])
+  renderDetail()
+  await screen.findByText('love this')
+  expect(screen.getByText(/edited/)).toBeInTheDocument()
 })

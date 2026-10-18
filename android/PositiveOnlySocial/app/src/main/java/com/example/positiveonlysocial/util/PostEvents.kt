@@ -47,4 +47,18 @@ object PostEvents {
     fun commentsDisabledChanged(postIdentifier: String, commentsDisabled: Boolean) {
         _commentsDisabledChanges.tryEmit(postIdentifier to commentsDisabled)
     }
+
+    // A caption edit (issue #462), saved from the detail screen or a list row,
+    // has to reach every list already showing that post. Carries the post id,
+    // the saved caption, and its re-parsed hashtags.
+    private val _captionEdits = MutableSharedFlow<Triple<String, String, List<String>>>(
+        extraBufferCapacity = 16,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val captionEdits: SharedFlow<Triple<String, String, List<String>>> = _captionEdits.asSharedFlow()
+
+    /** Announce that [postIdentifier]'s caption was edited to [caption]. */
+    fun captionEdited(postIdentifier: String, caption: String, tags: List<String>) {
+        _captionEdits.tryEmit(Triple(postIdentifier, caption, tags))
+    }
 }

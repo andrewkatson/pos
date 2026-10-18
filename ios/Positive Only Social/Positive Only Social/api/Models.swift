@@ -345,6 +345,36 @@ struct Post: Codable, Identifiable, Hashable {
     }
 }
 
+// MARK: - Editing (issue #462)
+
+/// The caption as `editPost` saved it, with the hashtags re-parsed from it.
+struct EditPostResponse: Codable {
+    let caption: String
+    /// When the caption was last edited; nil only if the request changed nothing
+    /// on a never-edited post.
+    let editedTime: String?
+    let tags: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case caption
+        case editedTime = "edited_time"
+        case tags
+    }
+}
+
+/// The comment as `editComment` saved it.
+struct EditCommentResponse: Codable {
+    let body: String
+    let bodyFormatting: [CommentFormatSpan]?
+    let editedTime: String?
+
+    enum CodingKeys: String, CodingKey {
+        case body
+        case bodyFormatting = "body_formatting"
+        case editedTime = "edited_time"
+    }
+}
+
 // MARK: - Post Creation (upload-url and create endpoints)
 
 /// The response from createUploadUrl: a short-lived presigned S3 PUT URL to
@@ -891,7 +921,8 @@ struct PostDisplayData: Identifiable, Equatable {
     /// compressed `imageURL` fails to load (see `Post.originalImageUrl`).
     /// Optional for backward compatibility with responses that predate the field.
     let originalImageURL: String?
-    let caption: String
+    /// `var` so a saved caption edit (issue #462) can update it in place.
+    var caption: String
     /// Caption font + background color keys (issue #318); "default" is normal.
     var captionFont: String = "default"
     var backgroundColor: String = "default"
@@ -919,6 +950,13 @@ struct PostDisplayData: Identifiable, Equatable {
     /// Whether the author has turned off commenting on this post (issue #492),
     /// either at creation or afterward via lockComments/unlockComments.
     var commentsDisabled: Bool = false
+    /// Whether the caption was changed after posting (issue #462), so the view
+    /// can say "edited".
+    var isEdited: Bool = false
+    /// Whether the post is hidden — pending review, rejected, or hidden by a
+    /// moderator. Only ever true on the viewer's own post (nobody else is shown
+    /// a hidden one), and such a post can't be edited (issue #462).
+    var isHidden: Bool = false
 }
 
 // A struct representing a single comment, for use in the view
@@ -933,7 +971,8 @@ struct CommentViewData: Identifiable, Equatable {
     var authorProfileImageOriginalURL: String? = nil
     /// That photo's BlurHash (issue #460), shown blurred while it loads.
     var authorProfileImageBlurHash: String? = nil
-    let body: String
+    /// `var` so a saved edit (issue #462) can update it in place.
+    var body: String
     /// Inline formatting spans over `body` (issue #318); nil = plain text.
     var formatting: [CommentFormatSpan]? = nil
     /// Who may see this comment (issue #445); nil/absent is treated as public.
@@ -945,6 +984,8 @@ struct CommentViewData: Identifiable, Equatable {
     /// their own report reason for the pre-populated retract dialog (issue #176).
     var isReported: Bool = false
     var reportReason: String? = nil
+    /// Whether the author changed it after posting (issue #462).
+    var isEdited: Bool = false
 }
 
 // A struct representing a full thread, which is just a list of comments

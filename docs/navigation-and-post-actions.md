@@ -72,9 +72,11 @@ profile grid, and the Feed — without opening the post first:
   [Reporting and user moderation](reporting.md)).
 - **Retract report**, which shows the reason you originally gave.
 - **Delete**, offered only on your own posts.
+- **Edit caption**, offered only on your own posts (see
+  [Editing captions and comments](#editing-captions-and-comments-issue-462)).
 - **Share**, offered on every post (see [Sharing](sharing.md)).
 
-Save, Report, Retract report, Delete and Share live behind a **three-dots (⋯)
+Save, Report, Retract report, Edit, Delete and Share live behind a **three-dots (⋯)
 options menu** on the post's action row, and the post-detail screen offers the
 same menu for the post and for each comment. The menu opens **anchored to the
 three dots that were tapped** — a popover next to the button, not a dialog in
@@ -167,3 +169,63 @@ can hide its comment composer and "Reply" controls and show a plain "Comments
 are turned off for this post" notice instead. Every client also offers a
 "Turn on/off commenting" action in the post's own three-dots menu, right next
 to Delete, alongside a toggle in the post-creation form.
+
+## Editing captions and comments (issue #462)
+
+The author of a post can edit its caption, and the author of a comment or reply
+can edit it, from **Edit** in that item's three-dots menu — the post's menu in
+any list and on the post-detail screen, and each comment's menu on the
+post-detail screen. Edit opens the same composer dialog used to write a comment,
+prefilled with the current text:
+
+- a **comment** edit keeps the bold / italic / size toolbar, opening with the
+  comment's existing formatting, and hides the audience picker — an edit never
+  changes who the comment was shared with;
+- a **caption** edit hides both, since a caption is styled as a whole (its font
+  and background are not editable here), and is held to the caption length
+  limit rather than the comment one.
+
+The endpoints are `POST /posts/<post_identifier>/edit/` (`caption`) and
+`POST /posts/<post_identifier>/threads/<thread_identifier>/comments/<comment_identifier>/edit/`
+(`comment_text`, optional `body_formatting` — omitted means plain, since spans
+index into the text and are always resent with it). Both are author-only: a
+post is looked up through the caller's own posts, and someone else's comment is
+answered exactly like a missing one.
+
+**An edit is judged before it replaces anything.** New text is new content, so
+it goes through the same checks as posting it would — a caption through the
+local pre-filter and then the text cascade, a comment through the text cascade
+(see [Post classification](post-classification.md)). Both run inline: a caption
+edit is text-only and the image is unchanged, so its worst case is a comment's,
+not the async image review a new post needs. Any rejection — final or
+appealable — refuses the edit with a `400` and **leaves the approved original
+in place**; nothing is created hidden, so there is nothing to appeal, and the
+author can simply try other wording. A provider failure is a `503` with the
+original likewise untouched. The post or comment therefore never drops out of
+view while an edit is judged, and clients change nothing on screen until the
+save succeeds. A change to a comment's formatting alone skips the classifier
+(formatting is presentation over the same characters), and saving unchanged
+text is a no-op rather than an edit. An accepted comment edit starts the
+comment's [model chain](post-classification.md) afresh, since the text is all
+there is to it; a caption edit folds its judge into the post's existing chain,
+which also covers the unchanged image. A caption edit also re-harvests the
+post's [hashtags](hashtags.md) and re-runs its
+[interest categorization](interest-tags.md).
+
+Only live content can be edited (`409` otherwise): not a post that is pending,
+rejected or hidden, not a hidden comment, and not a post or comment whose
+[report review](reporting.md) is still open (pending or escalated) — the
+reviewer has to judge what was reported, not whatever replaced it. These are
+re-checked under a row lock after classification, so content hidden or reported
+while its edit was being judged is not overwritten. A comment on
+a post whose author has [turned commenting off](#disabling--locking-comments-issue-492)
+is frozen as it stands (`403`), and clients hide Edit there; a comment on a post
+its author can no longer see is answered like a missing one.
+
+Edited content is marked: posts and comments carry `edited_time` (null until the
+first accepted edit) in the post-details, public share, and comment-listing
+payloads, and clients show **"edited"** next to the post's time on the detail
+screen and next to an edited comment's time, so a caption changed after people
+liked or commented on it never passes for the original. `edited_time` is
+distinct from `updated_time`, which every save bumps.
+

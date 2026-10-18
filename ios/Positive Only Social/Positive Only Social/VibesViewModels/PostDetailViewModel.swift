@@ -75,6 +75,23 @@ final class PostDetailViewModel: ObservableObject {
     /// When a user taps "Reply", this is set, which triggers the reply sheet
     @Published var threadToReplyTo: CommentThreadViewData?
 
+    /// Drive the same composer sheet, prefilled, for editing the caption or one
+    /// of the user's own comments (issue #462).
+    @Published var showEditCaptionSheet = false
+    @Published var commentToEdit: CommentViewData?
+
+    /// Edit is offered on the user's own post once it's live — a pending,
+    /// rejected or hidden post isn't theirs to rewrite (issue #462).
+    var canEditPost: Bool {
+        isOwnPost && postDetail?.isHidden == false
+    }
+
+    /// Edit is offered on the user's own comments while the post accepts
+    /// comments: turning commenting off (issue #492) freezes existing ones too.
+    func canEditComment(_ comment: CommentViewData) -> Bool {
+        isOwnComment(comment) && postDetail?.commentsDisabled == false
+    }
+
     /// The active comment-list filter — the followed-feed toggle applied to
     /// comments (issue #445). `nil` means no filter (all visible comments).
     @Published private(set) var selectedCommentCategory: FollowCategory?
@@ -206,7 +223,9 @@ final class PostDetailViewModel: ObservableObject {
                     isReported: postFields.is_reported ?? false,
                     reportReason: postFields.report_reason,
                     audience: postFields.audience,
-                    commentsDisabled: postFields.comments_disabled ?? false
+                    commentsDisabled: postFields.comments_disabled ?? false,
+                    isEdited: postFields.edited_time != nil,
+                    isHidden: postFields.hidden ?? false
                 )
                 // Server truth for the reported flag, so it survives reloads.
                 self.isPostReported = postFields.is_reported ?? false
@@ -274,7 +293,8 @@ final class PostDetailViewModel: ObservableObject {
                                     isLiked: field.is_liked,
                                     createdDate: Self.parseDate(field.creation_time),
                                     isReported: field.is_reported ?? false,
-                                    reportReason: field.report_reason
+                                    reportReason: field.report_reason,
+                                    isEdited: field.edited_time != nil
                                 )
                             }
                         }
@@ -335,7 +355,9 @@ final class PostDetailViewModel: ObservableObject {
                 isReported: post.isReported,
                 reportReason: post.reportReason,
                 audience: post.audience,
-                commentsDisabled: post.commentsDisabled
+                commentsDisabled: post.commentsDisabled,
+                isEdited: post.isEdited,
+                isHidden: post.isHidden
             )
             self.postDetail = post
         }
@@ -379,7 +401,9 @@ final class PostDetailViewModel: ObservableObject {
                 isReported: post.isReported,
                 reportReason: post.reportReason,
                 audience: post.audience,
-                commentsDisabled: post.commentsDisabled
+                commentsDisabled: post.commentsDisabled,
+                isEdited: post.isEdited,
+                isHidden: post.isHidden
             )
             self.postDetail = post
         }
@@ -607,7 +631,8 @@ final class PostDetailViewModel: ObservableObject {
             isLiked: true,
             createdDate: oldComment.createdDate,
             isReported: oldComment.isReported,
-            reportReason: oldComment.reportReason
+            reportReason: oldComment.reportReason,
+            isEdited: oldComment.isEdited
         )
         
         // Replace the old comment with the new one in the published array
@@ -662,7 +687,8 @@ final class PostDetailViewModel: ObservableObject {
             isLiked: false,
             createdDate: oldComment.createdDate,
             isReported: oldComment.isReported,
-            reportReason: oldComment.reportReason
+            reportReason: oldComment.reportReason,
+            isEdited: oldComment.isEdited
         )
         
         commentThreads[threadIndex].comments[commentIndex] = newComment
@@ -805,6 +831,70 @@ final class PostDetailViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Editing (issue #462)
+
+    /// Saves an edited caption. The backend judges the new caption before it
+    /// replaces anything, and a rejection keeps the original — so the post on
+    /// screen only changes once the save succeeds.
+    func editCaption(_ caption: String) {
+        guard !caption.isEmpty, caption != postDetail?.caption else { return }
+        NSLog("%@", "ACTION: Edit caption of post \(postIdentifier)")
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let userSession = try self.keychainHelper.load(UserSession.self, from: self.keychainService, account: self.account) else {
+                    self.alertMessage = "Session not found."
+                    return
+                }
+                let data = try await self.api.editPost(sessionManagementToken: userSession.sessionToken, postIdentifier: self.postIdentifier, caption: caption)
+                let saved = try self.decodeSingle(from: data, type: EditPostResponse.self)
+                if var post = self.postDetail {
+                    post.caption = saved.caption
+                    post.isEdited = saved.editedTime != nil
+                    self.postDetail = post
+                }
+                // Lists that already show this post pick up the new caption.
+                NotificationCenter.default.post(name: .postCaptionEdited, object: self.postIdentifier, userInfo: ["caption": saved.caption, "tags": saved.tags])
+            } catch {
+                NSLog("%@", "Failed to edit caption: \(error)")
+                self.alertMessage = "Failed to edit caption: \(error.userFacingMessage)"
+            }
+        }
+    }
+
+    /// Saves an edit to one of the user's own comments, with the same
+    /// change-only-on-success behaviour as `editCaption`.
+    func editComment(_ comment: CommentViewData, commentText: String, formatting: [CommentFormatSpan]?) {
+        guard !commentText.isEmpty else { return }
+        NSLog("%@", "ACTION: Edit comment \(comment.id)")
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let userSession = try self.keychainHelper.load(UserSession.self, from: self.keychainService, account: self.account) else {
+                    self.alertMessage = "Session not found."
+                    return
+                }
+                let data = try await self.api.editComment(
+                    sessionManagementToken: userSession.sessionToken,
+                    postIdentifier: self.postIdentifier,
+                    commentThreadIdentifier: comment.threadId,
+                    commentIdentifier: comment.id,
+                    commentText: commentText,
+                    formatting: formatting
+                )
+                let saved = try self.decodeSingle(from: data, type: EditCommentResponse.self)
+                guard let threadIndex = self.commentThreads.firstIndex(where: { $0.id == comment.threadId }),
+                      let commentIndex = self.commentThreads[threadIndex].comments.firstIndex(where: { $0.id == comment.id }) else { return }
+                self.commentThreads[threadIndex].comments[commentIndex].body = saved.body
+                self.commentThreads[threadIndex].comments[commentIndex].formatting = saved.bodyFormatting
+                self.commentThreads[threadIndex].comments[commentIndex].isEdited = saved.editedTime != nil
+            } catch {
+                NSLog("%@", "Failed to edit comment: \(error)")
+                self.alertMessage = "Failed to edit comment: \(error.userFacingMessage)"
+            }
+        }
+    }
+
     // MARK: - Sharing (issue #34)
 
     /// Builds the website link for this post and shows the native share sheet.
@@ -862,6 +952,12 @@ final class PostDetailViewModel: ObservableObject {
         /// #492). Optional so responses that predate the field still decode
         /// as comments allowed.
         let comments_disabled: Bool?
+        /// When the caption was last edited (issue #462); nil if never, and
+        /// absent on older responses.
+        let edited_time: String?
+        /// Author-only: whether the viewer's own post is hidden (pending,
+        /// rejected or moderated). Absent on everyone else's posts.
+        let hidden: Bool?
     }
 
     private struct ThreadIDFields: Decodable {
@@ -891,6 +987,8 @@ final class PostDetailViewModel: ObservableObject {
         /// and their own reason (#176). Optional so older responses still decode.
         let is_reported: Bool?
         let report_reason: String?
+        /// When the author last edited it (issue #462); nil if never.
+        let edited_time: String?
     }
 
     private func decodeSingle<T: Decodable>(from data: Data, type: T.Type) throws -> T {

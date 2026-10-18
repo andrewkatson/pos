@@ -505,7 +505,7 @@ struct ProfileBodyView: View {
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
                                         blurHash: post.blurHash,
-                                        caption: post.caption,
+                                        caption: postActions.caption(for: post),
                                         captionFont: post.captionFont,
                                         backgroundColor: post.backgroundColor
                                     )
