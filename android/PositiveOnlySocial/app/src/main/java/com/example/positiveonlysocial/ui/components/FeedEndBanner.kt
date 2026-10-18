@@ -22,6 +22,8 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -85,11 +87,15 @@ object FeedEndMessage {
  * reloads) lets finishing it again celebrate again.
  */
 @Stable
-class EndOfListCelebration {
+class EndOfListCelebration(hasCelebrated: Boolean = false) {
     var isPlaying by mutableStateOf(false)
         private set
 
-    private var hasCelebrated = false
+    /** Whether this finish has been seen. Saved across configuration changes
+     * (see [Saver]): a rotation restores the scroll position and the view
+     * model's reachedEnd, and must not replay the burst for the same finish. */
+    var hasCelebrated = hasCelebrated
+        private set
 
     /** The banner came on screen. */
     fun bannerShown(listScrolled: Boolean, reduceMotion: Boolean) {
@@ -108,6 +114,15 @@ class EndOfListCelebration {
     fun reset() {
         hasCelebrated = false
         isPlaying = false
+    }
+
+    companion object {
+        /** Keeps only whether the finish was seen; a burst cut off by the
+         * configuration change is not restarted. */
+        val Saver: Saver<EndOfListCelebration, Boolean> = Saver(
+            save = { it.hasCelebrated },
+            restore = { EndOfListCelebration(hasCelebrated = it) }
+        )
     }
 }
 
@@ -135,7 +150,7 @@ private fun rememberEndOfListCelebration(
     bannerVisible: () -> Boolean,
     listScrolled: () -> Boolean,
 ): EndOfListCelebration {
-    val celebration = remember { EndOfListCelebration() }
+    val celebration = rememberSaveable(saver = EndOfListCelebration.Saver) { EndOfListCelebration() }
     val reduceMotion = rememberReduceMotion()
     LaunchedEffect(reachedEnd) {
         if (!reachedEnd) {

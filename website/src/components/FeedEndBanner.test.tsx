@@ -25,6 +25,10 @@ function scrollBannerIntoView() {
   })
 }
 
+function setScrollPosition(scrollY: number) {
+  Object.defineProperty(window, 'scrollY', { configurable: true, value: scrollY })
+}
+
 function setPageHeight(scrollHeight: number) {
   Object.defineProperty(document.documentElement, 'scrollHeight', {
     configurable: true,
@@ -44,8 +48,9 @@ beforeEach(() => {
   disconnect.mockReset()
   vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver)
   stubReducedMotion(false)
-  // A page taller than jsdom's 768px window: the viewer scrolled to get here.
+  // A page taller than jsdom's 768px window, scrolled down to the banner.
   setPageHeight(5000)
+  setScrollPosition(4300)
 })
 
 afterEach(() => {
@@ -89,6 +94,18 @@ test('clears the confetti once it has fallen', () => {
 
 test('a list that fits on one screen shows the banner without confetti', () => {
   setPageHeight(window.innerHeight)
+  setScrollPosition(0)
+  render(<FeedEndBanner message="done" />)
+  scrollBannerIntoView()
+  expect(screen.getByRole('status')).toBeInTheDocument()
+  expect(screen.queryByTestId('confetti')).not.toBeInTheDocument()
+})
+
+test('a banner already on screen at the top gets no confetti, even if the page overflows', () => {
+  // The app shell's bottom padding can push a short profile's page past the
+  // window while its banner is visible without any scrolling.
+  setPageHeight(window.innerHeight + 88)
+  setScrollPosition(0)
   render(<FeedEndBanner message="done" />)
   scrollBannerIntoView()
   expect(screen.getByRole('status')).toBeInTheDocument()

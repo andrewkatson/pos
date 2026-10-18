@@ -233,6 +233,10 @@ function ProfileView({
         // Holds off automatic filling and Load more until the new first page
         // lands, so no page is requested against the grid being replaced.
         setIsLoadingPosts(true)
+        // Cleared as the replacement starts, not when it lands: a failed
+        // reload must not bring back the old banner — remounted, it would
+        // celebrate again without a new finish.
+        setReachedEnd(false)
       }
       const postsGen = postsGeneration.current
       const isCurrent = () =>
@@ -245,7 +249,6 @@ function ProfileView({
         if (replace) {
           setPosts(newPosts)
           setCanLoadMore(newPosts.length > 0)
-          setReachedEnd(false)
           setPage(newPosts.length > 0 ? 1 : 0)
         } else if (newPosts.length === 0) {
           setCanLoadMore(false)

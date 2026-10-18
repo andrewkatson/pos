@@ -439,6 +439,24 @@ test('refreshing a finished feed clears the banner (#528)', async () => {
   expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
 })
 
+test('a failed refresh of a finished feed does not bring the banner back (#528)', async () => {
+  mockGetFeed.mockImplementation(batch => Promise.resolve(batch === 0 ? [endPost('a')] : []))
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by author_a' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  await screen.findByText('You finished!')
+
+  mockGetFeed.mockRejectedValue(new Error('offline'))
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() => expect(mockGetFeed).toHaveBeenCalledTimes(3))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled())
+
+  // The old posts stay, but the finish they had isn't replayed.
+  expect(screen.getByRole('button', { name: 'Open post by author_a' })).toBeInTheDocument()
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+})
+
 // ---- In-place post actions on the feed (issue #267) ----
 
 test('likes a post straight from the feed', async () => {

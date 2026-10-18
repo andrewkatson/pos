@@ -117,7 +117,13 @@ function FeedTab() {
 
   const loadFeed = useCallback(
     async (pageToLoad: number, replace: boolean) => {
-      if (replace) loadGeneration.current += 1
+      if (replace) {
+        loadGeneration.current += 1
+        // Cleared as the replacement starts, not when it lands: a failed
+        // reload must not bring back the old banner — remounted, it would
+        // celebrate again without a new finish.
+        setReachedEnd(false)
+      }
       const generation = loadGeneration.current
       const isCurrent = () => isMounted.current && generation === loadGeneration.current
       try {
@@ -129,7 +135,6 @@ function FeedTab() {
             listedIds.current = new Set(newPosts.map(post => post.post_identifier))
             setPosts(newPosts)
             setCanLoadMore(newPosts.length > 0)
-            setReachedEnd(false)
             setPage(newPosts.length > 0 ? 1 : 0)
             break
           }

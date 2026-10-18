@@ -228,6 +228,29 @@ test('celebrates reaching the end of your own posts (#528)', async () => {
   expect(banner).toHaveTextContent("That's every post you've shared.")
 })
 
+test('a failed refresh of a finished profile does not bring the banner back (#528)', async () => {
+  mockGetPosts.mockImplementation((_username, batch) =>
+    Promise.resolve(
+      batch === 0
+        ? [{ post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' }]
+        : [],
+    ),
+  )
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Post by ada' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  await screen.findByText('You finished!')
+
+  mockGetPosts.mockRejectedValue(new Error('offline'))
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() => expect(mockGetPosts).toHaveBeenCalledTimes(3))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled())
+
+  expect(screen.getByRole('button', { name: 'Post by ada' })).toBeInTheDocument()
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+})
+
 test('no finished banner on a profile with no posts (#528)', async () => {
   mockGetPosts.mockResolvedValue([])
   renderTab()

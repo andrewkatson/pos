@@ -44,10 +44,11 @@ function prefersReducedMotion(): boolean {
   )
 }
 
-/** Whether the page is taller than the window, i.e. the viewer had to scroll to
- * reach the end of the list. */
-function pageOverflowsWindow(): boolean {
-  return document.documentElement.scrollHeight > window.innerHeight
+/** Whether the viewer scrolled to reach the banner. A page taller than the
+ * window isn't enough: the app shell's bottom padding can make a short
+ * profile's page overflow with its banner already on screen at the top. */
+function viewerHasScrolled(): boolean {
+  return window.scrollY > 0
 }
 
 /**
@@ -55,8 +56,8 @@ function pageOverflowsWindow(): boolean {
  * has been loaded (issue #528), with a burst of confetti across the screen the
  * first time it scrolls into view.
  *
- * The confetti only plays when the list was longer than the window — a profile
- * with a handful of posts that fits on one screen just shows the banner, so
+ * The confetti only plays when the viewer scrolled to reach the banner — a
+ * profile with a handful of posts that fits on one screen just shows it, so
  * opening it doesn't throw confetti every time — and never under
  * prefers-reduced-motion. It plays once per mount; the owner unmounts the
  * banner whenever the list reloads, so finishing it again celebrates again.
@@ -73,7 +74,7 @@ function FeedEndBanner({ message }: FeedEndBannerProps) {
       if (!entries.some(entry => entry.isIntersecting)) return
       // Seen once is enough, whether or not it earned confetti.
       observer.disconnect()
-      if (pageOverflowsWindow() && !prefersReducedMotion()) setCelebrating(true)
+      if (viewerHasScrolled() && !prefersReducedMotion()) setCelebrating(true)
     })
     observer.observe(banner)
     return () => observer.disconnect()
