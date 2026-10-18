@@ -26,9 +26,21 @@ interface PostOverride {
   isReported?: boolean
   reportReason?: string | null
   commentsDisabled?: boolean
-  /** The caption as last saved from the Edit dialog (issue #462). */
+  /** The caption as last saved from the Edit dialog (issue #462), with the
+   * edit time the server stamped on it. */
   caption?: string
   tags?: string[]
+  captionEditedTime?: string | null
+}
+
+/** Whether a locally saved caption is still newer than what the list row
+ * carries. A reloaded row that already reflects that edit, or a later one made
+ * elsewhere, has an edited_time at least as new, and then the row wins. */
+function overrideIsNewer(post: FeedPost, override: PostOverride): boolean {
+  if (override.caption === undefined) return false
+  if (!post.edited_time) return true
+  if (!override.captionEditedTime) return false
+  return Date.parse(post.edited_time) < Date.parse(override.captionEditedTime)
 }
 
 /** What the UI needs to render one post's controls. */
@@ -130,8 +142,13 @@ export function usePostActions({
 
   function withEdits(post: FeedPost): FeedPost {
     const override = overrides[post.post_identifier]
-    if (override?.caption === undefined) return post
-    return { ...post, caption: override.caption, tags: override.tags ?? post.tags }
+    if (!override || !overrideIsNewer(post, override)) return post
+    return {
+      ...post,
+      caption: override.caption ?? post.caption,
+      tags: override.tags ?? post.tags,
+      edited_time: override.captionEditedTime ?? post.edited_time,
+    }
   }
 
   function setOverride(postIdentifier: string, patch: PostOverride) {
@@ -249,7 +266,11 @@ export function usePostActions({
     setDialog(null)
     try {
       const saved = await apiClient.editPost(post.post_identifier, caption)
-      setOverride(post.post_identifier, { caption: saved.caption, tags: saved.tags })
+      setOverride(post.post_identifier, {
+        caption: saved.caption,
+        tags: saved.tags,
+        captionEditedTime: saved.edited_time,
+      })
     } catch (err) {
       onError(messageFrom(err, 'Failed to edit caption.'))
     }

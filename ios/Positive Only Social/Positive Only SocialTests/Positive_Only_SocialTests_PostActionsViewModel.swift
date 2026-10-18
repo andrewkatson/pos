@@ -432,6 +432,31 @@ struct Positive_Only_SocialTests_PostActionsViewModel {
         #expect(!sut.canEdit(post))
     }
 
+    @Test func testRefreshedRowEditedElsewhere_ReplacesTheSavedCaption() async throws {
+        let account = "editThenRefresh_account"
+        let token = try await setupLoggedInUser(username: "refreshEditor", account: account)
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "img/1", caption: "Mine")
+        let data = try await stubAPI.getPostsForUser(sessionManagementToken: token, username: "refreshEditor", batch: 0)
+        let post = try unwrap(try JSONDecoder().decode([Post].self, from: data).first, "the user's own post")
+
+        let center = NotificationCenter()
+        let sut = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account, notificationCenter: center)
+        center.post(name: .postCaptionEdited, object: post.id,
+                    userInfo: ["caption": "Saved here", "editedTime": "2024-01-02T00:00:00Z"])
+        await yield()
+        #expect(sut.caption(for: post) == "Saved here", "A row with no edit yet shows the local save")
+
+        // A reload brings a later edit made on another device: the row wins.
+        let refreshed = Post(postIdentifier: post.postIdentifier, imageUrl: post.imageUrl, caption: "Edited elsewhere",
+                         authorUsername: post.authorUsername, editedTime: "2024-01-03T00:00:00Z")
+        #expect(sut.caption(for: refreshed) == "Edited elsewhere")
+
+        // An older row edit (the reload raced the save) still shows the save.
+        let stale = Post(postIdentifier: post.postIdentifier, imageUrl: post.imageUrl, caption: "Older",
+                         authorUsername: post.authorUsername, editedTime: "2024-01-01T00:00:00Z")
+        #expect(sut.caption(for: stale) == "Saved here")
+    }
+
     @Test func testCaptionEditedOnDetailScreen_ReachesTheRow() async throws {
         let account = "editFromDetail_account"
         let token = try await setupLoggedInUser(username: "detailEditor", account: account)

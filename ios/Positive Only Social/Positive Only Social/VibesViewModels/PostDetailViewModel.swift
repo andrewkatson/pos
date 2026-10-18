@@ -854,7 +854,9 @@ final class PostDetailViewModel: ObservableObject {
                     self.postDetail = post
                 }
                 // Lists that already show this post pick up the new caption.
-                NotificationCenter.default.post(name: .postCaptionEdited, object: self.postIdentifier, userInfo: ["caption": saved.caption, "tags": saved.tags])
+                var userInfo: [String: Any] = ["caption": saved.caption, "tags": saved.tags]
+                userInfo["editedTime"] = saved.editedTime
+                NotificationCenter.default.post(name: .postCaptionEdited, object: self.postIdentifier, userInfo: userInfo)
             } catch {
                 NSLog("%@", "Failed to edit caption: \(error)")
                 self.alertMessage = "Failed to edit caption: \(error.userFacingMessage)"

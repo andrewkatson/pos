@@ -37,7 +37,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, \
     ACCOUNT_BANNED, EMAIL_NOT_VERIFIED, EMAIL_VERIFICATION_TOKEN_HOURS, BAN_TYPE_OUTRIGHT, \
     HIDDEN_REASON_NONE, HIDDEN_REASON_CLASSIFIER, HIDDEN_REASON_CLASSIFIER_FINAL, \
     HIDDEN_REASON_PENDING_CLASSIFICATION, NON_APPEALABLE_HIDDEN_REASONS, \
-    REVIEW_STATUS_PENDING, REVIEW_STATUS_ESCALATED, \
+    REVIEW_STATUS_PENDING, REVIEW_STATUS_ESCALATED, TERMINAL_REVIEW_STATUSES, \
     POST_STATUS_PENDING, POST_STATUS_REJECTED, POST_STATUS_REJECTED_FINAL, \
     TOP_POST_PERIOD_DAYS, TOP_POST_DEFAULT_PERIOD, TOP_POSTS_LIMIT, \
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
@@ -2065,6 +2065,18 @@ def _under_open_review(content):
     return content.reviews.filter(status__in=(REVIEW_STATUS_PENDING, REVIEW_STATUS_ESCALATED)).exists()
 
 
+def _review_decided(content):
+    """Whether a moderator has already decided this content's report review
+    (hidden or dismissed — the terminal statuses). A decision is final for the
+    text it was made about: further reports change nothing (see
+    moderation.record_report). Replacing the text would carry that immunity
+    over to words nobody reviewed, so text edits are refused once a decision
+    exists (issue #462); a comment's formatting-only change keeps the text the
+    decision covered and stays allowed. The review row is left as it is, for
+    the audit trail."""
+    return content.reviews.filter(status__in=TERMINAL_REVIEW_STATUSES).exists()
+
+
 def _rejected_edit_response(view_name, what, text_result):
     """The 400 for an edit the classifier turned down (issue #462). Unlike a
     rejected new comment, nothing is created hidden: the original stays exactly
@@ -2316,6 +2328,8 @@ def edit_post(request, post_identifier):
         return log_and_return_json("edit_post", {'error': "This post can't be edited right now"}, status=409)
     if _under_open_review(post):
         return log_and_return_json("edit_post", {'error': "This post can't be edited while it is being reviewed"}, status=409)
+    if _review_decided(post) and caption != post.caption:
+        return log_and_return_json("edit_post", {'error': "This post's caption can't be changed after a moderator has reviewed it"}, status=409)
 
     # Saving the same caption again is not an edit: no classifier call and no
     # "edited" label.
@@ -2342,7 +2356,7 @@ def edit_post(request, post_identifier):
         # The post may have been hidden (a report review, a moderator),
         # reported, or deleted while the classifier ran.
         locked = Post.objects.select_for_update().filter(pk=post.pk, hidden=False).first()
-        if locked is None or _under_open_review(locked):
+        if locked is None or _under_open_review(locked) or _review_decided(locked):
             return log_and_return_json("edit_post", {'error': "This post can't be edited right now"}, status=409)
         locked.caption = caption
         locked.edited_time = timezone.now()
@@ -2744,6 +2758,7 @@ def get_saved_posts(request, batch):
                 **_author_avatar_fields(post.author),
                 Fields.caption: post.caption,
                 Fields.comments_disabled: post.comments_disabled,
+                Fields.edited_time: post.edited_time,
                 **_caption_style_fields(post),
                 **_post_tags(post),
                 **interaction_state(post),
@@ -2977,6 +2992,7 @@ def get_posts_in_feed(request, batch):
                 Fields.caption: post.caption,
                 Fields.audience: post.audience,
                 Fields.comments_disabled: post.comments_disabled,
+                Fields.edited_time: post.edited_time,
                 **_caption_style_fields(post),
                 **_post_tags(post),
                 **interaction_state(post),
@@ -3045,6 +3061,7 @@ def get_posts_for_followed_users(request, batch):
             Fields.caption: post.caption,
             Fields.audience: post.audience,
             Fields.comments_disabled: post.comments_disabled,
+            Fields.edited_time: post.edited_time,
             **_caption_style_fields(post),
             **_post_tags(post),
             **interaction_state(post),
@@ -3138,6 +3155,7 @@ def get_top_posts(request, batch):
             Fields.caption: post.caption,
             Fields.audience: post.audience,
             Fields.comments_disabled: post.comments_disabled,
+            Fields.edited_time: post.edited_time,
             **_caption_style_fields(post),
             **_post_tags(post),
             **interaction_state(post),
@@ -3201,6 +3219,7 @@ def get_posts_for_user(request, username, batch):
                 Fields.author_username: target_user.username,
                 Fields.audience: post.audience,
                 Fields.comments_disabled: post.comments_disabled,
+                Fields.edited_time: post.edited_time,
                 **_author_avatar_fields(target_user),
                 **_post_tags(post),
                 **interaction_state(post),
@@ -3311,6 +3330,7 @@ def get_posts_for_tag(request, tag, batch):
                 **_author_avatar_fields(post.author),
                 Fields.caption: post.caption,
                 Fields.comments_disabled: post.comments_disabled,
+                Fields.edited_time: post.edited_time,
                 **_caption_style_fields(post),
                 **_post_tags(post),
                 **interaction_state(post),
@@ -3813,6 +3833,8 @@ def edit_comment(request, post_identifier, comment_thread_identifier, comment_id
         return log_and_return_json("edit_comment", {'error': "This comment can't be edited right now"}, status=409)
     if _under_open_review(comment):
         return log_and_return_json("edit_comment", {'error': "This comment can't be edited while it is being reviewed"}, status=409)
+    if comment_text != comment.body and _review_decided(comment):
+        return log_and_return_json("edit_comment", {'error': "This comment's text can't be changed after a moderator has reviewed it"}, status=409)
 
     if comment_text == comment.body and body_formatting == comment.body_formatting:
         return log_and_return_json("edit_comment", {
@@ -3844,8 +3866,15 @@ def edit_comment(request, post_identifier, comment_thread_identifier, comment_id
             return log_and_return_json("edit_comment", {'error': "Comments are disabled for this post"}, status=403)
         if not _post_author_still_admits(post, request.user):
             return log_and_return_json("edit_comment", {'error': "Comment not found"}, status=400)
+        # The post may have been hidden (or its author banned or blocked)
+        # while the classifier ran; re-read it now that its row is locked and
+        # refuse the edit if the commenter can no longer see it.
+        current_post = Post.objects.select_related('author').filter(pk=post.pk).first()
+        if current_post is None or not can_view_post(current_post, request.user):
+            return log_and_return_json("edit_comment", {'error': "Comment not found"}, status=400)
         locked = Comment.objects.select_for_update().filter(pk=comment.pk, hidden=False).first()
-        if locked is None or _under_open_review(locked):
+        if (locked is None or _under_open_review(locked)
+                or (text_result is not None and _review_decided(locked))):
             return log_and_return_json("edit_comment", {'error': "This comment can't be edited right now"}, status=409)
         update_fields = ['body', 'body_formatting', 'edited_time', 'updated_time']
         locked.body = comment_text

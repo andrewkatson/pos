@@ -461,6 +461,10 @@ export interface FeedPost extends AuthorAvatarFields {
    * (issue #249). The backend column is nullable, so this can be null; older
    * responses that predate the field omit it entirely. */
   creation_time?: string | null
+  /** ISO-8601 timestamp of the author's last caption edit (issue #462); null
+   * when never edited. Lets a list tell whether a refreshed row is newer than
+   * a caption saved locally. Older responses omit it. */
+  edited_time?: string | null
   /** Who may see the post (issue #392). Absent on older responses; treat a
    * missing value as 'public'. */
   audience?: PostAudience

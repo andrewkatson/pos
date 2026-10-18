@@ -214,6 +214,10 @@ struct Post: Codable, Identifiable, Hashable {
     /// unchanged; use `createdDate` to render it.
     var commentCount: Int
     var creationTime: String?
+    /// When the author last edited the caption (issue #462); nil if never or
+    /// on older backends. Lets a list tell whether a refreshed row is newer
+    /// than a caption it saved locally.
+    var editedTime: String? = nil
 
     /// When the post was made, or nil when the backend didn't send a timestamp
     /// (or sent one we can't parse) — in which case the feed omits the label.
@@ -241,6 +245,7 @@ struct Post: Codable, Identifiable, Hashable {
         case reportReason = "report_reason"
         case commentCount = "comment_count"
         case creationTime = "creation_time"
+        case editedTime = "edited_time"
         case status
         case hidden
         case hiddenReason = "hidden_reason"
@@ -269,6 +274,7 @@ struct Post: Codable, Identifiable, Hashable {
         reportReason: String? = nil,
         commentCount: Int = 0,
         creationTime: String? = nil,
+        editedTime: String? = nil,
         status: String? = nil,
         hidden: Bool? = nil,
         hiddenReason: String? = nil,
@@ -295,6 +301,7 @@ struct Post: Codable, Identifiable, Hashable {
         self.reportReason = reportReason
         self.commentCount = commentCount
         self.creationTime = creationTime
+        self.editedTime = editedTime
         self.status = status
         self.hidden = hidden
         self.hiddenReason = hiddenReason
@@ -331,6 +338,7 @@ struct Post: Codable, Identifiable, Hashable {
         reportReason = try container.decodeIfPresent(String.self, forKey: .reportReason)
         commentCount = try container.decodeIfPresent(Int.self, forKey: .commentCount) ?? 0
         creationTime = try container.decodeIfPresent(String.self, forKey: .creationTime)
+        editedTime = try container.decodeIfPresent(String.self, forKey: .editedTime)
         // Author-only classification state (#282); absent on others' posts.
         status = try container.decodeIfPresent(String.self, forKey: .status)
         hidden = try container.decodeIfPresent(Bool.self, forKey: .hidden)

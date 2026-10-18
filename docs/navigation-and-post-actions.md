@@ -215,17 +215,26 @@ post's [hashtags](hashtags.md) and re-runs its
 Only live content can be edited (`409` otherwise): not a post that is pending,
 rejected or hidden, not a hidden comment, and not a post or comment whose
 [report review](reporting.md) is still open (pending or escalated) — the
-reviewer has to judge what was reported, not whatever replaced it. These are
-re-checked under a row lock after classification, so content hidden or reported
-while its edit was being judged is not overwritten. A comment on
+reviewer has to judge what was reported, not whatever replaced it. Once a
+moderator has **decided** a review (hidden or dismissed), the text can no longer
+be changed either: a decision is final for the text it was made about — a
+dismissal makes the content immune to further reports — and new wording must not
+inherit that. A comment's formatting-only change keeps the reviewed text and is
+still allowed, and the review row is left untouched for the audit trail. These
+checks, and whether a commenter can still see the post, are repeated under a row
+lock after classification, so content hidden, reported or decided while its edit
+was being judged is not overwritten. A comment on
 a post whose author has [turned commenting off](#disabling--locking-comments-issue-492)
 is frozen as it stands (`403`), and clients hide Edit there; a comment on a post
 its author can no longer see is answered like a missing one.
 
 Edited content is marked: posts and comments carry `edited_time` (null until the
-first accepted edit) in the post-details, public share, and comment-listing
-payloads, and clients show **"edited"** next to the post's time on the detail
+first accepted edit) in the post-details, public share, post-listing and
+comment-listing payloads, and clients show **"edited"** next to the post's time on the detail
 screen and next to an edited comment's time, so a caption changed after people
 liked or commented on it never passes for the original. `edited_time` is
 distinct from `updated_time`, which every save bumps.
 
+A list that shows a caption saved from its own menu keeps showing it until a
+reloaded row carries an `edited_time` at least as new — so a refresh after an
+edit made on another device shows that edit, not the stale local one.

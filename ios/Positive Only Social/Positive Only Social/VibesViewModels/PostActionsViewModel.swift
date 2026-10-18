@@ -58,10 +58,17 @@ final class PostActionsViewModel: ObservableObject {
     /// the detail screen can land without a `Post` to build the rest from.
     @Published private(set) var commentsDisabledOverrides: [String: Bool] = [:]
 
-    /// Captions saved this session (issue #462), from a list row or the post
-    /// detail screen, keyed by post id. Rows render `caption(for:)`, so an edit
-    /// shows in place without refetching — and reshuffling — the list.
-    @Published private(set) var captionOverrides: [String: String] = [:]
+    /// A caption saved this session (issue #462) and the edit time the server
+    /// stamped on it.
+    struct CaptionOverride: Equatable {
+        var caption: String
+        var editedTime: String?
+    }
+
+    /// Captions saved this session, from a list row or the post detail screen,
+    /// keyed by post id. Rows render `caption(for:)`, so an edit shows in place
+    /// without refetching — and reshuffling — the list.
+    @Published private(set) var captionOverrides: [String: CaptionOverride] = [:]
 
     /// The signed-in user's username, used to tell your own posts from others'.
     private(set) var currentUsername: String?
@@ -105,7 +112,8 @@ final class PostActionsViewModel: ObservableObject {
             .sink { [weak self] notification in
                 guard let postIdentifier = notification.object as? String,
                       let caption = notification.userInfo?["caption"] as? String else { return }
-                self?.captionOverrides[postIdentifier] = caption
+                self?.captionOverrides[postIdentifier] = CaptionOverride(
+                    caption: caption, editedTime: notification.userInfo?["editedTime"] as? String)
             }
     }
 
@@ -127,9 +135,14 @@ final class PostActionsViewModel: ObservableObject {
         return state
     }
 
-    /// The caption a row should show: the one saved this session, if any.
+    /// The caption a row should show: the one saved this session, unless the
+    /// row itself is at least as new — a reload that already carries that
+    /// edit, or a later one made elsewhere — in which case the row wins.
     func caption(for post: Post) -> String {
-        captionOverrides[post.id] ?? post.caption
+        guard let override = captionOverrides[post.id] else { return post.caption }
+        guard let rowEdited = post.editedTime.flatMap(RelativeTime.date(from:)) else { return override.caption }
+        guard let savedEdited = override.editedTime.flatMap(RelativeTime.date(from:)) else { return post.caption }
+        return rowEdited < savedEdited ? override.caption : post.caption
     }
 
     /// Edit is offered on your own post once it's live — a pending, rejected or
@@ -240,8 +253,10 @@ final class PostActionsViewModel: ObservableObject {
             do {
                 let data = try await api.editPost(sessionManagementToken: token, postIdentifier: post.id, caption: caption)
                 let saved = try JSONDecoder().decode(EditPostResponse.self, from: data)
-                captionOverrides[post.id] = saved.caption
-                notificationCenter.post(name: .postCaptionEdited, object: post.id, userInfo: ["caption": saved.caption, "tags": saved.tags])
+                captionOverrides[post.id] = CaptionOverride(caption: saved.caption, editedTime: saved.editedTime)
+                var userInfo: [String: Any] = ["caption": saved.caption, "tags": saved.tags]
+                userInfo["editedTime"] = saved.editedTime
+                notificationCenter.post(name: .postCaptionEdited, object: post.id, userInfo: userInfo)
             } catch {
                 NSLog("%@", "Failed to edit caption: \(error)")
                 alertMessage = "Failed to edit caption: \(error.userFacingMessage)"

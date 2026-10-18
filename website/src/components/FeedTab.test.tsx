@@ -462,6 +462,40 @@ test('editing your own caption from the feed menu updates the row in place (#462
   expect(mockGetFeed).toHaveBeenCalledTimes(1)
 })
 
+test('a refreshed row edited elsewhere replaces the locally saved caption (#462)', async () => {
+  mockGetFeed
+    .mockResolvedValueOnce([
+      { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'me', caption: 'mine' },
+    ])
+    .mockResolvedValue([
+      {
+        post_identifier: 'p1',
+        image_url: 'http://img/1.jpg',
+        author_username: 'me',
+        caption: 'edited on my phone',
+        edited_time: '2024-01-03T00:00:00.000Z',
+      },
+    ])
+  mockGetFollowed.mockResolvedValue([])
+  const { container } = renderTab()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Options for post by me' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Edit' }))
+  const field = screen.getByLabelText('Caption text')
+  await userEvent.clear(field)
+  await userEvent.type(field, 'still mine')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() =>
+    expect(container.querySelector('.feed-post__caption')).toHaveTextContent('still mine'),
+  )
+
+  // The local save is stamped 2024-01-02; the refreshed row's later edit wins.
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() =>
+    expect(container.querySelector('.feed-post__caption')).toHaveTextContent('edited on my phone'),
+  )
+})
+
 test("the feed menu offers no Edit on someone else's post or your own pending one (#462)", async () => {
   mockGetFeed.mockResolvedValue([
     { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hers' },

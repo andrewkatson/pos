@@ -167,6 +167,8 @@ fileprivate struct PostListingFields: Codable {
     let comments_disabled: Bool
     /// Hashtags parsed from the caption (issue #379).
     let tags: [String]
+    /// When the caption was last edited (issue #462).
+    let edited_time: String?
 }
 
 fileprivate struct MockCommentThread {
@@ -416,7 +418,8 @@ final class StatefulStubbedAPI: Networking {
             appealable: isOwnGrid ? isAppealable(post) : nil,
             audience: post.audience,
             comments_disabled: post.commentsDisabled,
-            tags: post.tags
+            tags: post.tags,
+            edited_time: post.editedDate.map { ISO8601DateFormatter().string(from: $0) }
         )
     }
 

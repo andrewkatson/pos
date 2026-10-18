@@ -1242,6 +1242,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       original_image_url: post.imageUrl,
       author_username: author ? author.username : '',
       caption: post.caption,
+      edited_time: post.editedTime ? new Date(post.editedTime).toISOString() : null,
       audience: post.audience,
       comments_disabled: post.commentsDisabled,
       tags: post.tags,
