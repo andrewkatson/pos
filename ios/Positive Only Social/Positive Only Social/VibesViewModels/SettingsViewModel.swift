@@ -267,7 +267,7 @@ final class SettingsViewModel: ObservableObject {
     private func setLocalPreference(type: String, enabled: Bool) {
         notificationPreferences = notificationPreferences.map {
             $0.type == type
-                ? NotificationPreference(type: $0.type, label: $0.label, enabled: enabled)
+                ? NotificationPreference(type: $0.type, label: $0.label, enabled: enabled, parent: $0.parent)
                 : $0
         }
     }

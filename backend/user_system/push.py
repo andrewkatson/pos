@@ -28,7 +28,8 @@ from django.conf import settings
 
 from .constants import (
     DEVICE_PLATFORM_IOS, DEVICE_PLATFORM_ANDROID, DEVICE_PLATFORM_WEB,
-    PUSH_TYPE_POST_REJECTED,
+    PUSH_TYPE_POST_REJECTED, PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE,
+    PUSH_TYPE_PARENTS,
 )
 from .models import DeviceToken, NotificationPreference
 
@@ -47,6 +48,22 @@ _apns_jwt_cache = {"token": None, "minted_at": 0.0}
 
 # FCM OAuth2 scope for the HTTP v1 send API.
 _FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
+
+# Android notification channels, matching the ids the app registers at launch
+# (PosFirebaseMessagingService). Social activity (issue #444) has its own
+# channel so a user can mute it in system settings without muting rejections.
+# Named in the FCM payload because a message arriving while the app is in the
+# background is displayed by the system, never reaching the app's own code.
+ANDROID_CHANNEL_POST_MODERATION = "post_moderation"
+ANDROID_CHANNEL_ACTIVITY = "activity"
+_ACTIVITY_PUSH_TYPES = frozenset({PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE})
+
+
+def android_channel_for(data):
+    """The Android notification channel for a payload's data map."""
+    if data.get("type") in _ACTIVITY_PUSH_TYPES:
+        return ANDROID_CHANNEL_ACTIVITY
+    return ANDROID_CHANNEL_POST_MODERATION
 
 
 def build_rejection_payload(post, final):
@@ -83,28 +100,93 @@ def build_rejection_payload(post, final):
     }
 
 
+# Longest slice of a caption or comment quoted in an activity push body. Lock
+# screens truncate long bodies anyway; this keeps the payload small and stops a
+# long post from being mirrored wholesale into the notification shade.
+ACTIVITY_PREVIEW_LENGTH = 100
+
+
+def _preview(text):
+    text = " ".join((text or "").split())
+    if len(text) <= ACTIVITY_PREVIEW_LENGTH:
+        return text
+    return text[:ACTIVITY_PREVIEW_LENGTH - 1].rstrip() + "\u2026"
+
+
+def build_activity_payload(kind, post, title, body_text):
+    """Build the push payload for social activity on a post (issue #444): a new
+    post from someone the recipient follows, or a comment, reply or like.
+
+    ``kind`` is the data ``type`` the clients branch on (new_post / new_comment
+    / new_like); every kind deep-links to ``post`` the same way a rejection
+    does. As with build_rejection_payload, every data value is a string.
+    """
+    post_id = str(post.post_identifier)
+    return {
+        "title": title,
+        "body": _preview(body_text),
+        "data": {
+            "type": kind,
+            "post_identifier": post_id,
+            "deep_link": f"{settings.FRONTEND_BASE_URL}/post/{post_id}",
+        },
+    }
+
+
+def _push_type_chain(notification_type):
+    """The type followed by each of its ancestors up to the master switch."""
+    chain = []
+    while notification_type is not None:
+        chain.append(notification_type)
+        notification_type = PUSH_TYPE_PARENTS.get(notification_type)
+    return chain
+
+
 def is_push_type_enabled(user, notification_type):
-    """Whether the user wants push for this type. Defaults to enabled — a row
-    exists only once the user has toggled the type off (or back on) in Settings,
-    so its absence means on."""
-    pref = NotificationPreference.objects.filter(
-        user=user, notification_type=notification_type).first()
-    return pref.enabled if pref is not None else True
+    """Whether the user wants push for this type: the type itself and every
+    ancestor in the preference tree (issue #444) must be on, so turning off the
+    master switch or a kind's switch silences everything beneath it. Defaults
+    to enabled — a row exists only once the user has toggled a type off (or
+    back on) in Settings, so its absence means on."""
+    return not NotificationPreference.objects.filter(
+        user=user, notification_type__in=_push_type_chain(notification_type), enabled=False,
+    ).exists()
 
 
-def send_push(user, payload, notification_type):
+def disabled_push_types(user_ids):
+    """{user_id: set of types they turned off} for many users in one query —
+    the bulk form of is_push_type_enabled, for fan-outs. Pair with
+    push_type_enabled_in."""
+    disabled = {}
+    for user_id, notification_type in NotificationPreference.objects.filter(
+            user_id__in=user_ids, enabled=False).values_list('user_id', 'notification_type'):
+        disabled.setdefault(user_id, set()).add(notification_type)
+    return disabled
+
+
+def push_type_enabled_in(disabled_types, notification_type):
+    """is_push_type_enabled over an already-loaded set of disabled types."""
+    return not any(t in disabled_types for t in _push_type_chain(notification_type))
+
+
+def send_push(user, payload, notification_type, tokens=None):
     """Fan a payload out to every device the user has registered.
 
     Respects the user's per-type preference (Settings toggle): a type the user
     turned off is skipped entirely. Otherwise best-effort — a provider that is
     unconfigured or errors is logged and skipped, and dead tokens the providers
     report are pruned. Returns nothing; callers must not depend on delivery.
-    """
-    if not is_push_type_enabled(user, notification_type):
-        logger.info("Push type %s disabled for user %s; skipping.", notification_type, user.id)
-        return
 
-    tokens = list(DeviceToken.objects.filter(user=user))
+    A fan-out that has bulk-loaded its recipients' preferences and device
+    tokens (see disabled_push_types) passes the user's DeviceToken rows as
+    `tokens`; it has then already applied the preference, so both per-user
+    queries are skipped.
+    """
+    if tokens is None:
+        if not is_push_type_enabled(user, notification_type):
+            logger.info("Push type %s disabled for user %s; skipping.", notification_type, user.id)
+            return
+        tokens = list(DeviceToken.objects.filter(user=user))
     if not tokens:
         return
 
@@ -310,6 +392,8 @@ def _send_fcm(tokens, payload):
     # target from the data map instead, so this is harmless there.
     deep_link = data.get("deep_link")
     webpush = {"fcm_options": {"link": deep_link}} if deep_link else None
+    # Only Android reads this block; web ignores it.
+    android = {"notification": {"channel_id": android_channel_for(data)}}
 
     dead = []
     for token in tokens:
@@ -317,6 +401,7 @@ def _send_fcm(tokens, payload):
             "token": token,
             "notification": {"title": payload["title"], "body": payload["body"]},
             "data": data,
+            "android": android,
         }
         if webpush:
             message_body["webpush"] = webpush

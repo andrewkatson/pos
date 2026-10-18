@@ -43,8 +43,9 @@ changes.
   two-factor authentication, and new-device login emails.
 - [Google sign-in setup](google-sign-in-setup.md) — wiring the OAuth client
   IDs for each surface.
-- [Push notifications](push-notifications.md) — device tokens, per-type
-  preferences, APNs/FCM delivery, and the required secrets.
+- [Push notifications](push-notifications.md) — device tokens, the
+  preference tree, which activity (new posts, comments, likes) notifies whom,
+  APNs/FCM delivery, and the required secrets.
 
 ## Infrastructure and operations
 

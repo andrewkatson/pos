@@ -136,20 +136,62 @@ DEVICE_PLATFORMS = frozenset(value for value, _ in DEVICE_PLATFORM_CHOICES)
 MAX_DEVICE_TOKEN_LENGTH = 1024
 
 # Machine-readable "type" on a push payload's data dict so a client can branch
-# on why it was notified and deep-link accordingly. The only kind today is a
-# post rejection resolved off the request path.
+# on why it was notified and deep-link accordingly. Every kind carries a
+# post_identifier the client opens on tap: the rejected post, the new post, or
+# the post a comment or like landed on.
 PUSH_TYPE_POST_REJECTED = "post_rejected"
+PUSH_TYPE_NEW_POST = "new_post"
+PUSH_TYPE_NEW_COMMENT = "new_comment"
+PUSH_TYPE_NEW_LIKE = "new_like"
 
-# Registry of user-toggleable push notification types. Each entry's label is
-# what the clients' Settings "Notifications" toggles show; the preferences
-# endpoint returns one {type, label, enabled} row per entry and every client
-# renders a toggle per row generically — so a NEW push type needs only an entry
-# here plus a send_push call that passes its type, with no client changes.
+# The master switch (issue #444): off silences every push type below it. It is
+# a preference type only — no payload is ever sent with it.
+PUSH_TYPE_ALL = "all"
+
+# Who an interaction came from, from the recipient's side (issue #444): the
+# category the recipient gave the actor on their own follow edge, or "other"
+# when the recipient does not follow the actor at all. New posts only ever
+# reach followers, so they have no "other" source; comments and likes can come
+# from anyone who can see the content.
+PUSH_SOURCE_OTHER = "other"
+PUSH_SOURCE_LABELS = {
+    FOLLOW_CATEGORY_FOLLOWING: "From people I follow",
+    FOLLOW_CATEGORY_FRIEND: "From friends",
+    FOLLOW_CATEGORY_FAMILY: "From family",
+    PUSH_SOURCE_OTHER: "From everyone else",
+}
+_FOLLOW_SOURCES = [FOLLOW_CATEGORY_FOLLOWING, FOLLOW_CATEGORY_FRIEND, FOLLOW_CATEGORY_FAMILY]
+_ANY_SOURCE = _FOLLOW_SOURCES + [PUSH_SOURCE_OTHER]
+
+
+def push_source_type(kind, source):
+    """The per-source preference type under a push kind, e.g. new_post_friend."""
+    return f"{kind}_{source}"
+
+
+def _push_kind_rows(kind, label, sources):
+    return [(kind, label, PUSH_TYPE_ALL)] + [
+        (push_source_type(kind, source), PUSH_SOURCE_LABELS[source], kind) for source in sources]
+
+
+# Registry of user-toggleable push notification types, as a tree (issue #444):
+# (type, label, parent) in display order, every parent before its children.
+# Each label is what the clients' Settings "Notifications" toggles show; the
+# preferences endpoint returns one {type, label, parent, enabled} row per entry,
+# and the clients render a toggle per row, indented under its parent and hidden
+# while any ancestor is off. A push is delivered only when its type and every
+# ancestor are on, so the master switch and each kind's switch silence
+# everything beneath them without touching the children's own settings.
 # Preferences default to enabled; send_push skips a type a user has turned off.
-PUSH_TYPE_CHOICES = [
-    (PUSH_TYPE_POST_REJECTED, "Post moderation"),
+PUSH_TYPE_TREE = [
+    (PUSH_TYPE_ALL, "Push notifications", None),
+    (PUSH_TYPE_POST_REJECTED, "Post moderation", PUSH_TYPE_ALL),
+    *_push_kind_rows(PUSH_TYPE_NEW_POST, "New posts", _FOLLOW_SOURCES),
+    *_push_kind_rows(PUSH_TYPE_NEW_COMMENT, "Comments and replies", _ANY_SOURCE),
+    *_push_kind_rows(PUSH_TYPE_NEW_LIKE, "Likes", _ANY_SOURCE),
 ]
-PUSH_TYPES = frozenset(value for value, _ in PUSH_TYPE_CHOICES)
+PUSH_TYPE_PARENTS = {value: parent for value, _, parent in PUSH_TYPE_TREE}
+PUSH_TYPES = frozenset(PUSH_TYPE_PARENTS)
 
 # Lifecycle of an appeal a user files against hidden content or a ban.
 APPEAL_STATUS_PENDING = "pending"
@@ -472,6 +514,7 @@ class Fields:
     notification_type = "type"
     enabled = "enabled"
     label = "label"
+    parent = "parent"
     preferences = "preferences"
 
 # Lengths of things

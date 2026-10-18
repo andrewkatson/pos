@@ -2377,17 +2377,29 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
   }
 
   // The push types the stub knows about, mirroring the backend's
-  // PUSH_TYPE_CHOICES. Preferences default to enabled; toggling stores an
-  // override in this map.
+  // PUSH_TYPE_TREE (issue #444). Preferences default to enabled; toggling
+  // stores an override in this map.
   private notificationOverrides: Record<string, boolean> = {}
 
   async getNotificationPreferences(): Promise<NotificationPreference[]> {
     this.requireUser()
-    return [{
-      type: 'post_rejected',
-      label: 'Post moderation',
-      enabled: this.notificationOverrides['post_rejected'] ?? true,
-    }]
+    const sources = (kind: string, withOther: boolean) => [
+      { type: `${kind}_following`, label: 'From people I follow', parent: kind },
+      { type: `${kind}_friend`, label: 'From friends', parent: kind },
+      { type: `${kind}_family`, label: 'From family', parent: kind },
+      ...(withOther ? [{ type: `${kind}_other`, label: 'From everyone else', parent: kind }] : []),
+    ]
+    const tree = [
+      { type: 'all', label: 'Push notifications', parent: null },
+      { type: 'post_rejected', label: 'Post moderation', parent: 'all' },
+      { type: 'new_post', label: 'New posts', parent: 'all' },
+      ...sources('new_post', false),
+      { type: 'new_comment', label: 'Comments and replies', parent: 'all' },
+      ...sources('new_comment', true),
+      { type: 'new_like', label: 'Likes', parent: 'all' },
+      ...sources('new_like', true),
+    ]
+    return tree.map(p => ({ ...p, enabled: this.notificationOverrides[p.type] ?? true }))
   }
 
   async setNotificationPreference(

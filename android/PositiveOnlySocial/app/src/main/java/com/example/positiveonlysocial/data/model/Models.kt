@@ -530,11 +530,43 @@ data class RegisterDeviceRequest(
 // One push type the user can toggle in Settings → Notifications (#342/#343).
 // Fields are nullable because Gson ignores Kotlin defaults for absent JSON keys
 // (see the other DTOs in this file); callers treat a null as its safe default.
+// `parent` places the row in the preference tree (issue #444): null for the
+// master switch, or from an older backend that sends no tree. `enabled` is the
+// row's own setting; a push is delivered only when every ancestor is on too.
 data class NotificationPreference(
     @SerializedName("type") val type: String? = null,
     @SerializedName("label") val label: String? = null,
-    @SerializedName("enabled") val enabled: Boolean? = null
+    @SerializedName("enabled") val enabled: Boolean? = null,
+    @SerializedName("parent") val parent: String? = null
 )
+
+/** A Settings → Notifications row with how deep it is indented. */
+data class NotificationRow(val pref: NotificationPreference, val depth: Int)
+
+/**
+ * The toggles to show, in order (issue #444). The backend lists every parent
+ * before its children; a row is indented under its parent and hidden while any
+ * ancestor is off, since an off parent silences everything beneath it. A row
+ * whose parent is missing shows at the top level.
+ */
+fun visibleNotificationRows(prefs: List<NotificationPreference>): List<NotificationRow> {
+    val byType = prefs.filter { it.type != null }.associateBy { it.type }
+    val shownDepth = mutableMapOf<String, Int>()
+    val rows = mutableListOf<NotificationRow>()
+    for (pref in prefs) {
+        val type = pref.type ?: continue
+        val parent = pref.parent?.let { byType[it] }
+        var depth = 0
+        if (parent != null) {
+            val parentDepth = shownDepth[parent.type] ?: continue
+            if (parent.enabled == false) continue
+            depth = parentDepth + 1
+        }
+        shownDepth[type] = depth
+        rows.add(NotificationRow(pref, depth))
+    }
+    return rows
+}
 
 data class NotificationPreferencesResponse(
     @SerializedName("preferences") val preferences: List<NotificationPreference>? = null
