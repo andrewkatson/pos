@@ -2595,18 +2595,22 @@ final class StatefulStubbedAPI: Networking {
             throw APIError.badServerResponse(statusCode: 401)
         }
         func sources(_ kind: String, withOther: Bool) -> [(String, String, String?)] {
-            var rows = [("\(kind)_following", "From people I follow", kind),
+            var rows: [(String, String, String?)] = [("\(kind)_following", "From people I follow", kind),
                         ("\(kind)_friend", "From friends", kind),
                         ("\(kind)_family", "From family", kind)]
             if withOther { rows.append(("\(kind)_other", "From everyone else", kind)) }
             return rows
         }
-        let tree: [(String, String, String?)] =
-            [("all", "Push notifications", nil),
-             ("post_rejected", "Post moderation", "all"),
-             ("new_post", "New posts", "all")] + sources("new_post", withOther: false)
-            + [("new_comment", "Comments and replies", "all")] + sources("new_comment", withOther: true)
-            + [("new_like", "Likes", "all")] + sources("new_like", withOther: true)
+        // Built with appends rather than one chained `+` expression, which the
+        // CI toolchain's type checker gives up on.
+        var tree: [(String, String, String?)] = [("all", "Push notifications", nil),
+                                                 ("post_rejected", "Post moderation", "all")]
+        tree.append(("new_post", "New posts", "all"))
+        tree.append(contentsOf: sources("new_post", withOther: false))
+        tree.append(("new_comment", "Comments and replies", "all"))
+        tree.append(contentsOf: sources("new_comment", withOther: true))
+        tree.append(("new_like", "Likes", "all"))
+        tree.append(contentsOf: sources("new_like", withOther: true))
         let prefs = tree.map { type, label, parent in
             NotificationPreference(type: type, label: label,
                                    enabled: notificationOverrides[type] ?? true, parent: parent)
