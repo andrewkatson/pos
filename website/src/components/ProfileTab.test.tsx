@@ -209,6 +209,32 @@ test('labels the like count on your own posts, which have no heart (#476)', asyn
   expect(await screen.findByText('5 likes')).toBeInTheDocument()
 })
 
+test('celebrates reaching the end of your own posts (#528)', async () => {
+  mockGetPosts.mockImplementation((_username, batch) =>
+    Promise.resolve(
+      batch === 0
+        ? [{ post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' }]
+        : [],
+    ),
+  )
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Post by ada' })
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  const banner = await screen.findByRole('status')
+  expect(banner).toHaveTextContent('You finished!')
+  expect(banner).toHaveTextContent("That's every post you've shared.")
+})
+
+test('no finished banner on a profile with no posts (#528)', async () => {
+  mockGetPosts.mockResolvedValue([])
+  renderTab()
+  expect(await screen.findByText("You haven't posted anything yet.")).toBeInTheDocument()
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+})
+
 test('refresh reloads the user posts from the first page', async () => {
   mockGetPosts.mockResolvedValue([
     { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },

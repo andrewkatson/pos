@@ -11,6 +11,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Lock
@@ -33,6 +35,11 @@ import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.FollowCategory
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.ui.components.ConfettiOverlay
+import com.example.positiveonlysocial.ui.components.FEED_END_BANNER_KEY
+import com.example.positiveonlysocial.ui.components.FeedEndBanner
+import com.example.positiveonlysocial.ui.components.FeedEndMessage
+import com.example.positiveonlysocial.ui.components.rememberEndOfListCelebration
 import com.example.positiveonlysocial.ui.components.CharacterCounter
 import com.example.positiveonlysocial.ui.components.isWithinLength
 import com.example.positiveonlysocial.models.viewmodels.FollowListMode
@@ -114,6 +121,10 @@ fun ProfileBody(
     val isLoading by viewModel.isLoading.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val isOwnProfile by viewModel.isOwnProfile.collectAsState()
+    // The "you finished!" banner and confetti at the end of the grid (issue #528).
+    val reachedEnd by viewModel.reachedEnd.collectAsState()
+    val gridState = rememberLazyGridState()
+    val celebration = rememberEndOfListCelebration(reachedEnd, gridState)
     // A private account the viewer doesn't follow (issue #96): no stats, and a
     // "this account is private" note in place of the grid.
     val isLocked = ProfileViewModel.isLocked(profileDetails, isOwnProfile, isFollowing)
@@ -258,447 +269,462 @@ fun ProfileBody(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        // Header
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // The profile's options menu (issue #510), at the top-right of the
-            // header where the post rows keep theirs. It lives in the body rather
-            // than the app bar so both containers — the pushed ProfileScreen and
-            // the bottom-nav Profile tab, which has no app bar — get it from one
-            // implementation. Share is offered on every profile, your own and
-            // everyone else's, since the link needs no session to open.
-            Box(modifier = Modifier.fillMaxWidth()) {
-                // The inner Box is what the dropdown anchors to, so the menu opens
-                // next to the button the user tapped (issue #477).
-                Box(modifier = Modifier.align(Alignment.TopEnd)) {
-                    IconButton(
-                        onClick = { showProfileMenu = true },
-                        modifier = Modifier.testTag("profileOptionsButton")
-                    ) {
-                        Icon(Icons.Default.MoreHoriz, contentDescription = "Profile options")
+    // A Box so the end-of-grid confetti (issue #528) falls across the whole
+    // profile, header included, not just the grid.
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Header
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // The profile's options menu (issue #510), at the top-right of the
+                // header where the post rows keep theirs. It lives in the body rather
+                // than the app bar so both containers — the pushed ProfileScreen and
+                // the bottom-nav Profile tab, which has no app bar — get it from one
+                // implementation. Share is offered on every profile, your own and
+                // everyone else's, since the link needs no session to open.
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    // The inner Box is what the dropdown anchors to, so the menu opens
+                    // next to the button the user tapped (issue #477).
+                    Box(modifier = Modifier.align(Alignment.TopEnd)) {
+                        IconButton(
+                            onClick = { showProfileMenu = true },
+                            modifier = Modifier.testTag("profileOptionsButton")
+                        ) {
+                            Icon(Icons.Default.MoreHoriz, contentDescription = "Profile options")
+                        }
+                        DropdownMenu(
+                            expanded = showProfileMenu,
+                            onDismissRequest = { showProfileMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Share Profile") },
+                                onClick = {
+                                    showProfileMenu = false
+                                    ShareLinks.shareText(context, ShareLinks.profileUrl(username))
+                                },
+                                modifier = Modifier.testTag("shareProfileMenuItem")
+                            )
+                        }
                     }
-                    DropdownMenu(
-                        expanded = showProfileMenu,
-                        onDismissRequest = { showProfileMenu = false }
+                }
+
+                // Large header avatar (issue #7). The owner previews their own
+                // not-yet-approved upload immediately; everyone else (and the owner
+                // once approved) sees the live photo.
+                val pendingAvatar = if (isOwnProfile) profileDetails?.pendingProfileImageUrl else null
+                ProfileAvatar(
+                    imageUrl = pendingAvatar ?: profileDetails?.profileImageUrl,
+                    // Fall back to the previously approved photo, not the pending URL,
+                    // so a failed pending preview still shows the live avatar (which
+                    // stays visible while a new upload is under review) instead of the
+                    // placeholder.
+                    originalImageUrl = profileDetails?.profileImageOriginalUrl,
+                    // Decorative: the username is shown right here in the header, so a
+                    // contentDescription would make TalkBack announce it twice (the
+                    // website uses alt="" and iOS accessibilityHidden for the same).
+                    contentDescription = null,
+                    size = 96.dp,
+                    // The hash describes the *approved* photo, so it is withheld
+                    // while the owner previews a pending upload: blurring in the old
+                    // picture behind the new one would just read as a glitch.
+                    blurHash = if (pendingAvatar != null) null else profileDetails?.profileImageBlurHash
+                )
+
+                // A lock under the avatar marks a private account (issue #96).
+                if (profileDetails?.isPrivate == true) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.testTag("PrivateAccountBadge")
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Share Profile") },
-                            onClick = {
-                                showProfileMenu = false
-                                ShareLinks.shareText(context, ShareLinks.profileUrl(username))
-                            },
-                            modifier = Modifier.testTag("shareProfileMenuItem")
+                        Icon(
+                            Icons.Filled.Lock,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            "Private account",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
-            }
 
-            // Large header avatar (issue #7). The owner previews their own
-            // not-yet-approved upload immediately; everyone else (and the owner
-            // once approved) sees the live photo.
-            val pendingAvatar = if (isOwnProfile) profileDetails?.pendingProfileImageUrl else null
-            ProfileAvatar(
-                imageUrl = pendingAvatar ?: profileDetails?.profileImageUrl,
-                // Fall back to the previously approved photo, not the pending URL,
-                // so a failed pending preview still shows the live avatar (which
-                // stays visible while a new upload is under review) instead of the
-                // placeholder.
-                originalImageUrl = profileDetails?.profileImageOriginalUrl,
-                // Decorative: the username is shown right here in the header, so a
-                // contentDescription would make TalkBack announce it twice (the
-                // website uses alt="" and iOS accessibilityHidden for the same).
-                contentDescription = null,
-                size = 96.dp,
-                // The hash describes the *approved* photo, so it is withheld
-                // while the owner previews a pending upload: blurring in the old
-                // picture behind the new one would just read as a glitch.
-                blurHash = if (pendingAvatar != null) null else profileDetails?.profileImageBlurHash
-            )
+                // The owner's incoming follow requests (issue #96), offered while the
+                // account is private or anyone is still waiting.
+                val followRequestCount = profileDetails?.followRequestCount ?: 0
+                if (isOwnProfile && (profileDetails?.isPrivate == true || followRequestCount > 0)) {
+                    TextButton(
+                        onClick = { navController.navigate(Screen.FollowRequests.route) },
+                        modifier = Modifier.testTag("FollowRequestsLink")
+                    ) {
+                        Text(if (followRequestCount > 0) "Follow Requests ($followRequestCount)" else "Follow Requests")
+                    }
+                }
 
-            // A lock under the avatar marks a private account (issue #96).
-            if (profileDetails?.isPrivate == true) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.testTag("PrivateAccountBadge")
+                // Own-profile photo controls: add/change and remove, plus the
+                // pending/rejected review status.
+                if (isOwnProfile) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                photoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            enabled = !isPhotoBusy,
+                            modifier = Modifier.testTag("setProfilePhotoButton")
+                        ) {
+                            // A pending first upload (no live photo yet) still counts
+                            // as "has a photo" so the label matches the Remove button.
+                            val hasPhoto = profileDetails?.profileImageUrl != null ||
+                                profileDetails?.pendingProfileImageUrl != null
+                            Text(if (hasPhoto) "Change photo" else "Add photo")
+                        }
+                        if (profileDetails?.profileImageUrl != null || profileDetails?.pendingProfileImageUrl != null) {
+                            OutlinedButton(
+                                onClick = { viewModel.removeProfilePhoto(username) },
+                                enabled = !isPhotoBusy,
+                                modifier = Modifier.testTag("removeProfilePhotoButton")
+                            ) {
+                                Text("Remove")
+                            }
+                        }
+                    }
+                    if (isPhotoBusy) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    } else if (photoErrorMessage != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = photoErrorMessage!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.testTag("ProfilePhotoError")
+                        )
+                    } else {
+                        val statusText = when (profileDetails?.profileImageStatus) {
+                            "pending" -> "Your new photo is being reviewed."
+                            "rejected" -> "Your last photo wasn't approved — try another."
+                            else -> null
+                        }
+                        statusText?.let {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = it,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // The backend zeroes a locked profile's counts (issue #96), so hide
+                // the row rather than show zeros.
+                if (!hideStats) Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    Icon(
-                        Icons.Filled.Lock,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    // The backend's authoritative post_count, not the loaded-grid
+                    // size: the grid is paginated, so its size is only the posts
+                    // fetched so far — a new post pushes the oldest off the first
+                    // page and the size never moves (issue #437). Falls back to the
+                    // grid size only until profile details load.
+                    StatItem(
+                        count = profileDetails?.postCount ?: userPosts.size,
+                        label = "Posts",
+                        modifier = Modifier.testTag("tag_Posts")
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
+                    // Only your own follow lists are viewable, so the counts tap
+                    // through on your own profile and are plain stats on anyone
+                    // else's (issue #8).
+                    StatItem(
+                        count = profileDetails?.followerCount ?: 0, label = "Followers",
+                        modifier = Modifier
+                            .testTag("tag_Followers")
+                            .then(
+                                if (isOwnProfile) Modifier.clickable {
+                                    navController.navigate(Screen.FollowList.createRoute(FollowListMode.FOLLOWERS.route))
+                                } else Modifier
+                            ),
+                    )
+                    StatItem(
+                        count = profileDetails?.followingCount ?: 0, label = "Following",
+                        modifier = Modifier
+                            .testTag("tag_Following")
+                            .then(
+                                if (isOwnProfile) Modifier.clickable {
+                                    navController.navigate(Screen.FollowList.createRoute(FollowListMode.FOLLOWING.route))
+                                } else Modifier
+                            ),
+                    )
+                }
+
+                // The user's join number (issue #198), shown on every profile —
+                // your own and everyone else's.
+                profileDetails?.membershipNumber?.let { number ->
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "Private account",
+                        text = "🎉 Member #$number",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("MembershipNumber")
+                    )
+                }
+
+                // The user's bio (issue #380): the text when set, shown to everyone,
+                // plus an owner-only Add/Edit button that opens the editor dialog.
+                val bio = profileDetails?.bio ?: ""
+                if (bio.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = bio,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.testTag("ProfileBio")
+                    )
+                } else if (isOwnProfile) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "You haven't added a bio yet.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            }
-
-            // The owner's incoming follow requests (issue #96), offered while the
-            // account is private or anyone is still waiting.
-            val followRequestCount = profileDetails?.followRequestCount ?: 0
-            if (isOwnProfile && (profileDetails?.isPrivate == true || followRequestCount > 0)) {
-                TextButton(
-                    onClick = { navController.navigate(Screen.FollowRequests.route) },
-                    modifier = Modifier.testTag("FollowRequestsLink")
-                ) {
-                    Text(if (followRequestCount > 0) "Follow Requests ($followRequestCount)" else "Follow Requests")
-                }
-            }
-
-            // Own-profile photo controls: add/change and remove, plus the
-            // pending/rejected review status.
-            if (isOwnProfile) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(
+                if (isOwnProfile && profileDetails != null) {
+                    TextButton(
                         onClick = {
-                            photoPickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
+                            viewModel.clearBioError()
+                            showBioEditor = true
                         },
-                        enabled = !isPhotoBusy,
-                        modifier = Modifier.testTag("setProfilePhotoButton")
+                        modifier = Modifier.testTag("EditBioButton")
                     ) {
-                        // A pending first upload (no live photo yet) still counts
-                        // as "has a photo" so the label matches the Remove button.
-                        val hasPhoto = profileDetails?.profileImageUrl != null ||
-                            profileDetails?.pendingProfileImageUrl != null
-                        Text(if (hasPhoto) "Change photo" else "Add photo")
-                    }
-                    if (profileDetails?.profileImageUrl != null || profileDetails?.pendingProfileImageUrl != null) {
-                        OutlinedButton(
-                            onClick = { viewModel.removeProfilePhoto(username) },
-                            enabled = !isPhotoBusy,
-                            modifier = Modifier.testTag("removeProfilePhotoButton")
-                        ) {
-                            Text("Remove")
-                        }
+                        Text(if (bio.isEmpty()) "Add Bio" else "Edit Bio")
                     }
                 }
-                if (isPhotoBusy) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                } else if (photoErrorMessage != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = photoErrorMessage!!,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.testTag("ProfilePhotoError")
-                    )
-                } else {
-                    val statusText = when (profileDetails?.profileImageStatus) {
-                        "pending" -> "Your new photo is being reviewed."
-                        "rejected" -> "Your last photo wasn't approved — try another."
-                        else -> null
-                    }
-                    statusText?.let {
-                        Spacer(modifier = Modifier.height(8.dp))
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (!isOwnProfile) {
+                    val isFollowBusy by viewModel.isFollowBusy.collectAsState()
+                    Button(
+                        onClick = { viewModel.toggleFollow(username) },
+                        // Disabled while a follow / cancel call is in flight (issue #96).
+                        enabled = !isFollowBusy,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isFollowing || followRequestPending) MaterialTheme.colorScheme.secondary
+                                else MaterialTheme.colorScheme.primary
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("FollowButton")
+                    ) {
+                        // "Requested" while a follow request to a private account is
+                        // pending (issue #96); tapping it cancels the request.
                         Text(
-                            text = it,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.Gray
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // The backend zeroes a locked profile's counts (issue #96), so hide
-            // the row rather than show zeros.
-            if (!hideStats) Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                // The backend's authoritative post_count, not the loaded-grid
-                // size: the grid is paginated, so its size is only the posts
-                // fetched so far — a new post pushes the oldest off the first
-                // page and the size never moves (issue #437). Falls back to the
-                // grid size only until profile details load.
-                StatItem(
-                    count = profileDetails?.postCount ?: userPosts.size,
-                    label = "Posts",
-                    modifier = Modifier.testTag("tag_Posts")
-                )
-                // Only your own follow lists are viewable, so the counts tap
-                // through on your own profile and are plain stats on anyone
-                // else's (issue #8).
-                StatItem(
-                    count = profileDetails?.followerCount ?: 0, label = "Followers",
-                    modifier = Modifier
-                        .testTag("tag_Followers")
-                        .then(
-                            if (isOwnProfile) Modifier.clickable {
-                                navController.navigate(Screen.FollowList.createRoute(FollowListMode.FOLLOWERS.route))
-                            } else Modifier
-                        ),
-                )
-                StatItem(
-                    count = profileDetails?.followingCount ?: 0, label = "Following",
-                    modifier = Modifier
-                        .testTag("tag_Following")
-                        .then(
-                            if (isOwnProfile) Modifier.clickable {
-                                navController.navigate(Screen.FollowList.createRoute(FollowListMode.FOLLOWING.route))
-                            } else Modifier
-                        ),
-                )
-            }
-
-            // The user's join number (issue #198), shown on every profile —
-            // your own and everyone else's.
-            profileDetails?.membershipNumber?.let { number ->
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "🎉 Member #$number",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.testTag("MembershipNumber")
-                )
-            }
-
-            // The user's bio (issue #380): the text when set, shown to everyone,
-            // plus an owner-only Add/Edit button that opens the editor dialog.
-            val bio = profileDetails?.bio ?: ""
-            if (bio.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = bio,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.testTag("ProfileBio")
-                )
-            } else if (isOwnProfile) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "You haven't added a bio yet.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            if (isOwnProfile && profileDetails != null) {
-                TextButton(
-                    onClick = {
-                        viewModel.clearBioError()
-                        showBioEditor = true
-                    },
-                    modifier = Modifier.testTag("EditBioButton")
-                ) {
-                    Text(if (bio.isEmpty()) "Add Bio" else "Edit Bio")
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            if (!isOwnProfile) {
-                val isFollowBusy by viewModel.isFollowBusy.collectAsState()
-                Button(
-                    onClick = { viewModel.toggleFollow(username) },
-                    // Disabled while a follow / cancel call is in flight (issue #96).
-                    enabled = !isFollowBusy,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isFollowing || followRequestPending) MaterialTheme.colorScheme.secondary
-                            else MaterialTheme.colorScheme.primary
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("FollowButton")
-                ) {
-                    // "Requested" while a follow request to a private account is
-                    // pending (issue #96); tapping it cancels the request.
-                    Text(
-                        when {
-                            isFollowing -> "Following"
-                            followRequestPending -> "Requested"
-                            else -> "Follow"
-                        }
-                    )
-                }
-
-                // Relationship category, shown once you follow (issue #392).
-                if (isFollowing) {
-                    val followCategory by viewModel.followCategory.collectAsState()
-                    var categoryMenuExpanded by remember { mutableStateOf(false) }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(
-                            onClick = { categoryMenuExpanded = true },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("RelationshipCategoryPicker")
-                        ) {
-                            Text("Relationship: ${followCategory.displayName}")
-                        }
-                        DropdownMenu(
-                            expanded = categoryMenuExpanded,
-                            onDismissRequest = { categoryMenuExpanded = false }
-                        ) {
-                            FollowCategory.entries.forEach { category ->
-                                DropdownMenuItem(
-                                    text = { Text(category.displayName) },
-                                    onClick = {
-                                        viewModel.changeCategory(username, category)
-                                        categoryMenuExpanded = false
-                                    }
-                                )
+                            when {
+                                isFollowing -> "Following"
+                                followRequestPending -> "Requested"
+                                else -> "Follow"
                             }
-                        }
+                        )
                     }
-                }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                val isBlocked by viewModel.isBlocked.collectAsState()
-
-                Button(
-                    onClick = { viewModel.toggleBlock(username) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = if (isBlocked) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                ) {
-                    Text(if (isBlocked) "Unblock" else "Block")
-                }
-            }
-        }
-
-        Divider()
-
-        if (isLoading && userPosts.isEmpty()) {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else {
-            // Pull-to-refresh reloads the newest posts/details from the backend.
-            // It wraps both the empty state and the grid so the user can always
-            // pull to retry — even when the profile currently has no posts.
-            PullToRefreshBox(
-                isRefreshing = isRefreshing,
-                onRefresh = { viewModel.refreshProfile(username) },
-                modifier = Modifier.fillMaxSize()
-            ) {
-                if (isLocked) {
-                    // A private account the viewer doesn't follow (issue #96).
-                    // Scrollable so pull-to-refresh still works.
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp)
-                            .testTag("PrivateAccountNotice"),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Spacer(modifier = Modifier.height(48.dp))
-                        Icon(Icons.Filled.Lock, contentDescription = null)
+                    // Relationship category, shown once you follow (issue #392).
+                    if (isFollowing) {
+                        val followCategory by viewModel.followCategory.collectAsState()
+                        var categoryMenuExpanded by remember { mutableStateOf(false) }
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("This account is private", fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            if (followRequestPending) "Once $username approves your request, you'll see their posts."
-                            else "Follow $username to see their posts.",
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                } else if (userPosts.isEmpty()) {
-                    // Scrollable so the pull-to-refresh gesture works with no posts.
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState()),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Spacer(modifier = Modifier.height(48.dp))
-                        Text(
-                            if (isOwnProfile) "You haven't posted anything yet."
-                            else "$username hasn't posted anything yet."
-                        )
-                    }
-                } else {
-                    // The grid backing shows through the 1dp gaps and contentPadding,
-                    // and behind any empty slots in a partial last row. Use the theme
-                    // background — the Scaffold's default container color — so those
-                    // empties truly match the screen behind the grid in both light and
-                    // dark mode instead of painting black boxes next to posts (#415).
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.background),
-                        contentPadding = PaddingValues(1.dp),
-                        horizontalArrangement = Arrangement.spacedBy(1.dp),
-                        verticalArrangement = Arrangement.spacedBy(1.dp)
-                    ) {
-                        items(userPosts) { post ->
-                            // The action bar sits below the tile rather than over
-                            // it, so it can't swallow the tap that opens the post.
-                            Column(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
-                                Box {
-                                    PostImageWithFallback(
-                                        post = post,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(1f)
-                                            .clickable {
-                                                navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
-                                            }
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { categoryMenuExpanded = true },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("RelationshipCategoryPicker")
+                            ) {
+                                Text("Relationship: ${followCategory.displayName}")
+                            }
+                            DropdownMenu(
+                                expanded = categoryMenuExpanded,
+                                onDismissRequest = { categoryMenuExpanded = false }
+                            ) {
+                                FollowCategory.entries.forEach { category ->
+                                    DropdownMenuItem(
+                                        text = { Text(category.displayName) },
+                                        onClick = {
+                                            viewModel.changeCategory(username, category)
+                                            categoryMenuExpanded = false
+                                        }
                                     )
-                                    // Author-only classification state (#282): "In
-                                    // review" while the async classifier runs, or
-                                    // the appeal hint on a rejection. Only your own
-                                    // posts ever carry a status, so this is simply
-                                    // absent on someone else's profile.
-                                    statusBadgeLabel(post.status)?.let { badge ->
-                                        Text(
-                                            text = badge,
-                                            color = Color.White,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            textAlign = TextAlign.Center,
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val isBlocked by viewModel.isBlocked.collectAsState()
+
+                    Button(
+                        onClick = { viewModel.toggleBlock(username) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (isBlocked) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    ) {
+                        Text(if (isBlocked) "Unblock" else "Block")
+                    }
+                }
+            }
+
+            Divider()
+
+            if (isLoading && userPosts.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else {
+                // Pull-to-refresh reloads the newest posts/details from the backend.
+                // It wraps both the empty state and the grid so the user can always
+                // pull to retry — even when the profile currently has no posts.
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = { viewModel.refreshProfile(username) },
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    if (isLocked) {
+                        // A private account the viewer doesn't follow (issue #96).
+                        // Scrollable so pull-to-refresh still works.
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 16.dp)
+                                .testTag("PrivateAccountNotice"),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Spacer(modifier = Modifier.height(48.dp))
+                            Icon(Icons.Filled.Lock, contentDescription = null)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("This account is private", fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                if (followRequestPending) "Once $username approves your request, you'll see their posts."
+                                else "Follow $username to see their posts.",
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else if (userPosts.isEmpty()) {
+                        // Scrollable so the pull-to-refresh gesture works with no posts.
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState()),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Spacer(modifier = Modifier.height(48.dp))
+                            Text(
+                                if (isOwnProfile) "You haven't posted anything yet."
+                                else "$username hasn't posted anything yet."
+                            )
+                        }
+                    } else {
+                        // The grid backing shows through the 1dp gaps and contentPadding,
+                        // and behind any empty slots in a partial last row. Use the theme
+                        // background — the Scaffold's default container color — so those
+                        // empties truly match the screen behind the grid in both light and
+                        // dark mode instead of painting black boxes next to posts (#415).
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
+                            state = gridState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.background),
+                            contentPadding = PaddingValues(1.dp),
+                            horizontalArrangement = Arrangement.spacedBy(1.dp),
+                            verticalArrangement = Arrangement.spacedBy(1.dp)
+                        ) {
+                            items(userPosts) { post ->
+                                // The action bar sits below the tile rather than over
+                                // it, so it can't swallow the tap that opens the post.
+                                Column(modifier = Modifier.background(MaterialTheme.colorScheme.surface)) {
+                                    Box {
+                                        PostImageWithFallback(
+                                            post = post,
                                             modifier = Modifier
-                                                .align(Alignment.BottomCenter)
                                                 .fillMaxWidth()
-                                                .background(Color.Black.copy(alpha = 0.72f))
-                                                .padding(vertical = 2.dp)
-                                                .testTag("PostStatusBadge")
+                                                .aspectRatio(1f)
+                                                .clickable {
+                                                    navController.navigate(Screen.PostDetail.createRoute(post.postIdentifier))
+                                                }
                                         )
+                                        // Author-only classification state (#282): "In
+                                        // review" while the async classifier runs, or
+                                        // the appeal hint on a rejection. Only your own
+                                        // posts ever carry a status, so this is simply
+                                        // absent on someone else's profile.
+                                        statusBadgeLabel(post.status)?.let { badge ->
+                                            Text(
+                                                text = badge,
+                                                color = Color.White,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomCenter)
+                                                    .fillMaxWidth()
+                                                    .background(Color.Black.copy(alpha = 0.72f))
+                                                    .padding(vertical = 2.dp)
+                                                    .testTag("PostStatusBadge")
+                                            )
+                                        }
+                                    }
+                                    PostActionBar(
+                                        post = post,
+                                        isOwnPost = post.authorUsername == currentUsername,
+                                        onToggleLike = { postActions.toggleLike(post) },
+                                        onOpenMenu = { postActions.setPostForAction(post) },
+                                        compact = true,
+                                        onOpenLikes = { postActions.setPostForLikes(post) },
+                                        menu = {
+                                            PostActionMenu(
+                                                postActions,
+                                                post,
+                                                expanded = postForAction?.postIdentifier ==
+                                                    post.postIdentifier,
+                                                isOwn = post.authorUsername == currentUsername
+                                            )
+                                        }
+                                    )
+                                }
+
+                                if (post == userPosts.lastOrNull()) {
+                                    LaunchedEffect(Unit) {
+                                        viewModel.fetchUserPosts(username)
                                     }
                                 }
-                                PostActionBar(
-                                    post = post,
-                                    isOwnPost = post.authorUsername == currentUsername,
-                                    onToggleLike = { postActions.toggleLike(post) },
-                                    onOpenMenu = { postActions.setPostForAction(post) },
-                                    compact = true,
-                                    onOpenLikes = { postActions.setPostForLikes(post) },
-                                    menu = {
-                                        PostActionMenu(
-                                            postActions,
-                                            post,
-                                            expanded = postForAction?.postIdentifier ==
-                                                post.postIdentifier,
-                                            isOwn = post.authorUsername == currentUsername
-                                        )
-                                    }
-                                )
                             }
 
-                            if (post == userPosts.lastOrNull()) {
-                                LaunchedEffect(Unit) {
-                                    viewModel.fetchUserPosts(username)
+                            if (reachedEnd) {
+                                item(key = FEED_END_BANNER_KEY, span = { GridItemSpan(maxLineSpan) }) {
+                                    FeedEndBanner(
+                                        if (isOwnProfile) FeedEndMessage.OWN_PROFILE
+                                        else FeedEndMessage.profile(username),
+                                        modifier = Modifier.padding(horizontal = 16.dp)
+                                    )
                                 }
                             }
                         }
@@ -706,6 +732,8 @@ fun ProfileBody(
                 }
             }
         }
+
+        ConfettiOverlay(celebration)
     }
 
     // One set of confirmations for the whole grid.

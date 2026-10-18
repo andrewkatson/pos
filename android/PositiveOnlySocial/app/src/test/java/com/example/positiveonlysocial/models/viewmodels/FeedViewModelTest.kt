@@ -131,4 +131,47 @@ class FeedViewModelTest {
         assertEquals(initialPosts, viewModel.feedPosts.value)
         assertFalse(viewModel.isRefreshing.value)
     }
+
+    // ---- The "you finished!" banner (issue #528) ----
+
+    @Test
+    fun `reachedEnd turns on once a page comes back empty`() = runTest {
+        val page0 = listOf(Post("1", "url1", "caption1", "user1", 0))
+        whenever(api.getPostsInFeed("token123", 0)).thenReturn(Response.success(page0))
+        whenever(api.getPostsInFeed("token123", 1)).thenReturn(Response.success(emptyList()))
+
+        viewModel.fetchFeed()
+        // More may exist until a page comes back empty.
+        assertFalse(viewModel.reachedEnd.value)
+
+        viewModel.fetchFeed()
+        assertTrue(viewModel.reachedEnd.value)
+        assertEquals(page0, viewModel.feedPosts.value)
+    }
+
+    @Test
+    fun `a failed page does not mark the feed finished`() = runTest {
+        val page0 = listOf(Post("1", "url1", "caption1", "user1", 0))
+        whenever(api.getPostsInFeed("token123", 0)).thenReturn(Response.success(page0))
+        whenever(api.getPostsInFeed("token123", 1)).thenReturn(Response.error(500, "error".toResponseBody()))
+
+        viewModel.fetchFeed()
+        viewModel.fetchFeed()
+
+        assertFalse(viewModel.reachedEnd.value)
+    }
+
+    @Test
+    fun `refreshing a finished feed clears reachedEnd`() = runTest {
+        val page0 = listOf(Post("1", "url1", "caption1", "user1", 0))
+        whenever(api.getPostsInFeed("token123", 0)).thenReturn(Response.success(page0))
+        whenever(api.getPostsInFeed("token123", 1)).thenReturn(Response.success(emptyList()))
+        viewModel.fetchFeed()
+        viewModel.fetchFeed()
+        assertTrue(viewModel.reachedEnd.value)
+
+        viewModel.refreshFeed()
+
+        assertFalse(viewModel.reachedEnd.value)
+    }
 }

@@ -95,6 +95,7 @@ struct FeedView: View {
 struct ForYouFeedView: View {
     @ObservedObject var viewModel: FeedViewModel
     @ObservedObject var postActions: PostActionsViewModel
+    @StateObject private var celebration = EndOfListCelebration()
 
     var body: some View {
         ScrollView {
@@ -177,9 +178,14 @@ struct ForYouFeedView: View {
                 if viewModel.isLoadingNextPage {
                     ProgressView().padding()
                 }
+
+                if viewModel.reachedEnd && !viewModel.feedPosts.isEmpty {
+                    FeedEndBanner(message: FeedEndMessage.forYou, celebration: celebration)
+                }
             }
             .padding(.top)
         }
+        .celebratesEndOfList(celebration, reachedEnd: viewModel.reachedEnd)
         .refreshable {
             // Pull-to-refresh: reload the newest posts from the backend.
             // Run the reload in an unstructured Task so SwiftUI cancelling
@@ -198,6 +204,7 @@ struct ForYouFeedView: View {
 struct FollowingFeedView: View {
     @ObservedObject var viewModel: FollowingFeedViewModel
     @ObservedObject var postActions: PostActionsViewModel
+    @StateObject private var celebration = EndOfListCelebration()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -306,9 +313,14 @@ struct FollowingFeedView: View {
                 if viewModel.isLoadingNextPage {
                     ProgressView().padding()
                 }
+
+                if viewModel.reachedEnd && !viewModel.followingPosts.isEmpty {
+                    FeedEndBanner(message: FeedEndMessage.following, celebration: celebration)
+                }
             }
             .padding(.top)
         }
+        .celebratesEndOfList(celebration, reachedEnd: viewModel.reachedEnd)
         .refreshable {
             // Pull-to-refresh: reload the newest posts from the backend.
             // Run the reload in an unstructured Task so SwiftUI cancelling
@@ -330,6 +342,7 @@ struct FollowingFeedView: View {
 struct TopFeedView: View {
     @ObservedObject var viewModel: TopPostsViewModel
     @ObservedObject var postActions: PostActionsViewModel
+    @StateObject private var celebration = EndOfListCelebration()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -424,9 +437,14 @@ struct TopFeedView: View {
                 if viewModel.isLoadingNextPage {
                     ProgressView().padding()
                 }
+
+                if viewModel.reachedEnd && !viewModel.topPosts.isEmpty {
+                    FeedEndBanner(message: FeedEndMessage.top(viewModel.selectedPeriod), celebration: celebration)
+                }
             }
             .padding(.top)
         }
+        .celebratesEndOfList(celebration, reachedEnd: viewModel.reachedEnd)
         .refreshable {
             await Task { await viewModel.refreshFeed() }.value
         }

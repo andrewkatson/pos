@@ -14,6 +14,7 @@ import { profileShareUrl, shareLink } from '../utils/shareLink'
 import AnchoredMenu, { AnchoredMenuItem } from './AnchoredMenu'
 import { anchorFrom, type MenuAnchor } from './menuAnchor'
 import PostGrid from './PostGrid'
+import FeedEndBanner from './FeedEndBanner'
 import Avatar from './Avatar'
 import CharacterCounter from './CharacterCounter'
 
@@ -124,6 +125,9 @@ function ProfileView({
   const [posts, setPosts] = useState<FeedPost[]>([])
   const [page, setPage] = useState(0)
   const [canLoadMore, setCanLoadMore] = useState(true)
+  // Set only when a page comes back empty — every post is on screen — not when
+  // a load fails, which also stops paging (issue #528).
+  const [reachedEnd, setReachedEnd] = useState(false)
   // Start loading so the spinner shows on mount without a synchronous setState
   // inside the fetch effect.
   const [isLoadingPosts, setIsLoadingPosts] = useState(true)
@@ -241,9 +245,11 @@ function ProfileView({
         if (replace) {
           setPosts(newPosts)
           setCanLoadMore(newPosts.length > 0)
+          setReachedEnd(false)
           setPage(newPosts.length > 0 ? 1 : 0)
         } else if (newPosts.length === 0) {
           setCanLoadMore(false)
+          setReachedEnd(true)
         } else {
           setPosts(prev => [...prev, ...newPosts])
           setPage(prev => prev + 1)
@@ -957,6 +963,13 @@ function ProfileView({
         >
           Load more
         </button>
+      )}
+      {reachedEnd && !isLocked && !isLoadingPosts && posts.length > 0 && (
+        <FeedEndBanner
+          message={
+            isOwnProfile ? "That's every post you've shared." : `You've seen all of ${username}'s posts.`
+          }
+        />
       )}
 
       {menuAnchor && (

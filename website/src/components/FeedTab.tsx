@@ -8,6 +8,7 @@ import PostThumbnail from './PostThumbnail'
 import PostActionBar from './PostActionBar'
 import { usePostActions } from './usePostActions'
 import Avatar from './Avatar'
+import FeedEndBanner from './FeedEndBanner'
 import { captionFontClass } from './textFormatting'
 
 type FeedType = 'forYou' | 'following' | 'top'
@@ -35,6 +36,20 @@ const PERIOD_OPTIONS: { value: TopPostPeriod; label: string }[] = [
   { value: 'month', label: 'This month' },
   { value: 'year', label: 'This year' },
 ]
+
+const TOP_BOARD_SPANS: Record<TopPostPeriod, string> = {
+  day: 'today',
+  week: 'this week',
+  month: 'this month',
+  year: 'this year',
+}
+
+/** What the end-of-feed banner (issue #528) says the viewer just finished. */
+function feedEndMessage(feed: FeedType, period: TopPostPeriod): string {
+  if (feed === 'forYou') return "You've seen every post in your feed. Check back soon for more good vibes!"
+  if (feed === 'following') return "You've seen every post from the people you follow."
+  return `That's the whole Top board for ${TOP_BOARD_SPANS[period]}.`
+}
 
 /**
  * The "Feed" tab with a For You / Following / Top segmented control. Each feed
@@ -64,6 +79,9 @@ function FeedTab() {
   const [posts, setPosts] = useState<FeedPost[]>([])
   const [page, setPage] = useState(0)
   const [canLoadMore, setCanLoadMore] = useState(true)
+  // Set only when a page comes back empty — the feed really ran out — not when
+  // a load fails, which also stops paging (issue #528).
+  const [reachedEnd, setReachedEnd] = useState(false)
   // Start loading on mount so the spinner shows without a synchronous setState
   // inside the fetch effect (which React flags as a cascading render).
   const [isLoading, setIsLoading] = useState(true)
@@ -111,11 +129,13 @@ function FeedTab() {
             listedIds.current = new Set(newPosts.map(post => post.post_identifier))
             setPosts(newPosts)
             setCanLoadMore(newPosts.length > 0)
+            setReachedEnd(false)
             setPage(newPosts.length > 0 ? 1 : 0)
             break
           }
           if (newPosts.length === 0) {
             setCanLoadMore(false)
+            setReachedEnd(true)
             break
           }
           // Live OFFSET paging can repeat a post whose rank moved between
@@ -154,6 +174,7 @@ function FeedTab() {
     setIsLoading(true)
     setPosts([])
     setCanLoadMore(true)
+    setReachedEnd(false)
   }
 
   // Reload from scratch whenever the selected feed changes. Deferred to a
@@ -338,6 +359,9 @@ function FeedTab() {
         >
           Load more
         </button>
+      )}
+      {reachedEnd && !isLoading && posts.length > 0 && (
+        <FeedEndBanner message={feedEndMessage(selected, period)} />
       )}
 
       {dialogs}

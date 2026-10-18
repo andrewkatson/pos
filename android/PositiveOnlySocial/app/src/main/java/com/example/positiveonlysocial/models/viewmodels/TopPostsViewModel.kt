@@ -56,7 +56,19 @@ class TopPostsViewModel(
     val postActions =
         PostListActions(api, keychainHelper, viewModelScope, _topPosts, account)
 
+    private val _reachedEnd = MutableStateFlow(false)
+    /**
+     * True once a page comes back empty: every post is loaded, so the screen
+     * shows the "you finished!" banner (issue #528). Mirrors [canLoadMore]; a
+     * failed load leaves it alone, since that doesn't mean the list ran out.
+     */
+    val reachedEnd: StateFlow<Boolean> = _reachedEnd.asStateFlow()
+
     private var canLoadMore = true
+        set(value) {
+            field = value
+            _reachedEnd.value = !value
+        }
     private var currentPage = 0
     private val service = "positive-only-social.Positive-Only-Social"
 

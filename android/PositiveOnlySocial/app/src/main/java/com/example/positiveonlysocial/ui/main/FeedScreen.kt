@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -37,6 +38,11 @@ import com.example.positiveonlysocial.models.viewmodels.TopPostsViewModelFactory
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
+import com.example.positiveonlysocial.ui.components.ConfettiOverlay
+import com.example.positiveonlysocial.ui.components.FEED_END_BANNER_KEY
+import com.example.positiveonlysocial.ui.components.FeedEndBanner
+import com.example.positiveonlysocial.ui.components.FeedEndMessage
+import com.example.positiveonlysocial.ui.components.rememberEndOfListCelebration
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.navigation.openProfileFor
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
@@ -87,6 +93,10 @@ fun ForYouFeed(
     val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val loadError by viewModel.loadError.collectAsState()
+    // The "you finished!" banner and confetti at the end (issue #528).
+    val reachedEnd by viewModel.reachedEnd.collectAsState()
+    val listState = rememberLazyListState()
+    val celebration = rememberEndOfListCelebration(reachedEnd, listState)
 
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
@@ -106,6 +116,7 @@ fun ForYouFeed(
         modifier = Modifier.fillMaxSize()
     ) {
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
@@ -137,7 +148,13 @@ fun ForYouFeed(
             if (posts.isEmpty() && !isLoadingNextPage && !isRefreshing) {
                 item { FeedPlaceholder(loadError) }
             }
+
+            if (reachedEnd && posts.isNotEmpty()) {
+                item(key = FEED_END_BANNER_KEY) { FeedEndBanner(FeedEndMessage.FOR_YOU) }
+            }
         }
+
+        ConfettiOverlay(celebration)
 
         // One set of confirmations for every post in the feed.
         PostActionDialogs(postActions, navController)
@@ -189,6 +206,10 @@ fun FollowingFeed(
     val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val loadError by viewModel.loadError.collectAsState()
+    // The "you finished!" banner and confetti at the end (issue #528).
+    val reachedEnd by viewModel.reachedEnd.collectAsState()
+    val listState = rememberLazyListState()
+    val celebration = rememberEndOfListCelebration(reachedEnd, listState)
     val selectedCategory by viewModel.selectedCategory.collectAsState()
 
     val postActions = viewModel.postActions
@@ -233,6 +254,7 @@ fun FollowingFeed(
             modifier = Modifier.fillMaxSize()
         ) {
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
@@ -264,7 +286,13 @@ fun FollowingFeed(
             if (posts.isEmpty() && !isLoadingNextPage && !isRefreshing) {
                 item { FeedPlaceholder(loadError) }
             }
+
+            if (reachedEnd && posts.isNotEmpty()) {
+                item(key = FEED_END_BANNER_KEY) { FeedEndBanner(FeedEndMessage.FOLLOWING) }
+            }
         }
+
+        ConfettiOverlay(celebration)
 
         // One set of confirmations for every post in the feed.
         PostActionDialogs(postActions, navController)
@@ -290,6 +318,10 @@ fun TopFeed(
     val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val loadError by viewModel.loadError.collectAsState()
+    // The "you finished!" banner and confetti at the end (issue #528).
+    val reachedEnd by viewModel.reachedEnd.collectAsState()
+    val listState = rememberLazyListState()
+    val celebration = rememberEndOfListCelebration(reachedEnd, listState)
     val selectedPeriod by viewModel.selectedPeriod.collectAsState()
 
     val postActions = viewModel.postActions
@@ -327,6 +359,7 @@ fun TopFeed(
             modifier = Modifier.fillMaxSize()
         ) {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
@@ -362,7 +395,15 @@ fun TopFeed(
                 if (posts.isEmpty() && !isLoadingNextPage && !isRefreshing) {
                     item { FeedPlaceholder(loadError) }
                 }
+
+                if (reachedEnd && posts.isNotEmpty()) {
+                    item(key = FEED_END_BANNER_KEY) {
+                        FeedEndBanner(FeedEndMessage.top(selectedPeriod))
+                    }
+                }
             }
+
+            ConfettiOverlay(celebration)
 
             PostActionDialogs(postActions, navController)
         }
