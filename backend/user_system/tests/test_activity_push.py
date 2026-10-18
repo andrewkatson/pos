@@ -1,6 +1,8 @@
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from .. import notifications, push, tasks
@@ -33,9 +35,13 @@ class ActivityPushTestCase(TestCase):
         self.author = self._user('author')
         self.post = self.author.post_set.create(caption='A lovely sunny day')
 
-    def _user(self, name, **extra):
-        return PositiveOnlySocialUser.objects.create_user(
+    def _user(self, name, device=True, **extra):
+        user = PositiveOnlySocialUser.objects.create_user(
             username=name, email=f'{name}@test.com', password='x', **extra)
+        if device:
+            # The new-post fan-out only sends to users with a registered device.
+            user.device_tokens.create(platform='ios', token=f'tok-{name}')
+        return user
 
     def _follow(self, follower, followee, category=FOLLOW_CATEGORY_FOLLOWING):
         UserFollow.objects.create(user_from=follower, user_to=followee, category=category)
@@ -190,6 +196,44 @@ class NewPostPushTests(ActivityPushTestCase):
         self.post.save()
         notifications.push_new_post(str(self.post.post_identifier), first_edge.pk)
         send_push.assert_not_called()
+
+    def test_followers_without_a_device_are_skipped(self, send_push):
+        self._follow(self._user('no_device', device=False), self.author)
+        self._follow(self._user('fan'), self.author)
+        notifications.push_new_post(str(self.post.post_identifier))
+        self.assertEqual(set(_sent(send_push)), {('fan', 'new_post_following')})
+        self.assertEqual([t.token for t in send_push.call_args.kwargs['tokens']], ['tok-fan'])
+
+    def test_preferences_are_applied_in_bulk(self, send_push):
+        leaf_off, kind_off, master_off, on = (self._user(n) for n in ('leaf_off', 'kind_off', 'master_off', 'on'))
+        for fan in (leaf_off, kind_off, master_off, on):
+            self._follow(fan, self.author)
+        for fan, notification_type in ((leaf_off, 'new_post_following'), (kind_off, PUSH_TYPE_NEW_POST),
+                                       (master_off, PUSH_TYPE_ALL)):
+            NotificationPreference.objects.create(user=fan, notification_type=notification_type, enabled=False)
+        # A different kind being off does not matter.
+        NotificationPreference.objects.create(user=on, notification_type=PUSH_TYPE_NEW_LIKE, enabled=False)
+        notifications.push_new_post(str(self.post.post_identifier))
+        self.assertEqual(set(_sent(send_push)), {('on', 'new_post_following')})
+
+    def test_blocks_in_either_direction_are_skipped(self, send_push):
+        blocker, blocked, fan = self._user('blocker'), self._user('blocked'), self._user('fan')
+        for user in (blocker, blocked, fan):
+            self._follow(user, self.author)
+        UserBlock.objects.create(user_blocker=blocker, user_blocked=self.author)
+        UserBlock.objects.create(user_blocker=self.author, user_blocked=blocked)
+        notifications.push_new_post(str(self.post.post_identifier))
+        self.assertEqual({user for user, _ in _sent(send_push)}, {'fan'})
+
+    def test_query_count_does_not_grow_with_followers(self, send_push):
+        def queries_for(count):
+            UserFollow.objects.filter(user_to=self.author).delete()
+            for i in range(count):
+                self._follow(self._user(f'q{count}_{i}'), self.author)
+            with CaptureQueriesContext(connection) as captured:
+                notifications.push_new_post(str(self.post.post_identifier))
+            return len(captured)
+        self.assertEqual(queries_for(2), queries_for(8))
 
     def test_one_failing_send_does_not_stop_the_fan_out(self, send_push):
         self._follow(self._user('a_fan'), self.author)

@@ -26,11 +26,13 @@ from django.db.models import Q
 
 from . import push
 from .constants import (
-    BAN_TYPE_SHADOW, PUSH_SOURCE_OTHER,
+    AUDIENCE_ALLOWED_CATEGORIES, BAN_TYPE_SHADOW, POST_AUDIENCE_PUBLIC, PUSH_SOURCE_OTHER,
     PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE,
     push_source_type,
 )
-from .models import Comment, CommentLike, Post, PostLike, UserBan, UserBlock, UserFollow
+from .models import (
+    Comment, CommentLike, DeviceToken, Post, PostLike, UserBan, UserBlock, UserFollow,
+)
 from .visibility import audience_admits, can_view_post, in_same_age_band
 
 logger = logging.getLogger(__name__)
@@ -132,11 +134,11 @@ def _source(recipient, actor):
     return category or PUSH_SOURCE_OTHER
 
 
-def _send(recipient, payload, notification_type):
+def _send(recipient, payload, notification_type, **kwargs):
     """send_push for one recipient, isolated so one failure never stops a
     fan-out to the others."""
     try:
-        push.send_push(recipient, payload, notification_type)
+        push.send_push(recipient, payload, notification_type, **kwargs)
     except Exception:
         logger.exception("Activity push %s failed for user %s", notification_type, recipient.pk)
 
@@ -163,6 +165,13 @@ def push_new_post(post_identifier, after_follow_id=None):
     sending, so a batch that dies (a timeout behind a slow provider) costs only
     its own followers, never the rest. Each batch re-reads the post, so one
     hidden or deleted mid-way stops the remaining batches.
+
+    Everything a batch needs is loaded up front in a handful of queries, not
+    per follower: the post-level checks (hidden, the author's shadow ban) run
+    once, and blocks, the post's audience, preferences and device tokens are
+    each read for the whole batch. Together with the age-band check these are
+    exactly can_view_post plus _may_notify — privacy needs no check, since
+    every recipient follows the author.
     """
     post = Post.objects.select_related('author').filter(post_identifier=post_identifier).first()
     if post is None or post.hidden:
@@ -176,13 +185,40 @@ def push_new_post(post_identifier, after_follow_id=None):
     batch = list(edges[:NEW_POST_FANOUT_BATCH_SIZE])
     if len(batch) == NEW_POST_FANOUT_BATCH_SIZE:
         _enqueue('push_new_post', str(post_identifier), batch[-1].pk)
+    follower_ids = [edge.user_from_id for edge in batch]
+    blocked_ids = set()
+    for blocker_id, blocked_id in UserBlock.objects.filter(
+            Q(user_blocker=author, user_blocked_id__in=follower_ids)
+            | Q(user_blocked=author, user_blocker_id__in=follower_ids)
+    ).values_list('user_blocker_id', 'user_blocked_id'):
+        blocked_ids.add(blocked_id if blocker_id == author.pk else blocker_id)
+    if post.audience == POST_AUDIENCE_PUBLIC:
+        admitted_ids = set(follower_ids)
+    else:
+        # The author's own labels decide a restricted post's audience.
+        admitted_ids = set(UserFollow.objects.filter(
+            user_from=author, user_to_id__in=follower_ids,
+            category__in=AUDIENCE_ALLOWED_CATEGORIES.get(post.audience, []),
+        ).values_list('user_to_id', flat=True))
+    disabled = push.disabled_push_types(follower_ids)
+    tokens_by_user = {}
+    for row in DeviceToken.objects.filter(user_id__in=follower_ids):
+        tokens_by_user.setdefault(row.user_id, []).append(row)
+
     payload = push.build_activity_payload(
         PUSH_TYPE_NEW_POST, post, f"{author.username} shared a new post", post.caption or "Tap to see it.")
     for edge in batch:
         follower = edge.user_from
-        if not _may_notify(follower, author) or not can_view_post(post, follower):
+        if (follower.pk == author.pk or follower.pk in blocked_ids or follower.pk not in admitted_ids
+                or not in_same_age_band(follower, author)):
             continue
-        _send(follower, payload, push_source_type(PUSH_TYPE_NEW_POST, edge.category))
+        notification_type = push_source_type(PUSH_TYPE_NEW_POST, edge.category)
+        if not push.push_type_enabled_in(disabled.get(follower.pk, ()), notification_type):
+            continue
+        tokens = tokens_by_user.get(follower.pk)
+        if not tokens:
+            continue
+        _send(follower, payload, notification_type, tokens=tokens)
 
 
 def push_new_comment(comment_identifier):

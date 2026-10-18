@@ -113,7 +113,10 @@ the same `classification_worker`, which always takes from the classification
 queue first, so notification work never queues ahead of moderation. A new post
 is announced in batches of 50 followers, one job per batch. A full batch
 enqueues the next one before it sends, so a batch that dies (say, a timeout
-behind a slow provider) loses only its own followers.
+behind a slow provider) loses only its own followers. A batch loads blocks,
+the post's audience, preferences and device tokens for all of its followers in
+one query each, so its database cost does not grow with the batch, and
+followers with no registered device are skipped without a send.
 
 The title names who acted (for example "sam liked your comment") and the body
 quotes up to 100 characters of the caption or comment. On Android, activity

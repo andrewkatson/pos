@@ -153,19 +153,40 @@ def is_push_type_enabled(user, notification_type):
     ).exists()
 
 
-def send_push(user, payload, notification_type):
+def disabled_push_types(user_ids):
+    """{user_id: set of types they turned off} for many users in one query —
+    the bulk form of is_push_type_enabled, for fan-outs. Pair with
+    push_type_enabled_in."""
+    disabled = {}
+    for user_id, notification_type in NotificationPreference.objects.filter(
+            user_id__in=user_ids, enabled=False).values_list('user_id', 'notification_type'):
+        disabled.setdefault(user_id, set()).add(notification_type)
+    return disabled
+
+
+def push_type_enabled_in(disabled_types, notification_type):
+    """is_push_type_enabled over an already-loaded set of disabled types."""
+    return not any(t in disabled_types for t in _push_type_chain(notification_type))
+
+
+def send_push(user, payload, notification_type, tokens=None):
     """Fan a payload out to every device the user has registered.
 
     Respects the user's per-type preference (Settings toggle): a type the user
     turned off is skipped entirely. Otherwise best-effort — a provider that is
     unconfigured or errors is logged and skipped, and dead tokens the providers
     report are pruned. Returns nothing; callers must not depend on delivery.
-    """
-    if not is_push_type_enabled(user, notification_type):
-        logger.info("Push type %s disabled for user %s; skipping.", notification_type, user.id)
-        return
 
-    tokens = list(DeviceToken.objects.filter(user=user))
+    A fan-out that has bulk-loaded its recipients' preferences and device
+    tokens (see disabled_push_types) passes the user's DeviceToken rows as
+    `tokens`; it has then already applied the preference, so both per-user
+    queries are skipped.
+    """
+    if tokens is None:
+        if not is_push_type_enabled(user, notification_type):
+            logger.info("Push type %s disabled for user %s; skipping.", notification_type, user.id)
+            return
+        tokens = list(DeviceToken.objects.filter(user=user))
     if not tokens:
         return
 
