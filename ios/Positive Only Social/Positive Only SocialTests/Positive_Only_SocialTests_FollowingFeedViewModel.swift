@@ -136,6 +136,8 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         #expect(sut.followingPosts.count == 3)
         #expect(sut.followingPosts.last?.imageUrl == "image.url/1")
         #expect(stubAPI.getPostsForFollowedUsersCallCount == 2)
+        // More may exist until a page comes back empty (issue #528).
+        #expect(sut.reachedEnd == false)
 
         // --- 3. Fetch Third Page (Page 2 - Empty) ---
         sut.fetchFollowingFeed()
@@ -145,6 +147,8 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         #expect(sut.isLoadingNextPage == false)
         #expect(sut.followingPosts.count == 3)
         #expect(stubAPI.getPostsForFollowedUsersCallCount == 3)
+        // ...so the feed is finished and shows the banner (issue #528).
+        #expect(sut.reachedEnd == true)
         
         // --- 4. Try to Fetch Again (Should be blocked by `canLoadMore`) ---
         sut.fetchFollowingFeed()
@@ -205,6 +209,7 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
         await yield()
         #expect(sut.followingPosts.count == 1)
         #expect(stubAPI.getPostsForFollowedUsersCallCount == 2)
+        #expect(sut.reachedEnd == true)
 
         // And: Two more posts now exist on the backend (3 total = 2 pages)
         _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/2", caption: "Post 2")
@@ -215,6 +220,7 @@ struct Positive_Only_SocialTests_FollowingFeedViewModel {
 
         // Then: The freshest first page replaces the list...
         #expect(sut.followingPosts.count == 2)
+        #expect(sut.reachedEnd == false)
 
         // ...and pagination is reset, so a subsequent fetch loads page 1 again.
         sut.fetchFollowingFeed()

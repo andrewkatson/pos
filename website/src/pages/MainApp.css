@@ -747,6 +747,84 @@
   color: #ffffff;
 }
 
+/* The "you finished!" banner at the end of a feed or profile (issue #528). */
+.feed-end {
+  margin: 1.5rem auto 0.5rem;
+  max-width: 420px;
+  padding: 1.25rem 1rem;
+  border: 1px solid rgba(91, 164, 220, 0.45);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(91, 164, 220, 0.18), rgba(255, 126, 182, 0.14));
+  text-align: center;
+}
+
+.feed-end__icon {
+  display: block;
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.feed-end__title {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.feed-end__message {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.75);
+  overflow-wrap: anywhere;
+}
+
+/* Full-screen confetti burst played once when the banner scrolls into view.
+   Purely decorative: it never takes clicks and is skipped entirely under
+   prefers-reduced-motion (FeedEndBanner checks before mounting it). */
+.confetti {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.confetti__piece {
+  position: absolute;
+  top: -16px;
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  opacity: 0;
+  animation-name: confetti-fall;
+  animation-timing-function: cubic-bezier(0.25, 0.6, 0.5, 1);
+  animation-fill-mode: forwards;
+}
+
+.confetti__piece--round {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+@keyframes confetti-fall {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--confetti-drift, 0px), 105vh, 0) rotate(var(--confetti-spin, 540deg));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confetti {
+    display: none;
+  }
+}
+
 /* Top-of-list refresh control — the web equivalent of mobile pull-to-refresh. */
 .refresh-button {
   margin: 0 0 0.75rem auto;

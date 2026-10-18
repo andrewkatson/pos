@@ -18,6 +18,29 @@ empty (issue #538). Past that, **Load more** fetches the next batch, and the
 same filling then tops the grid up to a full row — so one press can bring in
 up to three batches (e.g. 30 → 40 → 50 → 60 posts).
 
+**Finishing a feed or profile** (issue #528). Once a list has run out — a
+page comes back empty — a **"You finished!"** banner closes it, on every
+client, after the last post of each Feed segment (For You, Following, Top)
+and of any profile grid, your own or someone else's. Its line says what was
+finished: "You've seen every post in your feed. Check back soon for more good
+vibes!", "You've seen every post from the people you follow.", "That's the
+whole Top board for this week." (today / this week / this month / this year),
+"That's every post you've shared." or "You've seen all of bob's posts." A page
+that fails to load stops paging but is not a finish, so it never shows the
+banner, and neither does an empty list, which keeps its own empty state.
+
+The first time the banner scrolls on screen, confetti falls across the whole
+screen for about four seconds. It only plays when the viewer had to scroll to
+reach the banner — a profile with a handful of posts that fits on one screen
+shows the banner without confetti, so opening it doesn't celebrate every time
+— and never under the platform's reduced-motion setting (prefers-reduced-motion
+on the web, Reduce Motion on iOS, Remove animations on Android). It plays once
+per finish: scrolling away and back doesn't replay it, but a refresh, a new
+feed segment, group or period, or reopening the profile starts the list over,
+and finishing it again celebrates again. The confetti is decorative only — it
+takes no taps and is hidden from screen readers; the web banner is a
+`role="status"` region so its text is announced when it appears.
+
 **User search** (`GET /users/search/<fragment>/?batch=N`) matches usernames by
 case-insensitive prefix and returns them in deterministic batches of ten,
 ordered by username; `batch` defaults to 0, and a batch shorter than ten means

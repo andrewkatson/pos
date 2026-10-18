@@ -15,6 +15,9 @@ class ProfileViewModel: ObservableObject {
     @Published var userPosts: [Post] = []
     @Published var isLoading = false
     @Published private(set) var canLoadMore = true
+    /// Every post is loaded — a page came back empty — so the grid ends with
+    /// the "you finished!" banner (issue #528).
+    var reachedEnd: Bool { !canLoadMore }
     @Published var profileDetails: ProfileDetailsResponse?
     @Published var isLoadingProfile = false
     @Published var isBusy = false // For follow/block button actions

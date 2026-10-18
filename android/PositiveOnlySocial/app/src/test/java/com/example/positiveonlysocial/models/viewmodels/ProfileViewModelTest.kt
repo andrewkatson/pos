@@ -483,4 +483,23 @@ class ProfileViewModelTest {
 
         assertEquals(2, viewModel.profileDetails.value?.postCount)
     }
+
+    @Test
+    fun `reachedEnd turns on once the grid's pages run out (issue 528)`() = runTest {
+        val mockProfile = ProfileDetailsResponse("user1", 1, 1, 2, true)
+        val page0 = listOf(Post("1", "url", "caption", "user1", 1))
+        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(mockProfile))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(page0))
+        whenever(api.getPostsForUser("token123", "user1", 1)).thenReturn(Response.success(emptyList()))
+
+        viewModel.fetchProfile("user1")
+        assertFalse(viewModel.reachedEnd.value)
+
+        viewModel.fetchUserPosts("user1")
+        assertTrue(viewModel.reachedEnd.value)
+
+        // Opening the profile again starts the grid over.
+        viewModel.fetchProfile("user1")
+        assertFalse(viewModel.reachedEnd.value)
+    }
 }

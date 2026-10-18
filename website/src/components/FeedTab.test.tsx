@@ -352,6 +352,111 @@ test('refresh reloads the feed from the first page', async () => {
   expect(mockGetFeed).toHaveBeenLastCalledWith(0)
 })
 
+// ---- The "you finished!" banner (issue #528) ----
+
+const endPost = (id: string) => ({
+  post_identifier: id,
+  image_url: `http://img/${id}.jpg`,
+  author_username: `author_${id}`,
+  caption: id,
+})
+
+test('celebrates once the feed runs out of posts (#528)', async () => {
+  mockGetFeed.mockImplementation(batch => Promise.resolve(batch === 0 ? [endPost('a')] : []))
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by author_a' })
+  // More may exist until a page comes back empty.
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  const banner = await screen.findByRole('status')
+  expect(banner).toHaveTextContent('You finished!')
+  expect(banner).toHaveTextContent("You've seen every post in your feed.")
+  expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
+})
+
+test('a failed page does not claim the feed is finished (#528)', async () => {
+  mockGetFeed.mockImplementation(batch =>
+    batch === 0 ? Promise.resolve([endPost('a')]) : Promise.reject(new Error('offline')),
+  )
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by author_a' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  await waitFor(() => expect(mockGetFeed).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument())
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+})
+
+test('an empty feed shows its empty state, not the finished banner (#528)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  renderTab()
+  expect(await screen.findByText('No posts here yet.')).toBeInTheDocument()
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+})
+
+test('the finished banner names the Top period (#528)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockImplementation(batch => Promise.resolve(batch === 0 ? [endPost('a')] : []))
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await screen.findByRole('button', { name: 'Open post by author_a' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  expect(await screen.findByRole('status')).toHaveTextContent("That's the whole Top board for this week.")
+})
+
+test('switching feeds clears the finished banner (#528)', async () => {
+  mockGetFeed.mockImplementation(batch => Promise.resolve(batch === 0 ? [endPost('a')] : []))
+  mockGetFollowed.mockResolvedValue([endPost('f')])
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by author_a' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  await screen.findByText('You finished!')
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Following' }))
+  await screen.findByRole('button', { name: 'Open post by author_f' })
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Load more' })).toBeInTheDocument()
+})
+
+test('refreshing a finished feed clears the banner (#528)', async () => {
+  mockGetFeed.mockImplementation(batch => Promise.resolve(batch === 0 ? [endPost('a')] : []))
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by author_a' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  await screen.findByText('You finished!')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() => expect(mockGetFeed).toHaveBeenCalledTimes(3))
+  await screen.findByRole('button', { name: 'Load more' })
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+})
+
+test('a failed refresh of a finished feed does not bring the banner back (#528)', async () => {
+  mockGetFeed.mockImplementation(batch => Promise.resolve(batch === 0 ? [endPost('a')] : []))
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by author_a' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  await screen.findByText('You finished!')
+
+  mockGetFeed.mockRejectedValue(new Error('offline'))
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() => expect(mockGetFeed).toHaveBeenCalledTimes(3))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled())
+
+  // The old posts stay, but the finish they had isn't replayed.
+  expect(screen.getByRole('button', { name: 'Open post by author_a' })).toBeInTheDocument()
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+})
+
 // ---- In-place post actions on the feed (issue #267) ----
 
 test('likes a post straight from the feed', async () => {

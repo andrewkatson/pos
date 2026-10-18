@@ -22,7 +22,13 @@ final class TopPostsViewModel: ObservableObject {
     private let keychainService = GVOAppConstants.keychainService
 
     // Pagination state.
-    private var canLoadMore = true
+    /// True once a page comes back empty: every post is loaded, so the view
+    /// shows the "you finished!" banner (issue #528). A failed load leaves it
+    /// alone, since that doesn't mean the feed ran out.
+    @Published private(set) var reachedEnd = false
+    private var canLoadMore = true {
+        didSet { reachedEnd = !canLoadMore }
+    }
     private var currentPage = 0
     // Bumped when the period changes, so a load still in flight for the old
     // period recognises it was superseded and drops its response instead of
