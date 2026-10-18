@@ -45,6 +45,18 @@ class ActivityPushTestCase(TestCase):
         return thread.comment_set.create(author=author, body=body, **extra)
 
 
+class AndroidChannelTests(TestCase):
+    """FCM names the channel so background messages land on it (issue #444)."""
+
+    def test_activity_kinds_use_the_activity_channel(self):
+        for kind in (PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE):
+            self.assertEqual(push.android_channel_for({'type': kind}), push.ANDROID_CHANNEL_ACTIVITY)
+
+    def test_rejections_and_unknown_kinds_use_post_moderation(self):
+        for data in ({'type': PUSH_TYPE_POST_REJECTED}, {'type': 'future_kind'}, {}):
+            self.assertEqual(push.android_channel_for(data), push.ANDROID_CHANNEL_POST_MODERATION)
+
+
 class PreferenceTreeTests(ActivityPushTestCase):
     """is_push_type_enabled honors every ancestor of a type (issue #444)."""
 
@@ -156,6 +168,27 @@ class NewPostPushTests(ActivityPushTestCase):
         post_id = str(self.post.post_identifier)
         self.post.delete()
         notifications.push_new_post(post_id)
+        send_push.assert_not_called()
+
+    def test_large_following_is_worked_through_in_batches(self, send_push):
+        fans = [self._user(f'fan{i}') for i in range(5)]
+        for fan in fans:
+            self._follow(fan, self.author)
+        with patch.object(notifications, 'NEW_POST_FANOUT_BATCH_SIZE', 2), \
+                patch.object(notifications, '_enqueue', wraps=notifications._enqueue) as enqueue:
+            notifications.push_new_post(str(self.post.post_identifier))
+        self.assertEqual(sorted(call.args[0].username for call in send_push.call_args_list),
+                         sorted(fan.username for fan in fans))
+        # Two full batches each chain a continuation; the short third does not.
+        self.assertEqual(enqueue.call_count, 2)
+
+    def test_hidden_mid_fan_out_stops_remaining_batches(self, send_push):
+        for i in range(3):
+            self._follow(self._user(f'fan{i}'), self.author)
+        first_edge = UserFollow.objects.filter(user_to=self.author).order_by('pk').first()
+        self.post.hidden = True
+        self.post.save()
+        notifications.push_new_post(str(self.post.post_identifier), first_edge.pk)
         send_push.assert_not_called()
 
     def test_one_failing_send_does_not_stop_the_fan_out(self, send_push):

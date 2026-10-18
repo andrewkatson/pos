@@ -28,7 +28,8 @@ from django.conf import settings
 
 from .constants import (
     DEVICE_PLATFORM_IOS, DEVICE_PLATFORM_ANDROID, DEVICE_PLATFORM_WEB,
-    PUSH_TYPE_POST_REJECTED, PUSH_TYPE_PARENTS,
+    PUSH_TYPE_POST_REJECTED, PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE,
+    PUSH_TYPE_PARENTS,
 )
 from .models import DeviceToken, NotificationPreference
 
@@ -47,6 +48,22 @@ _apns_jwt_cache = {"token": None, "minted_at": 0.0}
 
 # FCM OAuth2 scope for the HTTP v1 send API.
 _FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
+
+# Android notification channels, matching the ids the app registers at launch
+# (PosFirebaseMessagingService). Social activity (issue #444) has its own
+# channel so a user can mute it in system settings without muting rejections.
+# Named in the FCM payload because a message arriving while the app is in the
+# background is displayed by the system, never reaching the app's own code.
+ANDROID_CHANNEL_POST_MODERATION = "post_moderation"
+ANDROID_CHANNEL_ACTIVITY = "activity"
+_ACTIVITY_PUSH_TYPES = frozenset({PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE})
+
+
+def android_channel_for(data):
+    """The Android notification channel for a payload's data map."""
+    if data.get("type") in _ACTIVITY_PUSH_TYPES:
+        return ANDROID_CHANNEL_ACTIVITY
+    return ANDROID_CHANNEL_POST_MODERATION
 
 
 def build_rejection_payload(post, final):
@@ -354,6 +371,8 @@ def _send_fcm(tokens, payload):
     # target from the data map instead, so this is harmless there.
     deep_link = data.get("deep_link")
     webpush = {"fcm_options": {"link": deep_link}} if deep_link else None
+    # Only Android reads this block; web ignores it.
+    android = {"notification": {"channel_id": android_channel_for(data)}}
 
     dead = []
     for token in tokens:
@@ -361,6 +380,7 @@ def _send_fcm(tokens, payload):
             "token": token,
             "notification": {"title": payload["title"], "body": payload["body"]},
             "data": data,
+            "android": android,
         }
         if webpush:
             message_body["webpush"] = webpush

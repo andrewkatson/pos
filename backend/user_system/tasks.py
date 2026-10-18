@@ -97,13 +97,13 @@ class ClassificationProviderError(Exception):
     """
 
 
-def _queue():
+def _queue(name=None):
     # Imported lazily so simply importing this module (e.g. from views) never
     # requires rq/redis to be importable in environments that run eagerly.
     from redis import Redis
     from rq import Queue
     return Queue(
-        settings.CLASSIFICATION_QUEUE_NAME,
+        name or settings.CLASSIFICATION_QUEUE_NAME,
         connection=Redis.from_url(os.environ['REDIS_URL']),
     )
 

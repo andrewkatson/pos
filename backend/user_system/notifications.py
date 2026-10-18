@@ -43,8 +43,10 @@ _JOB_PATH_PREFIX = 'user_system.notifications.'
 # this window are dropped.
 LIKE_PUSH_DEDUPE_SECONDS = 24 * 60 * 60
 
-# Followers handled per database round trip when fanning a new post out.
-NEW_POST_FANOUT_CHUNK_SIZE = 500
+# Followers one new-post job notifies. Each follower costs a few queries and a
+# provider round trip, so a job stays well inside JOB_TIMEOUT_SECONDS; a larger
+# following is worked through by a chain of continuation jobs.
+NEW_POST_FANOUT_BATCH_SIZE = 50
 
 
 # ---------------------------------------------------------------------------
@@ -56,8 +58,10 @@ def _enqueue(job_name, *args):
 
     Mirrors tasks.enqueue_post_categorization: inline in eager mode (dev/tests,
     no Redis), otherwise enqueued on commit so the worker never runs before the
-    content it reads is visible. Best-effort either way — no retry budget, and
-    any failure is logged and swallowed, since a missed push is harmless.
+    content it reads is visible. Jobs go to their own queue (PUSH_QUEUE_NAME),
+    which the worker drains only when the classification queue is empty.
+    Best-effort either way — no retry budget, and any failure is logged and
+    swallowed, since a missed push is harmless.
     """
     if settings.CLASSIFICATION_EAGER:
         try:
@@ -70,7 +74,8 @@ def _enqueue(job_name, *args):
         # Lazy: tasks imports this module (to notify followers on approval).
         from .tasks import _queue, JOB_TIMEOUT_SECONDS
         try:
-            _queue().enqueue(_JOB_PATH_PREFIX + job_name, *args, job_timeout=JOB_TIMEOUT_SECONDS)
+            _queue(settings.PUSH_QUEUE_NAME).enqueue(
+                _JOB_PATH_PREFIX + job_name, *args, job_timeout=JOB_TIMEOUT_SECONDS)
         except Exception:
             logger.exception("Failed to enqueue notification job %s for %s.", job_name, args)
 
@@ -146,12 +151,18 @@ def _first_like(kind, target_id, liker_id):
 # Jobs
 # ---------------------------------------------------------------------------
 
-def push_new_post(post_identifier):
+def push_new_post(post_identifier, after_follow_id=None):
     """Fan a newly approved post out to the author's followers.
 
     Only followers are ever told (the category on their follow edge picks the
     preference type), and each must be able to see the post — so a friends-only
     post reaches friends and family alone, exactly as the feed would show it.
+
+    One job handles a bounded batch of follow edges, in id order after
+    `after_follow_id`. When the batch is full it enqueues the next one *before*
+    sending, so a batch that dies (a timeout behind a slow provider) costs only
+    its own followers, never the rest. Each batch re-reads the post, so one
+    hidden or deleted mid-way stops the remaining batches.
     """
     post = Post.objects.select_related('author').filter(post_identifier=post_identifier).first()
     if post is None or post.hidden:
@@ -159,13 +170,15 @@ def push_new_post(post_identifier):
     author = post.author
     if _is_shadow_banned(author):
         return
+    edges = UserFollow.objects.filter(user_to=author).select_related('user_from').order_by('pk')
+    if after_follow_id is not None:
+        edges = edges.filter(pk__gt=after_follow_id)
+    batch = list(edges[:NEW_POST_FANOUT_BATCH_SIZE])
+    if len(batch) == NEW_POST_FANOUT_BATCH_SIZE:
+        _enqueue('push_new_post', str(post_identifier), batch[-1].pk)
     payload = push.build_activity_payload(
         PUSH_TYPE_NEW_POST, post, f"{author.username} shared a new post", post.caption or "Tap to see it.")
-    edges = (UserFollow.objects.filter(user_to=author)
-             .select_related('user_from')
-             .order_by('pk')
-             .iterator(chunk_size=NEW_POST_FANOUT_CHUNK_SIZE))
-    for edge in edges:
+    for edge in batch:
         follower = edge.user_from
         if not _may_notify(follower, author) or not can_view_post(post, follower):
             continue

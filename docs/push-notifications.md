@@ -108,11 +108,22 @@ the commit); the job re-reads the content when it runs, so a like withdrawn or
 a comment hidden in the meantime sends nothing. These jobs carry no retry
 budget: a missed push is harmless.
 
+The jobs run on their own `notifications` queue (`PUSH_QUEUE_NAME`), drained by
+the same `classification_worker`, which always takes from the classification
+queue first, so notification work never queues ahead of moderation. A new post
+is announced in batches of 50 followers, one job per batch. A full batch
+enqueues the next one before it sends, so a batch that dies (say, a timeout
+behind a slow provider) loses only its own followers.
+
 The title names who acted (for example "sam liked your comment") and the body
 quotes up to 100 characters of the caption or comment. On Android, activity
 arrives on its own "Activity" notification channel, separate from "Post
 moderation", so it can be muted in the system settings without silencing
-rejections.
+rejections. The FCM payload names the channel
+(`android.notification.channel_id`), because a message that arrives while the
+app is in the background is shown by the system without reaching the app's
+code. The app registers both channels at launch so they exist before the first
+such message.
 
 **Secrets** (all optional — an unconfigured provider is a logged no-op, so
 local dev, tests, and a not-yet-provisioned deploy send nothing and still import

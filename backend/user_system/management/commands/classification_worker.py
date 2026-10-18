@@ -33,7 +33,11 @@ class Command(BaseCommand):
         from django.conf import settings
 
         connection = Redis.from_url(redis_url)
-        queue = Queue(settings.CLASSIFICATION_QUEUE_NAME, connection=connection)
-        worker = Worker([queue], connection=connection)
-        self.stdout.write(f"Starting classification worker on queue '{queue.name}'...")
+        # Order is priority: RQ always takes from the first queue with work, so
+        # moderation runs ahead of any backlog of activity push jobs (#444).
+        queues = [Queue(settings.CLASSIFICATION_QUEUE_NAME, connection=connection),
+                  Queue(settings.PUSH_QUEUE_NAME, connection=connection)]
+        worker = Worker(queues, connection=connection)
+        names = ", ".join(f"'{queue.name}'" for queue in queues)
+        self.stdout.write(f"Starting classification worker on queues {names}...")
         worker.work(burst=options['burst'])

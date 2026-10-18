@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -64,7 +65,7 @@ class PosFirebaseMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
         val channelId = if (isActivity) ACTIVITY_CHANNEL_ID else CHANNEL_ID
-        ensureChannels()
+        ensureChannels(this)
         val notification = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
@@ -85,14 +86,6 @@ class PosFirebaseMessagingService : FirebaseMessagingService() {
             this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun ensureChannels() {
-        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        // minSdk is 26, so the channel API is always available.
-        manager.createNotificationChannel(NotificationChannel(
-            CHANNEL_ID, "Post moderation", NotificationManager.IMPORTANCE_DEFAULT))
-        manager.createNotificationChannel(NotificationChannel(
-            ACTIVITY_CHANNEL_ID, "Activity", NotificationManager.IMPORTANCE_DEFAULT))
-    }
 
     companion object {
         // Data keys from the backend payload (user_system/push.build_rejection_payload).
@@ -104,8 +97,24 @@ class PosFirebaseMessagingService : FirebaseMessagingService() {
         const val TYPE_POST_REJECTED = "post_rejected"
         val ACTIVITY_TYPES = setOf("new_post", "new_comment", "new_like")
         val POST_TYPES = ACTIVITY_TYPES + TYPE_POST_REJECTED
+        // Must match the channel ids the backend names in FCM payloads
+        // (user_system/push.ANDROID_CHANNEL_*): a message that arrives while the
+        // app is in the background is shown by the system on that channel.
         private const val CHANNEL_ID = "post_moderation"
         private const val ACTIVITY_CHANNEL_ID = "activity"
+
+        /** Register both channels. Called at launch (MainActivity) so they
+         * exist before any background message names them — otherwise the
+         * system falls back to FCM's default channel — and again before
+         * posting a foreground notification. Re-creating is a no-op. */
+        fun ensureChannels(context: Context) {
+            val manager = context.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+            // minSdk is 26, so the channel API is always available.
+            manager.createNotificationChannel(NotificationChannel(
+                CHANNEL_ID, "Post moderation", NotificationManager.IMPORTANCE_DEFAULT))
+            manager.createNotificationChannel(NotificationChannel(
+                ACTIVITY_CHANNEL_ID, "Activity", NotificationManager.IMPORTANCE_DEFAULT))
+        }
         private const val NOTIFICATION_ID = 342
     }
 }

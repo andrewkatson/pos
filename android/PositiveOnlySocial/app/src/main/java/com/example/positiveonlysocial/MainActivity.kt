@@ -35,6 +35,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Before any push can arrive in the background and name a channel.
+        PosFirebaseMessagingService.ensureChannels(this)
         maybeRequestNotificationPermission()
         // The activity may have been launched by tapping a notification, or by
         // opening a shared post link (issue #382).
