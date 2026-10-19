@@ -9,6 +9,7 @@ import com.example.positiveonlysocial.data.model.*
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.util.PostEvents
 import com.example.positiveonlysocial.util.parseBackendDate
+import com.example.positiveonlysocial.util.savedEditIsNewer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -101,6 +102,14 @@ class PostDetailViewModel(
     private val _showAddCommentDialog = MutableStateFlow(false)
     val showAddCommentDialog: StateFlow<Boolean> = _showAddCommentDialog.asStateFlow()
 
+    // Drive the same composer dialog, prefilled, for editing the caption or one
+    // of the user's own comments (issue #462).
+    private val _showEditCaptionDialog = MutableStateFlow(false)
+    val showEditCaptionDialog: StateFlow<Boolean> = _showEditCaptionDialog.asStateFlow()
+
+    private val _commentToEdit = MutableStateFlow<CommentViewData?>(null)
+    val commentToEdit: StateFlow<CommentViewData?> = _commentToEdit.asStateFlow()
+
     // Ids of comments whose thread below them is collapsed. Tapping a comment's
     // username/time header toggles its presence here (issue #243).
     private val _collapsedCommentIds = MutableStateFlow<Set<String>>(emptySet())
@@ -118,6 +127,29 @@ class PostDetailViewModel(
     val selectedCategory: StateFlow<FollowCategory?> = _selectedCategory.asStateFlow()
 
     private val service = "positive-only-social.Positive-Only-Social"
+
+    // Edits saved on this screen (issue #462). A load whose request went out
+    // before a save can land after it with the old text, so every load
+    // re-applies these over anything older (see savedEditIsNewer).
+    private var savedCaptionEdit: EditPostResponse? = null
+    private val savedCommentEdits = mutableMapOf<String, EditCommentResponse>()
+
+    private fun applySavedEdit(post: Post): Post {
+        val saved = savedCaptionEdit ?: return post
+        if (!savedEditIsNewer(saved.editedTime, post.editedTime)) return post
+        return post.copy(caption = saved.caption, tags = saved.tags, editedTime = saved.editedTime)
+    }
+
+    private fun applySavedEdit(comment: CommentViewData): CommentViewData {
+        val saved = savedCommentEdits[comment.id] ?: return comment
+        if (!savedEditIsNewer(saved.editedTime, comment.editedTime)) return comment
+        return comment.copy(
+            body = saved.body,
+            formatting = saved.bodyFormatting,
+            isEdited = true,
+            editedTime = saved.editedTime
+        )
+    }
 
     init {
         loadAllData()
@@ -138,6 +170,23 @@ class PostDetailViewModel(
     fun setThreadToReplyTo(thread: CommentThreadViewData?) {
         _threadToReplyTo.value = thread
     }
+
+    fun setShowEditCaptionDialog(show: Boolean) {
+        _showEditCaptionDialog.value = show
+    }
+
+    fun setCommentToEdit(comment: CommentViewData?) {
+        _commentToEdit.value = comment
+    }
+
+    /** Edit is offered on the user's own post once it's live — a pending,
+     * rejected or hidden post isn't theirs to rewrite (issue #462). */
+    fun canEditPost(): Boolean = isOwnPost() && _postDetail.value?.hidden != true
+
+    /** Edit is offered on the user's own comments while the post accepts
+     * comments: turning commenting off (issue #492) freezes existing ones too. */
+    fun canEditComment(comment: CommentViewData): Boolean =
+        isOwnComment(comment) && _postDetail.value?.commentsDisabled != true
 
     fun setShowAddCommentDialog(show: Boolean) {
         _showAddCommentDialog.value = show
@@ -240,7 +289,7 @@ class PostDetailViewModel(
             // 1. Fetch the main post details
             val postResponse = api.getPostDetails(token, postIdentifier)
             if (postResponse.isSuccessful) {
-                _postDetail.value = postResponse.body()
+                _postDetail.value = postResponse.body()?.let { applySavedEdit(it) }
             } else {
                 throw Exception("Failed to load post details")
             }
@@ -308,7 +357,9 @@ class PostDetailViewModel(
                                 authorProfileImageUrl = c.authorProfileImageUrl,
                                 authorProfileImageOriginalUrl = c.authorProfileImageOriginalUrl,
                                 audience = c.audience,
-                                authorProfileImageBlurHash = c.authorProfileImageBlurHash
+                                authorProfileImageBlurHash = c.authorProfileImageBlurHash,
+                                isEdited = c.editedTime != null,
+                                editedTime = c.editedTime
                             )
                         }
 
@@ -324,7 +375,13 @@ class PostDetailViewModel(
             // post's comments always read top-to-bottom in chronological order
             // (issue #293). Comments within each thread are already sorted oldest
             // first above.
-            _commentThreads.value = nonEmptyThreads.sortedBy { it.comments.firstOrNull()?.createdDate }
+            // Saved edits are laid over the fetched comments only now, at the
+            // moment of publishing: a thread that finished early was buffered
+            // while the others loaded, and an edit saved meanwhile (issue #462)
+            // must not be undone by that buffered copy.
+            _commentThreads.value = nonEmptyThreads
+                .map { thread -> thread.copy(comments = thread.comments.map { applySavedEdit(it) }) }
+                .sortedBy { it.comments.firstOrNull()?.createdDate }
 
         } catch (e: Exception) {
             Log.e(TAG, "Error loading post details", e)
@@ -714,6 +771,98 @@ class PostDetailViewModel(
                 }
             } catch (e: Exception) {
                 _alertMessage.value = ApiErrors.messageFor(e, fallback = "Failed to post reply. Please try again.")
+            }
+        }
+    }
+
+    /**
+     * Saves an edited caption (issue #462). The backend judges the new caption
+     * before it replaces anything and keeps the original on a rejection, so the
+     * post on screen only changes once the save succeeds.
+     */
+    fun editCaption(caption: String) {
+        val current = _postDetail.value ?: return
+        if (caption.isEmpty() || caption == current.caption) return
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.editPost(userSession.sessionToken, postIdentifier, EditPostRequest(caption))
+                val saved = response.body()
+                if (response.isSuccessful && saved != null) {
+                    // A slow response can arrive after a refresh already showed
+                    // a later edit (made on another device, or a newer save from
+                    // here): then it is stale and changes nothing — not the
+                    // screen, the saved-edit cache, or the lists.
+                    if (savedEditIsNewer(savedCaptionEdit?.editedTime, saved.editedTime) ||
+                        savedEditIsNewer(_postDetail.value?.editedTime, saved.editedTime)
+                    ) return@launch
+                    savedCaptionEdit = saved
+                    _postDetail.value = _postDetail.value?.copy(
+                        caption = saved.caption,
+                        tags = saved.tags,
+                        editedTime = saved.editedTime
+                    )
+                    // Lists already showing this post pick up the new caption.
+                    PostEvents.captionEdited(postIdentifier, saved.caption, saved.tags.orEmpty(), saved.editedTime)
+                } else {
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to edit the caption. Please try again.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to edit caption", e)
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            }
+        }
+    }
+
+    /** Saves an edit to one of the user's own comments, with the same
+     * change-only-on-success behaviour as [editCaption]. */
+    fun editComment(comment: CommentViewData, commentText: String, formatting: List<CommentFormatSpan>?) {
+        if (commentText.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _alertMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.editComment(
+                    userSession.sessionToken,
+                    postIdentifier,
+                    comment.threadId,
+                    comment.id,
+                    EditCommentRequest(commentText, formatting)
+                )
+                val saved = response.body()
+                if (response.isSuccessful && saved != null) {
+                    // As for captions — compared against the comment as it is
+                    // shown now, not as it was when the edit began.
+                    val shown = _commentThreads.value.flatMap { it.comments }.firstOrNull { it.id == comment.id }
+                    if (savedEditIsNewer(savedCommentEdits[comment.id]?.editedTime, saved.editedTime) ||
+                        savedEditIsNewer(shown?.editedTime, saved.editedTime)
+                    ) return@launch
+                    savedCommentEdits[comment.id] = saved
+                    _commentThreads.value = _commentThreads.value.map { thread ->
+                        if (thread.id != comment.threadId) thread
+                        else thread.copy(comments = thread.comments.map {
+                            if (it.id != comment.id) it
+                            else it.copy(
+                                body = saved.body,
+                                formatting = saved.bodyFormatting,
+                                isEdited = saved.editedTime != null,
+                                editedTime = saved.editedTime
+                            )
+                        })
+                    }
+                } else {
+                    _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to edit the comment. Please try again.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to edit comment", e)
+                _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
     }

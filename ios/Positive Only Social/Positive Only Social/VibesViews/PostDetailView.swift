@@ -181,10 +181,18 @@ struct PostDetailView: View {
                         // as comment times (issue #174). Older backend responses
                         // omit the timestamp.
                         if let created = post.createdDate {
-                            Text(RelativeTime.string(from: created))
+                            // "edited" whenever the caption changed after
+                            // posting (issue #462), so it never passes for what
+                            // people originally liked.
+                            Text(RelativeTime.string(from: created) + (post.isEdited ? " · edited" : ""))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .accessibilityIdentifier("PostCreatedTime")
+                        } else if post.isEdited {
+                            Text("edited")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .accessibilityIdentifier("PostEditedLabel")
                         }
                     }
                     .padding(.horizontal)
@@ -355,6 +363,25 @@ struct PostDetailView: View {
                 viewModel.replyToCommentThread(thread: thread, commentText: commentText, formatting: formatting, audience: audience)
             }
         }
+        // ...and, prefilled, for editing the caption or one of your own
+        // comments (issue #462). An edit keeps the comment's audience, so the
+        // picker is hidden.
+        .sheet(isPresented: $viewModel.showEditCaptionSheet) {
+            CommentComposerView.captionEditor(caption: viewModel.postDetail?.caption ?? "") { caption in
+                viewModel.editCaption(caption)
+            }
+        }
+        .sheet(item: $viewModel.commentToEdit) { comment in
+            CommentComposerView(
+                title: "Edit Comment",
+                confirmTitle: "Save",
+                initialText: comment.body,
+                initialFormatting: comment.formatting,
+                showsAudience: false
+            ) { commentText, formatting, _ in
+                viewModel.editComment(comment, commentText: commentText, formatting: formatting)
+            }
+        }
         .alert(isPresented: .constant(viewModel.alertMessage != nil), content: {
             Alert(
                 title: Text("Error"),
@@ -395,6 +422,12 @@ struct PostDetailView: View {
                     menuRow("Turn Off Commenting", identifier: "LockCommentsActionButton") {
                         viewModel.lockComments()
                     }
+                }
+            }
+            // Edit the caption (issue #462), once the post is live.
+            if viewModel.canEditPost {
+                menuRow("Edit Caption", identifier: "EditCaptionActionButton") {
+                    viewModel.showEditCaptionSheet = true
                 }
             }
             if viewModel.isOwnPost {

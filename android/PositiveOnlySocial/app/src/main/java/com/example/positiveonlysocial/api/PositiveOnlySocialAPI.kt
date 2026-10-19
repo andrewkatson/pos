@@ -180,6 +180,16 @@ interface PositiveOnlySocialAPI {
         @Path("post_id") postId: String
     ): Response<GenericResponse>
 
+    // Owner-only: replaces a live post's caption (issue #462). The backend
+    // classifies the new caption first; a rejection is an error response and
+    // leaves the original in place.
+    @POST("posts/{post_id}/edit/")
+    suspend fun editPost(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String,
+        @Body request: EditPostRequest
+    ): Response<EditPostResponse>
+
     // Owner-only: stops new comments/replies on a post (issue #492). Existing
     // comments stay visible.
     @POST("posts/{post_id}/comments/lock/")
@@ -297,6 +307,17 @@ interface PositiveOnlySocialAPI {
         @Path("thread_id") threadId: String,
         @Path("comment_id") commentId: String
     ): Response<GenericResponse>
+
+    // Author-only: replaces a comment's text and formatting (issue #462). Like
+    // editPost, a rejected edit leaves the original in place.
+    @POST("posts/{post_id}/threads/{thread_id}/comments/{comment_id}/edit/")
+    suspend fun editComment(
+        @Header("Authorization") token: String,
+        @Path("post_id") postId: String,
+        @Path("thread_id") threadId: String,
+        @Path("comment_id") commentId: String,
+        @Body request: EditCommentRequest
+    ): Response<EditCommentResponse>
 
     @POST("posts/{post_id}/threads/{thread_id}/comments/{comment_id}/report/")
     suspend fun reportComment(

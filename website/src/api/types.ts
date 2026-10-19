@@ -461,6 +461,10 @@ export interface FeedPost extends AuthorAvatarFields {
    * (issue #249). The backend column is nullable, so this can be null; older
    * responses that predate the field omit it entirely. */
   creation_time?: string | null
+  /** ISO-8601 timestamp of the author's last caption edit (issue #462); null
+   * when never edited. Lets a list tell whether a refreshed row is newer than
+   * a caption saved locally. Older responses omit it. */
+  edited_time?: string | null
   /** Who may see the post (issue #392). Absent on older responses; treat a
    * missing value as 'public'. */
   audience?: PostAudience
@@ -495,6 +499,9 @@ export interface PostDetails extends AuthorAvatarFields {
    * nullable, so this can be null; older responses that predate the field
    * omit it entirely. */
   creation_time?: string | null
+  /** ISO-8601 timestamp of the author's last caption edit (issue #462); null
+   * when it was never edited. Older responses omit it. */
+  edited_time?: string | null
   /** Whole-caption font key (issue #318); absent/`default` renders normally. */
   caption_font?: CaptionFont
   /** Whole-tile background color key (issue #318); absent/`default` is normal. */
@@ -528,6 +535,20 @@ export interface PostDetails extends AuthorAvatarFields {
   appealable?: boolean
 }
 
+/** Response of editPost (issue #462): the caption as saved. */
+export interface EditPostResponse {
+  caption: string
+  edited_time: string | null
+  tags: string[]
+}
+
+/** Response of editComment (issue #462): the comment as saved. */
+export interface EditCommentResponse {
+  body: string
+  body_formatting: CommentFormatSpan[] | null
+  edited_time: string | null
+}
+
 /** Response of lockComments/unlockComments (issue #492). */
 export interface SetCommentsDisabledResponse {
   comments_disabled: boolean
@@ -556,6 +577,9 @@ export interface Comment extends AuthorAvatarFields {
   author_username: string
   creation_time: string
   updated_time: string
+  /** ISO-8601 timestamp of the author's last edit (issue #462); null/absent
+   * when it was never edited. */
+  edited_time?: string | null
   comment_likes: number
   /** Whether the requesting user has liked this comment. */
   is_liked?: boolean

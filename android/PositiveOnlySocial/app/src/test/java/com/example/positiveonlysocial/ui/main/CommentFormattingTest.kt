@@ -60,4 +60,24 @@ class CommentFormattingTest {
         assertEquals(2, next.size)
         assertTrue(next.all { it.bold })
     }
+
+    @Test
+    fun `fromSpans round-trips through toSpans (issue #462)`() {
+        val spans = listOf(
+            com.example.positiveonlysocial.data.model.CommentFormatSpan(0, 4, true, false, "normal"),
+            com.example.positiveonlysocial.data.model.CommentFormatSpan(6, 9, false, true, "large")
+        )
+        assertEquals(spans, CommentFormatting.toSpans(CommentFormatting.fromSpans("hello world", spans)))
+    }
+
+    @Test
+    fun `fromSpans clips spans past the end of the text`() {
+        val styles = CommentFormatting.fromSpans(
+            "hi",
+            listOf(com.example.positiveonlysocial.data.model.CommentFormatSpan(0, 10, true, false, "normal"))
+        )
+        assertEquals(2, styles.size)
+        assertTrue(styles.all { it.bold })
+        assertNull(CommentFormatting.toSpans(CommentFormatting.fromSpans("hi", null)))
+    }
 }

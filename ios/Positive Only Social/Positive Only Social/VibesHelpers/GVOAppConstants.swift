@@ -80,6 +80,9 @@ import Foundation
     static let pathSegmentComments = "comments"
     static let pathSegmentCreate = "create"
     static let pathSegmentDelete = "delete"
+    // POST posts/<id>/edit/ and .../comments/<id>/edit/ — author-only edits of
+    // a caption or a comment (issue #462).
+    static let pathSegmentEdit = "edit"
     // POST devices/register/ registers this device's APNs token (issue #342).
     static let pathSegmentDevices = "devices"
     static let pathSegmentDetails = "details"

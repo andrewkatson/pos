@@ -420,6 +420,9 @@ class Fields:
     body = "body"
     creation_time = "creation_time"
     updated_time = "updated_time"
+    # When a caption or comment was last edited by its author (issue #462);
+    # null when it never was.
+    edited_time = "edited_time"
     comment_likes = "comment_likes"
     identity_is_verified = "identity_is_verified"
     membership_number = "membership_number"

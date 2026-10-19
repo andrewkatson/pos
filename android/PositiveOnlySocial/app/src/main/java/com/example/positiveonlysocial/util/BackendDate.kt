@@ -31,3 +31,16 @@ fun parseBackendDate(value: String): Date? {
         null
     }
 }
+
+/**
+ * Whether an edit saved on this device (issue #462) is still newer than content
+ * just fetched. A fetch whose request went out before the save can land after it
+ * with the old text and an older (or no) edited_time, and must not undo the
+ * edit; a fetch that already carries the edit, or a later one made elsewhere, is
+ * at least as new and wins.
+ */
+fun savedEditIsNewer(saved: String?, fetched: String?): Boolean {
+    val savedDate = saved?.let { parseBackendDate(it) } ?: return false
+    val fetchedDate = fetched?.let { parseBackendDate(it) } ?: return true
+    return fetchedDate.before(savedDate)
+}

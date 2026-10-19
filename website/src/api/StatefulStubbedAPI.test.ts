@@ -1441,3 +1441,48 @@ test('a request across age bands is refused up front', async () => {
 
   await expect(api.followUser('author')).rejects.toThrow('User does not exist')
 })
+
+test('editPost replaces the caption and stamps edited_time, but refuses negative text (#462)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  const { post_identifier } = await api.createPost({ caption: 'sunny day' })
+
+  const saved = await api.editPost(post_identifier, 'sunny day #beach')
+  expect(saved.caption).toBe('sunny day #beach')
+  expect(saved.tags).toEqual(['beach'])
+  expect((await api.getPostDetails(post_identifier)).edited_time).not.toBeNull()
+
+  await expect(api.editPost(post_identifier, 'a negative thought')).rejects.toBeInstanceOf(ApiError)
+  expect((await api.getPostDetails(post_identifier)).caption).toBe('sunny day #beach')
+})
+
+test('editComment is author-only and keeps the original on a rejection (#462)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  const { post_identifier } = await api.createPost({ caption: 'sunny day' })
+  const { comment_thread_identifier, comment_identifier } = await api.commentOnPost(
+    post_identifier,
+    'lovely',
+  )
+
+  const saved = await api.editComment(
+    post_identifier,
+    comment_thread_identifier,
+    comment_identifier,
+    'so lovely',
+    [{ start: 0, end: 2, bold: true, italic: false, size: 'normal' }],
+  )
+  expect(saved.body).toBe('so lovely')
+  expect(saved.edited_time).not.toBeNull()
+
+  await expect(
+    api.editComment(post_identifier, comment_thread_identifier, comment_identifier, 'negative'),
+  ).rejects.toBeInstanceOf(ApiError)
+
+  await register(api, 'bob')
+  await expect(
+    api.editComment(post_identifier, comment_thread_identifier, comment_identifier, 'mine now'),
+  ).rejects.toBeInstanceOf(ApiError)
+  const [listed] = await api.getCommentsForThread(comment_thread_identifier, 0)
+  expect(listed.body).toBe('so lovely')
+})

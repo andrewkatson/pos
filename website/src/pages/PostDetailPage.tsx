@@ -8,11 +8,10 @@ import type {
   FollowCategory,
   PostAudience,
   PostDetails,
-  TextSize,
 } from '../api/types'
-import { isWithinLimit, MAX_COMMENT_LENGTH } from '../auth/requirements'
+import { MAX_CAPTION_LENGTH } from '../auth/requirements'
 import PostThumbnail from '../components/PostThumbnail'
-import CharacterCounter from '../components/CharacterCounter'
+import CommentComposerDialog from '../components/CommentComposerDialog'
 import { CaptionText } from '../components/CaptionText'
 import Avatar from '../components/Avatar'
 import AudienceBadge from '../components/AudienceBadge'
@@ -20,15 +19,9 @@ import AnchoredMenu, { AnchoredMenuItem } from '../components/AnchoredMenu'
 import { anchorFrom, type MenuAnchor } from '../components/menuAnchor'
 import FormattedText from '../components/FormattedText'
 import LikesModal, { type LikesTarget } from '../components/LikesModal'
-import { captionFontClass, TEXT_SIZE_OPTIONS } from '../components/textFormatting'
-import {
-  applyStyleToRange,
-  reconcileAttrs,
-  spansForTrimmedComment,
-  toggleRange,
-  type CharAttrs,
-} from '../components/commentFormatting'
+import { captionFontClass } from '../components/textFormatting'
 import { formatRelativeTime } from '../utils/relativeTime'
+import { savedEditIsNewer } from '../utils/editedTime'
 import { profilePathFor } from '../utils/profilePath'
 import {
   commentShareUrl,
@@ -55,6 +48,8 @@ interface CommentView {
   /** Who may see this comment (issue #445); 'public' when unspecified. */
   audience: PostAudience
   createdTime: string
+  /** When the author last edited it (issue #462); null if never. */
+  editedTime: string | null
   likeCount: number
   isLiked: boolean
   isReported: boolean
@@ -70,15 +65,6 @@ interface ThreadView {
   threadId: string
   comments: CommentView[]
 }
-
-// Who may see a comment (issue #445), mirroring the post audience picker. The
-// values match the backend/PostAudience tiers.
-const COMMENT_AUDIENCE_OPTIONS: { value: PostAudience; label: string }[] = [
-  { value: 'public', label: 'Public — anyone can see this comment' },
-  { value: 'following', label: 'People I follow' },
-  { value: 'friends', label: 'Friends and family' },
-  { value: 'family', label: 'Family only' },
-]
 
 // The comment-list filter chips, the same toggles the Following feed offers
 // (issue #445). 'all' clears the filter; the rest are relationship categories.
@@ -109,9 +95,14 @@ type DeleteTarget = { type: 'post' } | { type: 'comment'; comment: CommentView }
 type MenuTarget = ({ type: 'post' } | { type: 'comment'; comment: CommentView }) & {
   anchor: MenuAnchor
 }
-// The comment composer is shared between a brand-new post comment and a reply
-// to an existing thread, so both go through the same character-limit dialog.
-type ComposerTarget = { type: 'post' } | { type: 'reply'; thread: ThreadView }
+// The comment composer is shared between a brand-new post comment, a reply to
+// an existing thread, and editing your own comment or caption (issue #462), so
+// all of them go through the same character-limit dialog.
+type ComposerTarget =
+  | { type: 'post' }
+  | { type: 'reply'; thread: ThreadView }
+  | { type: 'editComment'; comment: CommentView }
+  | { type: 'editCaption' }
 
 /**
  * Full post view: image, like count, caption, and threaded comments with
@@ -174,19 +165,10 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [notFound, setNotFound] = useState(false)
 
-  // A single composer dialog drives both new post comments and thread replies,
-  // so both surfaces show the same character-limit popup instead of an inline
-  // field duplicated in every thread (issues #266, #289, #290).
+  // A single composer dialog drives new post comments, thread replies and
+  // edits, so every surface shows the same character-limit popup instead of an
+  // inline field duplicated in every thread (issues #266, #289, #290, #462).
   const [composer, setComposer] = useState<ComposerTarget | null>(null)
-  const [composerText, setComposerText] = useState('')
-  // Inline formatting for the comment being composed (issue #318), tracked as
-  // a per-character attribute array aligned to composerText. The textarea ref
-  // lets the toolbar read the current selection to style.
-  const [composerAttrs, setComposerAttrs] = useState<CharAttrs>([])
-  // Who the comment being composed is shared with (issue #445); reset to public
-  // each time the composer opens.
-  const [composerAudience, setComposerAudience] = useState<PostAudience>('public')
-  const composerRef = useRef<HTMLTextAreaElement>(null)
   // The active comment-list filter — the followed-feed toggle applied to
   // comments (issue #445). 'all' means no filter.
   const [commentGroup, setCommentGroup] = useState<CommentGroup>('all')
@@ -242,6 +224,16 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
   const isLoadingRef = useRef(false)
   const pendingReloadRef = useRef(false)
 
+  // Edits saved on this page (issue #462). A load whose request went out
+  // before a save can land after it with the old text, so each load re-applies
+  // these over anything older than them (see savedEditIsNewer).
+  const savedCaptionEdit = useRef<{ caption: string; tags: string[]; editedTime: string | null } | null>(
+    null,
+  )
+  const savedCommentEdits = useRef<
+    Map<string, { body: string; formatting: CommentFormatSpan[] | null; editedTime: string | null }>
+  >(new Map())
+
   const loadAll = useCallback(async () => {
     // Record the group this (and any coalesced follow-up) load should apply.
     // Set here rather than during render, and read in performLoad, so a re-run
@@ -267,6 +259,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
         formatting: c.body_formatting ?? null,
         audience: c.audience ?? 'public',
         createdTime: c.creation_time,
+        editedTime: c.edited_time ?? null,
         likeCount: c.comment_likes,
         isLiked: c.is_liked ?? likedCommentIds.current.has(c.comment_identifier),
         isReported: c.is_reported ?? reportedCommentIds.current.has(c.comment_identifier),
@@ -290,6 +283,15 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
         return
       }
       if (!isMounted.current) return
+      const savedCaption = savedCaptionEdit.current
+      if (savedCaption && savedEditIsNewer(savedCaption.editedTime, details.edited_time)) {
+        details = {
+          ...details,
+          caption: savedCaption.caption,
+          tags: savedCaption.tags,
+          edited_time: savedCaption.editedTime,
+        }
+      }
       setPost(details)
       setPostLikeCount(details.post_likes)
       // Like/report state comes from the server so it survives reloads; older
@@ -363,7 +365,16 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
         built.sort((a, b) =>
           (a.comments[0]?.createdTime ?? '').localeCompare(b.comments[0]?.createdTime ?? ''),
         )
-        setThreads(built)
+        // Saved edits are laid over the fetched comments only now, at the
+        // moment of publishing: earlier batches were buffered while later ones
+        // loaded, and an edit saved meanwhile (issue #462) must not be undone
+        // by that buffered copy.
+        const withSavedEdit = (view: CommentView): CommentView => {
+          const saved = savedCommentEdits.current.get(view.id)
+          if (!saved || !savedEditIsNewer(saved.editedTime, view.editedTime)) return view
+          return { ...view, body: saved.body, formatting: saved.formatting, editedTime: saved.editedTime }
+        }
+        setThreads(built.map(thread => ({ ...thread, comments: thread.comments.map(withSavedEdit) })))
         // Clear any stale "failed to load comments" message from a prior attempt.
         setErrorMessage(null)
       } catch {
@@ -474,48 +485,21 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
     }
   }
 
-  function openComposer(target: ComposerTarget) {
-    setComposerText('')
-    setComposerAttrs([])
-    setComposerAudience('public')
-    setComposer(target)
-  }
-
-  // Keep the formatting attributes aligned with the text as the user edits.
-  function handleComposerTextChange(next: string) {
-    setComposerAttrs(prev => reconcileAttrs(prev, composerText, next))
-    setComposerText(next)
-  }
-
-  // Apply a formatting change to the textarea's current selection, then restore
-  // focus and the selection so the user can keep styling the same range.
-  function styleSelection(mutate: (attrs: CharAttrs, start: number, end: number) => CharAttrs) {
-    const textarea = composerRef.current
-    if (!textarea) return
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    if (start === end) return
-    setComposerAttrs(prev => mutate(prev, start, end))
-    requestAnimationFrame(() => {
-      textarea.focus()
-      textarea.setSelectionRange(start, end)
-    })
-  }
-
-  // Submitting closes the dialog immediately and clears the text before the
-  // request is sent, so repeated taps can't post the same comment twice and the
-  // keyboard/dialog disappear at once (issue #291).
-  async function submitComposer() {
-    const text = composerText.trim()
+  // Submitting closes the dialog immediately, before the request is sent, so
+  // repeated taps can't post the same comment twice and the keyboard/dialog
+  // disappear at once (issue #291).
+  async function submitComposer(
+    text: string,
+    formatting: CommentFormatSpan[] | undefined,
+    audience: PostAudience,
+  ) {
     const target = composer
-    if (!text || !target) return
-    // Compress the per-character attributes into API spans, aligned to the
-    // trimmed text we actually send (issue #318).
-    const formatting = spansForTrimmedComment(composerText, composerAttrs)
-    const audience = composerAudience
+    if (!target) return
     setComposer(null)
-    setComposerText('')
-    setComposerAttrs([])
+    if (target.type === 'editComment' || target.type === 'editCaption') {
+      await submitEdit(target, text, formatting)
+      return
+    }
     try {
       if (target.type === 'reply') {
         await apiClient.replyToCommentThread(
@@ -532,6 +516,67 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
     } catch (err) {
       const verb = target.type === 'reply' ? 'reply' : 'comment'
       setErrorMessage((err as Error).message ?? `Failed to post ${verb}.`)
+    }
+  }
+
+  // Editing your own comment or the caption (issue #462). The backend judges
+  // the new text before saving it, and a rejection leaves the original in
+  // place — so nothing changes on screen until the save succeeds.
+  async function submitEdit(
+    target: Extract<ComposerTarget, { type: 'editComment' | 'editCaption' }>,
+    text: string,
+    formatting: CommentFormatSpan[] | undefined,
+  ) {
+    try {
+      if (target.type === 'editCaption') {
+        const saved = await apiClient.editPost(postId, text)
+        // A slow response can arrive after a refresh already showed a later
+        // edit (made on another device, or a newer save from here): then it is
+        // stale and changes nothing.
+        if (savedEditIsNewer(savedCaptionEdit.current?.editedTime, saved.edited_time)) return
+        savedCaptionEdit.current = {
+          caption: saved.caption,
+          tags: saved.tags,
+          editedTime: saved.edited_time,
+        }
+        setPost(prev =>
+          !prev || savedEditIsNewer(prev.edited_time, saved.edited_time)
+            ? prev
+            : { ...prev, caption: saved.caption, edited_time: saved.edited_time, tags: saved.tags },
+        )
+      } else {
+        const { comment } = target
+        const saved = await apiClient.editComment(
+          postId,
+          comment.threadId,
+          comment.id,
+          text,
+          formatting,
+        )
+        // As for captions: a response older than what is already shown (or
+        // saved) is stale. Compared against the comment as it is now, not as
+        // it was when the edit began.
+        const cached = savedCommentEdits.current.get(comment.id)
+        if (savedEditIsNewer(cached?.editedTime, saved.edited_time)) return
+        savedCommentEdits.current.set(comment.id, {
+          body: saved.body,
+          formatting: saved.body_formatting ?? null,
+          editedTime: saved.edited_time,
+        })
+        mutateComment(comment.id, c =>
+          savedEditIsNewer(c.editedTime, saved.edited_time)
+            ? c
+            : {
+                ...c,
+                body: saved.body,
+                formatting: saved.body_formatting ?? null,
+                editedTime: saved.edited_time,
+              },
+        )
+      }
+    } catch (err) {
+      const what = target.type === 'editCaption' ? 'caption' : 'comment'
+      setErrorMessage((err as Error).message ?? `Failed to edit ${what}.`)
     }
   }
 
@@ -560,6 +605,24 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
   function menuDelete(target: MenuTarget) {
     setMenuTarget(null)
     setDeleteTarget(target)
+  }
+
+  // Edit is offered on your own live post, and on your own comments while the
+  // post still accepts comments — locking them (issue #492) freezes the
+  // existing ones too, and the backend refuses those edits (issue #462).
+  function canEdit(target: MenuTarget): boolean {
+    if (!isSignedIn || !post) return false
+    if (target.type === 'post') return isOwnPost && !post.hidden
+    return target.comment.isOwn && !post.comments_disabled
+  }
+
+  function menuEdit(target: MenuTarget) {
+    setMenuTarget(null)
+    setComposer(
+      target.type === 'post'
+        ? { type: 'editCaption' }
+        : { type: 'editComment', comment: target.comment },
+    )
   }
 
   // Lock/unlock commenting on the post (issue #492). Unlike Delete this is
@@ -713,6 +776,35 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
   // unparseable, so a single value drives both the guard and the rendered label.
   const postTime = post.creation_time ? formatRelativeTime(post.creation_time) : ''
 
+  // The composer's wording and limits for whatever it was opened for.
+  const composerProps =
+    composer?.type === 'editCaption'
+      ? {
+          title: 'Edit caption',
+          submitLabel: 'Save',
+          initialText: post.caption,
+          allowFormatting: false,
+          showAudience: false,
+          maxLength: MAX_CAPTION_LENGTH,
+          textLabel: 'Caption text',
+          trimOnSubmit: false,
+        }
+      : composer?.type === 'editComment'
+        ? {
+            title: 'Edit comment',
+            submitLabel: 'Save',
+            initialText: composer.comment.body,
+            initialFormatting: composer.comment.formatting,
+            showAudience: false,
+            trimOnSubmit: false,
+          }
+        : composer?.type === 'reply'
+          ? {
+              title: `Replying to ${composer.thread.comments[0]?.authorUsername ?? 'comment'}`,
+              submitLabel: 'Send',
+            }
+          : { title: 'Add a comment', submitLabel: 'Post' }
+
   return (
     <div className="app-shell">
       <DetailBar onBack={goBack} />
@@ -815,7 +907,13 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
         {/* When the post was made, at the same coarse granularity as comment
             times (issue #174). postTime is '' when creation_time is missing or
             unparseable — omit the label rather than render an empty line. */}
-        {postTime && <p className="detail-time">{postTime}</p>}
+        {/* "edited" whenever the caption changed after posting (issue #462),
+            so it never passes for what people originally liked. */}
+        {(postTime || post.edited_time) && (
+          <p className="detail-time">
+            {[postTime, post.edited_time ? 'edited' : ''].filter(Boolean).join(' · ')}
+          </p>
+        )}
 
         {isSignedIn ? (
           <div className="comment-form">
@@ -827,7 +925,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
               <button
                 type="button"
                 className="comment-compose-trigger"
-                onClick={() => openComposer({ type: 'post' })}
+                onClick={() => setComposer({ type: 'post' })}
               >
                 Add a comment...
               </button>
@@ -928,7 +1026,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
                   <button
                     type="button"
                     className="comment-reply-btn"
-                    onClick={() => openComposer({ type: 'reply', thread })}
+                    onClick={() => setComposer({ type: 'reply', thread })}
                   >
                     Reply
                   </button>
@@ -971,124 +1069,13 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
       </main>
 
       {composer && (
-        <div className="modal-overlay">
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="composer-title">
-            <h2 id="composer-title" className="modal__title">
-              {composer.type === 'reply'
-                ? `Replying to ${composer.thread.comments[0]?.authorUsername ?? 'comment'}`
-                : 'Add a comment'}
-            </h2>
-            {/* Inline formatting toolbar (issue #318): styles the current
-                selection in the textarea below. */}
-            <div className="format-toolbar" role="group" aria-label="Text formatting">
-              <button
-                type="button"
-                className="format-toolbar__btn"
-                aria-label="Bold selection"
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => styleSelection((a, s, e) => toggleRange(a, s, e, 'bold'))}
-              >
-                <strong>B</strong>
-              </button>
-              <button
-                type="button"
-                className="format-toolbar__btn"
-                aria-label="Italic selection"
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => styleSelection((a, s, e) => toggleRange(a, s, e, 'italic'))}
-              >
-                <em>I</em>
-              </button>
-              <label className="format-toolbar__size">
-                Size
-                {/* No onMouseDown preventDefault here: on a native <select> it
-                    can stop the dropdown from opening. A blurred textarea still
-                    retains its selection offsets, so styleSelection() reads the
-                    correct range on change. The value is pinned to "" (the
-                    placeholder) so re-picking the same size still fires onChange
-                    and can be applied to a new selection. */}
-                <select
-                  className="format-toolbar__select"
-                  aria-label="Text size for selection"
-                  value=""
-                  onChange={e => {
-                    const size = e.target.value as TextSize | ''
-                    if (!size) return
-                    styleSelection((a, s, en) => applyStyleToRange(a, s, en, { size }))
-                  }}
-                >
-                  <option value="">Size</option>
-                  {TEXT_SIZE_OPTIONS.map(size => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <textarea
-              ref={composerRef}
-              className="text-area"
-              rows={4}
-              aria-label="Comment text"
-              autoFocus
-              value={composerText}
-              onChange={e => handleComposerTextChange(e.target.value)}
-            />
-            <p className="format-toolbar__hint muted">
-              Select text, then tap B, I, or Size to format it.
-            </p>
-            {composerText.trim() && (
-              <p className="comment-preview">
-                <FormattedText
-                  text={composerText.trim()}
-                  spans={spansForTrimmedComment(composerText, composerAttrs)}
-                />
-              </p>
-            )}
-            {/* Who may see this comment (issue #445), mirroring the post
-                audience picker. */}
-            <label className="composer-audience">
-              Who can see this?
-              <select
-                className="select-input"
-                aria-label="Comment audience"
-                value={composerAudience}
-                onChange={e => setComposerAudience(e.target.value as PostAudience)}
-              >
-                {COMMENT_AUDIENCE_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <CharacterCounter value={composerText} max={MAX_COMMENT_LENGTH} />
-            <div className="modal__actions">
-              <button
-                type="button"
-                className="modal__cancel"
-                onClick={() => {
-                  setComposer(null)
-                  setComposerText('')
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="modal__confirm"
-                disabled={
-                  composerText.trim().length === 0 ||
-                  !isWithinLimit(composerText, MAX_COMMENT_LENGTH)
-                }
-                onClick={submitComposer}
-              >
-                {composer.type === 'reply' ? 'Send' : 'Post'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <CommentComposerDialog
+          {...composerProps}
+          onCancel={() => setComposer(null)}
+          onSubmit={(text, formatting, audience) =>
+            void submitComposer(text, formatting, audience)
+          }
+        />
       )}
 
       {likesTarget && (
@@ -1109,6 +1096,11 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
             <AnchoredMenuItem onClick={() => void menuToggleCommentsLock()}>
               {post?.comments_disabled ? 'Turn on commenting' : 'Turn off commenting'}
             </AnchoredMenuItem>
+          )}
+          {/* Edit your own caption or comment (issue #462), in the same
+              composer dialog used to write them. */}
+          {canEdit(menuTarget) && (
+            <AnchoredMenuItem onClick={() => menuEdit(menuTarget)}>Edit</AnchoredMenuItem>
           )}
           {/* Report / Retract / Delete all need a session; a signed-out
               visitor gets Share and nothing else (issue #381). */}
@@ -1320,7 +1312,11 @@ function CommentRow({
           >
             <span className="comment-row__author">{comment.authorUsername}</span>
           </button>
-          <span className="comment-row__time">{formatRelativeTime(comment.createdTime)}</span>
+          <span className="comment-row__time">
+            {formatRelativeTime(comment.createdTime)}
+            {/* Marks a comment changed after it was posted (issue #462). */}
+            {comment.editedTime && ' · edited'}
+          </span>
           {/* Who can see this comment, on your own comments only (issue #518):
               who a commenter chose to share with is their information, so
               other readers see no badge. */}

@@ -20,6 +20,7 @@ vi.mock('../api/client', () => ({
     deletePost: vi.fn(),
     lockComments: vi.fn(),
     unlockComments: vi.fn(),
+    editPost: vi.fn(),
   },
 }))
 
@@ -32,6 +33,7 @@ const mockSavePost = vi.mocked(apiClient.savePost)
 const mockDeletePost = vi.mocked(apiClient.deletePost)
 const mockLockComments = vi.mocked(apiClient.lockComments)
 const mockGetPostLikers = vi.mocked(apiClient.getPostLikers)
+const mockEditPost = vi.mocked(apiClient.editPost)
 
 function renderTab() {
   return render(
@@ -57,6 +59,11 @@ beforeEach(() => {
   mockDeletePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockLockComments.mockReset().mockResolvedValue({ comments_disabled: true })
   mockGetPostLikers.mockReset().mockResolvedValue([])
+  mockEditPost.mockReset().mockImplementation(async (_id, caption) => ({
+    caption,
+    edited_time: '2024-01-02T00:00:00.000Z',
+    tags: [],
+  }))
   // getCurrentUsername reads storage; 'ada' is another user in these feeds
   // unless a test says otherwise.
   vi.stubGlobal('localStorage', {
@@ -430,6 +437,121 @@ test('turning off commenting from the feed menu closes the menu (#492)', async (
   // Reopening offers the opposite action.
   await userEvent.click(screen.getByRole('button', { name: 'Options for post by me' }))
   expect(screen.getByRole('menuitem', { name: 'Turn on commenting' })).toBeInTheDocument()
+})
+
+test('editing your own caption from the feed menu updates the row in place (#462)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'me', caption: 'mine' },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  const { container } = renderTab()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Options for post by me' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Edit' }))
+  const field = screen.getByLabelText('Caption text')
+  expect(field).toHaveValue('mine')
+  await userEvent.clear(field)
+  await userEvent.type(field, 'still mine')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+  await waitFor(() => expect(mockEditPost).toHaveBeenCalledWith('p1', 'still mine'))
+  await waitFor(() =>
+    expect(container.querySelector('.feed-post__caption')).toHaveTextContent('still mine'),
+  )
+  // No reload: that would reshuffle the weighted feed under the user.
+  expect(mockGetFeed).toHaveBeenCalledTimes(1)
+})
+
+test('a refreshed row edited elsewhere replaces the locally saved caption (#462)', async () => {
+  mockGetFeed
+    .mockResolvedValueOnce([
+      { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'me', caption: 'mine' },
+    ])
+    .mockResolvedValue([
+      {
+        post_identifier: 'p1',
+        image_url: 'http://img/1.jpg',
+        author_username: 'me',
+        caption: 'edited on my phone',
+        edited_time: '2024-01-03T00:00:00.000Z',
+      },
+    ])
+  mockGetFollowed.mockResolvedValue([])
+  const { container } = renderTab()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Options for post by me' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Edit' }))
+  const field = screen.getByLabelText('Caption text')
+  await userEvent.clear(field)
+  await userEvent.type(field, 'still mine')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() =>
+    expect(container.querySelector('.feed-post__caption')).toHaveTextContent('still mine'),
+  )
+
+  // The local save is stamped 2024-01-02; the refreshed row's later edit wins.
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() =>
+    expect(container.querySelector('.feed-post__caption')).toHaveTextContent('edited on my phone'),
+  )
+})
+
+test('overlapping caption saves answered newest-first keep the newest (#462)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'me', caption: 'mine' },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  const responders: Array<(value: { caption: string; edited_time: string; tags: string[] }) => void> = []
+  mockEditPost.mockImplementation(
+    () =>
+      new Promise(resolve => {
+        responders.push(resolve)
+      }),
+  )
+  const { container } = renderTab()
+
+  async function saveCaption(text: string) {
+    await userEvent.click(await screen.findByRole('button', { name: 'Options for post by me' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Edit' }))
+    const field = screen.getByLabelText('Caption text')
+    await userEvent.clear(field)
+    await userEvent.type(field, text)
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  }
+  await saveCaption('first try')
+  await saveCaption('second try')
+  expect(responders).toHaveLength(2)
+
+  // The newer save answers first, then the older one.
+  responders[1]({ caption: 'second try', edited_time: '2024-01-03T00:00:00.000Z', tags: [] })
+  await waitFor(() =>
+    expect(container.querySelector('.feed-post__caption')).toHaveTextContent('second try'),
+  )
+  responders[0]({ caption: 'first try', edited_time: '2024-01-02T00:00:00.000Z', tags: [] })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(container.querySelector('.feed-post__caption')).toHaveTextContent('second try')
+})
+
+test("the feed menu offers no Edit on someone else's post or your own pending one (#462)", async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hers' },
+    {
+      post_identifier: 'p2',
+      image_url: 'http://img/2.jpg',
+      author_username: 'me',
+      caption: 'mine',
+      hidden: true,
+      status: 'pending',
+    },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  renderTab()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Options for post by ada' }))
+  expect(screen.queryByRole('menuitem', { name: 'Edit' })).not.toBeInTheDocument()
+  await userEvent.keyboard('{Escape}')
+  await userEvent.click(screen.getByRole('button', { name: 'Options for post by me' }))
+  expect(screen.queryByRole('menuitem', { name: 'Edit' })).not.toBeInTheDocument()
 })
 
 test('hides the like control on your own post in the feed', async () => {

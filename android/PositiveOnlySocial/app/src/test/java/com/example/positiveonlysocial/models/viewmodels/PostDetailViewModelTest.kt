@@ -3,6 +3,11 @@ package com.example.positiveonlysocial.models.viewmodels
 import com.example.positiveonlysocial.MainDispatcherRule
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.CommentDto
+import com.example.positiveonlysocial.data.model.CommentFormatSpan
+import com.example.positiveonlysocial.data.model.EditCommentRequest
+import com.example.positiveonlysocial.data.model.EditCommentResponse
+import com.example.positiveonlysocial.data.model.EditPostRequest
+import com.example.positiveonlysocial.data.model.EditPostResponse
 import com.example.positiveonlysocial.data.model.CommentThreadDto
 import com.example.positiveonlysocial.data.model.CommentViewData
 import com.example.positiveonlysocial.data.model.CommentThreadViewData
@@ -23,7 +28,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import kotlinx.coroutines.test.advanceUntilIdle
 import org.mockito.kotlin.any
+import org.mockito.kotlin.doSuspendableAnswer
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -345,5 +352,211 @@ class PostDetailViewModelTest {
 
         assertEquals(COMMENT_BATCH_SIZE, pagedViewModel.commentThreads.value.single().comments.size)
         assertEquals(null, pagedViewModel.alertMessage.value)
+    }
+
+    // --- Editing (issue #462) ---
+
+    private fun ownPostViewModel(commentsDisabled: Boolean = false, hidden: Boolean? = null): PostDetailViewModel {
+        runBlocking {
+            whenever(api.getPostDetails("token123", postIdentifier)).thenReturn(
+                Response.success(
+                    Post(postIdentifier, "url", "caption", "testuser", 1, hidden = hidden, commentsDisabled = commentsDisabled)
+                )
+            )
+            whenever(api.getCommentsForPost("token123", postIdentifier, 0)).thenReturn(
+                Response.success(listOf(CommentThreadDto("t1")))
+            )
+            whenever(api.getCommentsForThread("token123", "t1", 0, null)).thenReturn(
+                Response.success(listOf(CommentDto("c1", "my comment", "testuser", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z", 0)))
+            )
+        }
+        return PostDetailViewModel(postIdentifier, api, keychainHelper)
+    }
+
+    @Test
+    fun `editCaption saves the caption and marks the post edited`() = runTest {
+        val own = ownPostViewModel()
+        whenever(api.editPost("token123", postIdentifier, EditPostRequest("new caption"))).thenReturn(
+            Response.success(EditPostResponse("new caption", "2024-01-02T00:00:00Z", emptyList()))
+        )
+        assertTrue(own.canEditPost())
+
+        own.editCaption("new caption")
+
+        assertEquals("new caption", own.postDetail.value?.caption)
+        assertNotNull(own.postDetail.value?.editedTime)
+    }
+
+    @Test
+    fun `a rejected caption edit keeps the original and alerts`() = runTest {
+        val own = ownPostViewModel()
+        whenever(api.editPost(any(), any(), any())).thenReturn(
+            Response.error(400, "{\"error\":\"Your edit was not saved\"}".toResponseBody())
+        )
+
+        own.editCaption("negative")
+
+        assertEquals("caption", own.postDetail.value?.caption)
+        assertEquals(null, own.postDetail.value?.editedTime)
+        assertNotNull(own.alertMessage.value)
+    }
+
+    @Test
+    fun `editComment updates the comment in place and marks it edited`() = runTest {
+        val own = ownPostViewModel()
+        val comment = own.commentThreads.value.single().comments.single()
+        val bold = listOf(CommentFormatSpan(0, 2, true, false, "normal"))
+        whenever(api.editComment("token123", postIdentifier, "t1", "c1", EditCommentRequest("edited", bold))).thenReturn(
+            Response.success(EditCommentResponse("edited", bold, "2024-01-02T00:00:00Z"))
+        )
+        assertTrue(own.canEditComment(comment))
+
+        own.editComment(comment, "edited", bold)
+
+        val edited = own.commentThreads.value.single().comments.single()
+        assertEquals("edited", edited.body)
+        assertEquals(bold, edited.formatting)
+        assertTrue(edited.isEdited)
+    }
+
+    @Test
+    fun `edit is not offered on someone else's post or comment`() = runTest {
+        val othersComment = CommentViewData("c1", "t1", "someoneelse", "body", 0, false, Date())
+        assertFalse(viewModel.canEditPost())
+        assertFalse(viewModel.canEditComment(othersComment))
+    }
+
+    @Test
+    fun `edit is not offered on a hidden post or once comments are locked`() = runTest {
+        assertFalse(ownPostViewModel(hidden = true).canEditPost())
+        val locked = ownPostViewModel(commentsDisabled = true)
+        assertFalse(locked.canEditComment(locked.commentThreads.value.single().comments.single()))
+    }
+
+    @Test
+    fun `a refresh that returns the pre-edit post keeps the saved caption`() = runTest {
+        val own = ownPostViewModel()
+        whenever(api.editPost("token123", postIdentifier, EditPostRequest("new caption"))).thenReturn(
+            Response.success(EditPostResponse("new caption", "2024-01-02T00:00:00Z", emptyList()))
+        )
+        own.editCaption("new caption")
+
+        // getPostDetails still answers with the never-edited post — a response
+        // to a request sent before the save.
+        own.refresh()
+
+        assertEquals("new caption", own.postDetail.value?.caption)
+        assertNotNull(own.postDetail.value?.editedTime)
+    }
+
+    @Test
+    fun `a refresh carrying a later edit made elsewhere replaces the saved caption`() = runTest {
+        val own = ownPostViewModel()
+        whenever(api.editPost("token123", postIdentifier, EditPostRequest("new caption"))).thenReturn(
+            Response.success(EditPostResponse("new caption", "2024-01-02T00:00:00Z", emptyList()))
+        )
+        own.editCaption("new caption")
+        whenever(api.getPostDetails("token123", postIdentifier)).thenReturn(
+            Response.success(Post(postIdentifier, "url", "edited elsewhere", "testuser", 1, editedTime = "2024-01-03T00:00:00Z"))
+        )
+
+        own.refresh()
+
+        assertEquals("edited elsewhere", own.postDetail.value?.caption)
+    }
+
+    @Test
+    fun `a refresh that returns the pre-edit comment keeps the saved edit`() = runTest {
+        val own = ownPostViewModel()
+        val comment = own.commentThreads.value.single().comments.single()
+        whenever(api.editComment("token123", postIdentifier, "t1", "c1", EditCommentRequest("edited", null))).thenReturn(
+            Response.success(EditCommentResponse("edited", null, "2024-01-02T00:00:00Z"))
+        )
+        own.editComment(comment, "edited", null)
+
+        own.refresh()
+
+        val reloaded = own.commentThreads.value.single().comments.single()
+        assertEquals("edited", reloaded.body)
+        assertTrue(reloaded.isEdited)
+    }
+
+    @Test
+    fun `an edit saved while a refresh is still loading other threads survives it`() = runTest {
+        val ownComment = CommentDto("c1", "my comment", "testuser", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z", 0)
+        val otherComment = CommentDto("c2", "theirs", "someone", "2024-01-01T01:00:00Z", "2024-01-01T01:00:00Z", 0)
+        whenever(api.getCommentsForPost("token123", postIdentifier, 0)).thenReturn(
+            Response.success(listOf(CommentThreadDto("t1"), CommentThreadDto("t2")))
+        )
+        whenever(api.getCommentsForThread("token123", "t1", 0, null)).thenReturn(Response.success(listOf(ownComment)))
+        whenever(api.getCommentsForThread("token123", "t2", 0, null)).thenReturn(Response.success(listOf(otherComment)))
+        val vm = PostDetailViewModel(postIdentifier, api, keychainHelper)
+        val comment = vm.commentThreads.value.flatMap { it.comments }.single { it.id == "c1" }
+
+        // Refresh: t1 comes back at once (pre-edit), t2 is held.
+        val releaseT2 = kotlinx.coroutines.CompletableDeferred<Unit>()
+        whenever(api.getCommentsForThread("token123", "t2", 0, null)).doSuspendableAnswer {
+            releaseT2.await()
+            Response.success(listOf(otherComment))
+        }
+        vm.refresh()
+        assertTrue(vm.isRefreshing.value)
+
+        whenever(api.editComment("token123", postIdentifier, "t1", "c1", EditCommentRequest("edited", null))).thenReturn(
+            Response.success(EditCommentResponse("edited", null, "2024-01-02T00:00:00Z"))
+        )
+        vm.editComment(comment, "edited", null)
+        releaseT2.complete(Unit)
+        advanceUntilIdle()
+
+        assertFalse(vm.isRefreshing.value)
+        assertEquals("edited", vm.commentThreads.value.flatMap { it.comments }.single { it.id == "c1" }.body)
+    }
+
+    @Test
+    fun `a slow caption save landing after a refresh showed a later edit changes nothing`() = runTest {
+        val own = ownPostViewModel()
+        val respond = kotlinx.coroutines.CompletableDeferred<Unit>()
+        whenever(api.editPost("token123", postIdentifier, EditPostRequest("new caption"))).doSuspendableAnswer {
+            respond.await()
+            Response.success(EditPostResponse("new caption", "2024-01-02T00:00:00Z", emptyList()))
+        }
+        own.editCaption("new caption")
+
+        // Before the save's response arrives, a refresh shows a later edit.
+        whenever(api.getPostDetails("token123", postIdentifier)).thenReturn(
+            Response.success(Post(postIdentifier, "url", "edited elsewhere", "testuser", 1, editedTime = "2024-01-03T00:00:00Z"))
+        )
+        own.refresh()
+        assertEquals("edited elsewhere", own.postDetail.value?.caption)
+
+        respond.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("edited elsewhere", own.postDetail.value?.caption)
+    }
+
+    @Test
+    fun `a slow comment save landing after a refresh showed a later edit changes nothing`() = runTest {
+        val own = ownPostViewModel()
+        val comment = own.commentThreads.value.single().comments.single()
+        val respond = kotlinx.coroutines.CompletableDeferred<Unit>()
+        whenever(api.editComment("token123", postIdentifier, "t1", "c1", EditCommentRequest("edited", null))).doSuspendableAnswer {
+            respond.await()
+            Response.success(EditCommentResponse("edited", null, "2024-01-02T00:00:00Z"))
+        }
+        own.editComment(comment, "edited", null)
+
+        whenever(api.getCommentsForThread("token123", "t1", 0, null)).thenReturn(Response.success(listOf(
+            CommentDto("c1", "edited elsewhere", "testuser", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z", 0,
+                editedTime = "2024-01-03T00:00:00Z")
+        )))
+        own.refresh()
+        assertEquals("edited elsewhere", own.commentThreads.value.single().comments.single().body)
+
+        respond.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("edited elsewhere", own.commentThreads.value.single().comments.single().body)
     }
 }

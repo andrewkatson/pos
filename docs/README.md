@@ -9,7 +9,7 @@ changes.
 
 - [Navigation and post actions](navigation-and-post-actions.md) — the bottom
   bar, user search, follower lists, the post options menu, who liked a post,
-  saved posts, and locking comments.
+  saved posts, locking comments, and editing captions and comments.
 - [Text formatting](text-formatting.md) — caption fonts and background colors,
   the Text / Image composer, and inline comment formatting.
 - [Hashtags](hashtags.md) — `#tag` parsing and tag feeds.

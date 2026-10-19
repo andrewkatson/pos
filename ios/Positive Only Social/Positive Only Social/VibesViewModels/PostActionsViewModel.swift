@@ -41,6 +41,8 @@ final class PostActionsViewModel: ObservableObject {
     @Published var postToReport: Post?
     /// The post whose retract-report confirmation is showing.
     @Published var postToRetract: Post?
+    /// The post whose caption the edit composer is open for (issue #462).
+    @Published var postToEdit: Post?
     /// Drives the native share sheet for a post in a list (issue #34). Set by
     /// the action menu's "Share" button and presented as a `.sheet(item:)`;
     /// sharing is offered for any post, your own and others'.
@@ -56,6 +58,18 @@ final class PostActionsViewModel: ObservableObject {
     /// the detail screen can land without a `Post` to build the rest from.
     @Published private(set) var commentsDisabledOverrides: [String: Bool] = [:]
 
+    /// A caption saved this session (issue #462) and the edit time the server
+    /// stamped on it.
+    struct CaptionOverride: Equatable {
+        var caption: String
+        var editedTime: String?
+    }
+
+    /// Captions saved this session, from a list row or the post detail screen,
+    /// keyed by post id. Rows render `caption(for:)`, so an edit shows in place
+    /// without refetching — and reshuffling — the list.
+    @Published private(set) var captionOverrides: [String: CaptionOverride] = [:]
+
     /// The signed-in user's username, used to tell your own posts from others'.
     private(set) var currentUsername: String?
 
@@ -67,6 +81,8 @@ final class PostActionsViewModel: ObservableObject {
     // Listens for `.postCommentsDisabledChanged` so a lock/unlock made on the
     // post detail screen doesn't leave the row menu offering the stale action.
     private var commentsLockCancellable: AnyCancellable?
+    // Listens for `.postCaptionEdited` for the same reason, for caption edits.
+    private var captionEditCancellable: AnyCancellable?
 
     convenience init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         self.init(api: api, keychainHelper: keychainHelper, account: "userSessionToken")
@@ -91,6 +107,15 @@ final class PostActionsViewModel: ObservableObject {
                       let disabled = notification.userInfo?["commentsDisabled"] as? Bool else { return }
                 self?.commentsDisabledOverrides[postIdentifier] = disabled
             }
+        captionEditCancellable = notificationCenter.publisher(for: .postCaptionEdited)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] notification in
+                guard let postIdentifier = notification.object as? String,
+                      let caption = notification.userInfo?["caption"] as? String else { return }
+                self?.recordCaptionOverride(
+                    CaptionOverride(caption: caption, editedTime: notification.userInfo?["editedTime"] as? String),
+                    for: postIdentifier)
+            }
     }
 
     // MARK: - Derived State
@@ -109,6 +134,33 @@ final class PostActionsViewModel: ObservableObject {
         )
         if let disabled = commentsDisabledOverrides[post.id] { state.commentsDisabled = disabled }
         return state
+    }
+
+    /// Records a saved caption unless the one already recorded is newer — an
+    /// older save response or notification can arrive after a newer one
+    /// (issue #462). Returns whether it was recorded.
+    @discardableResult
+    func recordCaptionOverride(_ override: CaptionOverride, for postIdentifier: String) -> Bool {
+        if SavedEdit.isNewer(saved: captionOverrides[postIdentifier]?.editedTime, fetched: override.editedTime) {
+            return false
+        }
+        captionOverrides[postIdentifier] = override
+        return true
+    }
+
+    /// The caption a row should show: the one saved this session, unless the
+    /// row itself is at least as new — a reload that already carries that
+    /// edit, or a later one made elsewhere — in which case the row wins.
+    func caption(for post: Post) -> String {
+        guard let override = captionOverrides[post.id],
+              SavedEdit.isNewer(saved: override.editedTime, fetched: post.editedTime) else { return post.caption }
+        return override.caption
+    }
+
+    /// Edit is offered on your own post once it's live — a pending, rejected or
+    /// hidden one isn't yours to rewrite (issue #462).
+    func canEdit(_ post: Post) -> Bool {
+        state(for: post).isOwn && post.hidden != true
     }
 
     // MARK: - Actions
@@ -202,6 +254,31 @@ final class PostActionsViewModel: ObservableObject {
         }
     }
 
+    /// Saves an edited caption for one of the user's own posts (issue #462).
+    /// The backend judges the new caption first and keeps the original on a
+    /// rejection, so the row only changes once the save succeeds. The saved
+    /// caption is announced so every loaded list — this one included — shows it.
+    func editCaption(_ post: Post, caption: String) {
+        guard !caption.isEmpty, caption != self.caption(for: post) else { return }
+        Task {
+            guard let token = loadToken(for: "edit caption") else { return }
+            do {
+                let data = try await api.editPost(sessionManagementToken: token, postIdentifier: post.id, caption: caption)
+                let saved = try JSONDecoder().decode(EditPostResponse.self, from: data)
+                // An older save's response arriving after a newer one's is
+                // stale: neither recorded nor broadcast.
+                guard recordCaptionOverride(CaptionOverride(caption: saved.caption, editedTime: saved.editedTime),
+                                            for: post.id) else { return }
+                var userInfo: [String: Any] = ["caption": saved.caption, "tags": saved.tags]
+                userInfo["editedTime"] = saved.editedTime
+                notificationCenter.post(name: .postCaptionEdited, object: post.id, userInfo: userInfo)
+            } catch {
+                NSLog("%@", "Failed to edit caption: \(error)")
+                alertMessage = "Failed to edit caption: \(error.userFacingMessage)"
+            }
+        }
+    }
+
     /// Reports a post with the reason the user typed into the shared report sheet.
     func report(_ post: Post, reason: String) {
         Task {
@@ -246,6 +323,7 @@ final class PostActionsViewModel: ObservableObject {
                 _ = try await api.deletePost(sessionManagementToken: token, postIdentifier: post.id)
                 overrides[post.id] = nil
                 commentsDisabledOverrides[post.id] = nil
+                captionOverrides[post.id] = nil
                 notificationCenter.post(name: .postDeleted, object: post.id)
             } catch {
                 NSLog("%@", "Failed to delete post: \(error)")

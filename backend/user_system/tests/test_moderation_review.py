@@ -73,6 +73,82 @@ class ModerationReviewTests(TestCase):
         self.comment.refresh_from_db()
         return review
 
+    # --- the shared lock order (issue #462) -----------------------------
+    #
+    # The test database is SQLite, which ignores row locks, so a real
+    # interleaving cannot be staged here; these pin the protocol instead:
+    # every review transition locks the content row before it touches the
+    # review row, the same order a caption/comment edit's final check-and-write
+    # takes, so an edit and a review change serialize rather than interleave.
+
+    def _recording_lock_order(self):
+        calls = []
+        real_lock = moderation.lock_reviewed_content
+        real_get_or_create = moderation._get_or_create_review
+
+        def lock(post=None, comment=None):
+            calls.append('content')
+            return real_lock(post, comment)
+
+        def get_or_create(post, comment):
+            calls.append('review')
+            return real_get_or_create(post, comment)
+
+        return calls, patch.object(moderation, 'lock_reviewed_content', side_effect=lock), \
+            patch.object(moderation, '_get_or_create_review', side_effect=get_or_create)
+
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=ALLOWED)
+    def test_opening_and_escalating_a_review_lock_the_content_first(self, _text, _image):
+        self._report_post(self.reporters[0])  # opens the review, which clears
+        calls, lock_patch, review_patch = self._recording_lock_order()
+        with lock_patch, review_patch:
+            for reporter in self.reporters[1:REPORTS_AFTER_CLEAR_BEFORE_ESCALATION + 1]:
+                review = self._report_post(reporter)
+        self.assertEqual(self._refresh(review).status, REVIEW_STATUS_ESCALATED)
+        self.assertEqual(calls[:2], ['content', 'review'])
+        self.assertEqual(calls.count('content'), calls.count('review'))
+
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=ALLOWED)
+    def test_withdrawing_locks_the_content_first(self, _text, _image):
+        self._report_comment(self.reporters[0])
+        with patch.object(moderation, 'lock_reviewed_content',
+                          wraps=moderation.lock_reviewed_content) as lock:
+            self.comment.commentreport_set.update(retracted_time=timezone.now())
+            moderation.withdraw_report(comment=self.comment)
+        lock.assert_called_once_with(None, self.comment)
+
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=ALLOWED)
+    def test_a_moderators_decision_locks_the_content_first(self, _text, _image):
+        # A dismissal or hide landing between an edit's final check and its
+        # save would give the new text the old text's ruling, so both take the
+        # content row lock — the one the edit holds — before the review's.
+        for decide in (moderation.dismiss_reports, moderation.hide_reviewed_content):
+            with self.subTest(decide=decide.__name__):
+                review = self._report_comment(self.reporters[0])
+                calls = []
+                real_lock = moderation.lock_reviewed_content
+                real_filter = moderation.ModerationReview.objects.select_for_update
+
+                def lock(post=None, comment=None):
+                    calls.append('content')
+                    return real_lock(post=post, comment=comment)
+
+                def review_lock(*args, **kwargs):
+                    calls.append('review')
+                    return real_filter(*args, **kwargs)
+
+                with patch.object(moderation, 'lock_reviewed_content', side_effect=lock), \
+                        patch.object(moderation.ModerationReview.objects, 'select_for_update',
+                                     side_effect=review_lock):
+                    decide(review)
+                self.assertEqual(calls, ['content', 'review'])
+                review.delete()
+                Comment.objects.filter(pk=self.comment.pk).update(hidden=False, hidden_reason='')
+                self.comment.commentreport_set.all().delete()
+
     # --- the automated re-review ----------------------------------------
 
     @patch(IMAGE, return_value=ALLOWED)
