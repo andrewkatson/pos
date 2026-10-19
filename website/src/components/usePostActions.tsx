@@ -349,6 +349,7 @@ export function usePostActions({
           showAudience={false}
           maxLength={MAX_CAPTION_LENGTH}
           textLabel="Caption text"
+          trimOnSubmit={false}
           onCancel={() => setDialog(null)}
           onSubmit={text => void submitEdit(dialog.post, text)}
         />

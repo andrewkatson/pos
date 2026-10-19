@@ -7,6 +7,7 @@ import { TEXT_SIZE_OPTIONS } from './textFormatting'
 import {
   applyStyleToRange,
   attrsFromSpans,
+  attrsToSpans,
   reconcileAttrs,
   spansForTrimmedComment,
   toggleRange,
@@ -40,9 +41,14 @@ interface CommentComposerDialogProps {
   maxLength?: number
   /** Accessible name of the text area. */
   textLabel?: string
+  /** Trim surrounding whitespace on submit — right for new text. An edit
+   * (issue #462) turns it off, so opening an item and pressing Save never
+   * changes text the mobile composers saved with surrounding spaces, and a
+   * formatting-only edit stays formatting-only. */
+  trimOnSubmit?: boolean
   onCancel: () => void
-  /** `text` is trimmed; `formatting` is aligned to it and undefined when the
-   * text is plain. */
+  /** `text` is trimmed unless `trimOnSubmit` is off; `formatting` is aligned
+   * to it and undefined when the text is plain. */
   onSubmit: (text: string, formatting: CommentFormatSpan[] | undefined, audience: PostAudience) => void
 }
 
@@ -62,6 +68,7 @@ export default function CommentComposerDialog({
   showAudience = true,
   maxLength = MAX_COMMENT_LENGTH,
   textLabel = 'Comment text',
+  trimOnSubmit = true,
   onCancel,
   onSubmit,
 }: CommentComposerDialogProps) {
@@ -99,11 +106,15 @@ export default function CommentComposerDialog({
   // repeated taps can't post the same comment twice and the keyboard/dialog
   // disappear at once (issue #291).
   function submit() {
-    const trimmed = text.trim()
-    if (!trimmed) return
+    if (!text.trim()) return
+    if (!trimOnSubmit) {
+      const spans = attrsToSpans(attrs)
+      onSubmit(text, allowFormatting && spans.length > 0 ? spans : undefined, audience)
+      return
+    }
     // Compress the per-character attributes into API spans, aligned to the
     // trimmed text we actually send (issue #318).
-    onSubmit(trimmed, allowFormatting ? spansForTrimmedComment(text, attrs) : undefined, audience)
+    onSubmit(text.trim(), allowFormatting ? spansForTrimmedComment(text, attrs) : undefined, audience)
   }
 
   return (

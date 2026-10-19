@@ -735,6 +735,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
           showAudience: false,
           maxLength: MAX_CAPTION_LENGTH,
           textLabel: 'Caption text',
+          trimOnSubmit: false,
         }
       : composer?.type === 'editComment'
         ? {
@@ -743,6 +744,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
             initialText: composer.comment.body,
             initialFormatting: composer.comment.formatting,
             showAudience: false,
+            trimOnSubmit: false,
           }
         : composer?.type === 'reply'
           ? {

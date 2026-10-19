@@ -448,6 +448,27 @@ class EditCommentTests(PositiveOnlySocialTestCase):
         self.assertIsNotNone(self.comment.body_formatting)
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_formatting_only_edit_refused_if_the_text_changed_meanwhile(self):
+        # A formatting-only edit skips the classifier on the strength of the
+        # body read before the lock. Simulate a concurrent text edit landing
+        # in between: saving would restore the old, unjudged-here text.
+        real_lock = views._comments_locked_for_update
+
+        def lock_after_concurrent_edit(post):
+            Comment.objects.filter(pk=self.comment.pk).update(body=edited_text)
+            return real_lock(post)
+
+        with patch.object(views, '_comments_locked_for_update', side_effect=lock_after_concurrent_edit), \
+                patch.object(views.text_classifier_class, 'is_text_positive') as classifier:
+            response = self._edit(POSITIVE_TEXT, [{'start': 0, 'end': 3, 'bold': True}])
+
+        self.assertEqual(response.status_code, 409)
+        classifier.assert_not_called()
+        self.comment.refresh_from_db()
+        self.assertEqual(self.comment.body, edited_text)
+        self.assertIsNone(self.comment.body_formatting)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_post_hidden_during_classification_refuses_the_edit(self):
         # A commenter who is not the post's author: once the post is hidden
         # they can no longer see it, so their edit must not land.

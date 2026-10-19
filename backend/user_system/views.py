@@ -3874,7 +3874,12 @@ def edit_comment(request, post_identifier, comment_thread_identifier, comment_id
             return log_and_return_json("edit_comment", {'error': "Comment not found"}, status=400)
         locked = Comment.objects.select_for_update().filter(pk=comment.pk, hidden=False).first()
         if (locked is None or _under_open_review(locked)
-                or (text_result is not None and _review_decided(locked))):
+                or (text_result is not None and _review_decided(locked))
+                # Classification was skipped because the text matched the body
+                # read before the lock; if another edit has since changed it,
+                # saving would restore unjudged old text under the new text's
+                # model chain (and past any decision made on it).
+                or (text_result is None and comment_text != locked.body)):
             return log_and_return_json("edit_comment", {'error': "This comment can't be edited right now"}, status=409)
         update_fields = ['body', 'body_formatting', 'edited_time', 'updated_time']
         locked.body = comment_text

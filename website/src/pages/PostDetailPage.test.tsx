@@ -1029,3 +1029,22 @@ test('an edited comment is labelled as edited (#462)', async () => {
   await screen.findByText('love this')
   expect(screen.getByText(/edited/)).toBeInTheDocument()
 })
+
+test("an edit keeps a comment's surrounding whitespace, so restyling stays formatting-only (#462)", async () => {
+  localStorage.setItem('username', 'bob')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  // The mobile composers save text untrimmed.
+  mockGetThreadComments.mockResolvedValue([{ ...comment, body: 'love this ' }])
+  renderDetail()
+  await screen.findByText(/love this/)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
+  await userEvent.click(
+    within(screen.getByRole('menu', { name: 'Comment options' })).getByRole('menuitem', { name: 'Edit' }),
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+  await waitFor(() =>
+    expect(mockEditComment).toHaveBeenCalledWith('p1', 't1', 'c1', 'love this ', undefined),
+  )
+})
