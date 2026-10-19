@@ -2307,7 +2307,8 @@ def edit_post(request, post_identifier):
     neither is one whose report review is still open."""
     logger.info("Endpoint edit_post invoked by IP or User")
     data = _get_json_body(request)
-    if data is None:
+    # Any JSON value decodes; only an object has the fields an edit reads.
+    if not isinstance(data, dict):
         return log_and_return_json("edit_post", {'error': "Invalid JSON data"}, status=400)
     if not is_valid_pattern(post_identifier, Patterns.uuid4):
         return log_and_return_json("edit_post", {'error': "Invalid post identifier"}, status=400)
@@ -3791,7 +3792,8 @@ def edit_comment(request, post_identifier, comment_thread_identifier, comment_id
     review is still open."""
     logger.info("Endpoint edit_comment invoked by IP or User")
     data = _get_json_body(request)
-    if data is None:
+    # Any JSON value decodes; only an object has the fields an edit reads.
+    if not isinstance(data, dict):
         return log_and_return_json("edit_comment", {'error': "Invalid JSON data"}, status=400)
     invalid_fields = []
     if not is_valid_pattern(post_identifier, Patterns.uuid4):

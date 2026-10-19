@@ -92,6 +92,14 @@ class EditPostTests(PositiveOnlySocialTestCase):
         self.assertIsNotNone(after[Fields.edited_time])
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_non_object_json_bodies_are_rejected(self):
+        for body in ('[]', 'false', '"caption"', '3'):
+            with self.subTest(body=body):
+                response = self.client.post(self.url, data=body, content_type='application/json',
+                                            **self.valid_header)
+                self.assertEqual(response.status_code, 400)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_unchanged_caption_is_not_an_edit(self):
         with patch.object(views.text_classifier_class, 'is_text_positive') as classifier:
             response = self._edit(self.post.caption)
@@ -306,6 +314,14 @@ class EditCommentTests(PositiveOnlySocialTestCase):
         listed = self.client.get(list_url, **self.valid_header).json()[0]
         self.assertEqual(listed[Fields.body], edited_text)
         self.assertIsNotNone(listed[Fields.edited_time])
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_non_object_json_bodies_are_rejected(self):
+        for body in ('[]', 'false', '"text"', 'null'):
+            with self.subTest(body=body):
+                response = self.client.post(self.url, data=body, content_type='application/json',
+                                            **self.valid_header)
+                self.assertEqual(response.status_code, 400)
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_formatting_only_change_skips_the_classifier(self):

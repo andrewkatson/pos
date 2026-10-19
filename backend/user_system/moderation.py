@@ -150,6 +150,21 @@ def withdraw_report(post=None, comment=None):
     return review
 
 
+def _lock_for_resolution(review):
+    """Take the locks a moderator's decision needs, in the shared order
+    (content row, then review row — see lock_reviewed_content), and re-read
+    both under them. A decision landing between an edit's final check and its
+    save would otherwise hand the new text the old text's ruling (issue #462).
+    Call inside transaction.atomic(); returns the locked content, or None when
+    it (and so the review) is gone. `review` is refreshed in place."""
+    target = lock_reviewed_content(post=review.post if review.post_id else None,
+                                   comment=review.comment if review.comment_id else None)
+    if target is None or not ModerationReview.objects.select_for_update().filter(pk=review.pk).exists():
+        return None
+    review.refresh_from_db()
+    return target
+
+
 def hide_reviewed_content(review, moderator=None, note=''):
     """Apply a moderator's decision to hide the content a review is about.
 
@@ -158,14 +173,17 @@ def hide_reviewed_content(review, moderator=None, note=''):
     hidden for another reason keeps that reason, so an appeal can still tell the
     author what actually happened to it.
     """
-    target = review.target
-    if not target.hidden:
-        target.hidden = True
-        target.hidden_reason = HIDDEN_REASON_REPORTS
-        target.save(update_fields=['hidden', 'hidden_reason'])
-        logger.info("hide_reviewed_content: %s hidden by moderator review %s.",
-                    review.target_kind, review.review_identifier)
-    review.resolve(REVIEW_STATUS_HIDDEN, moderator, note or 'Hidden by a moderator after user reports')
+    with transaction.atomic():
+        target = _lock_for_resolution(review)
+        if target is None:
+            return review
+        if not target.hidden:
+            target.hidden = True
+            target.hidden_reason = HIDDEN_REASON_REPORTS
+            target.save(update_fields=['hidden', 'hidden_reason'])
+            logger.info("hide_reviewed_content: %s hidden by moderator review %s.",
+                        review.target_kind, review.review_identifier)
+        review.resolve(REVIEW_STATUS_HIDDEN, moderator, note or 'Hidden by a moderator after user reports')
     return review
 
 
@@ -179,12 +197,15 @@ def dismiss_reports(review, moderator=None, note=''):
     the classifier is left alone, since dismissing *reports* says nothing about
     an automated rejection.
     """
-    target = review.target
-    if target.hidden and target.hidden_reason == HIDDEN_REASON_REPORTS:
-        target.hidden = False
-        target.hidden_reason = HIDDEN_REASON_NONE
-        target.save(update_fields=['hidden', 'hidden_reason'])
-        logger.info("dismiss_reports: %s restored by moderator review %s.",
-                    review.target_kind, review.review_identifier)
-    review.resolve(REVIEW_STATUS_DISMISSED, moderator, note or 'Reports dismissed by a moderator')
+    with transaction.atomic():
+        target = _lock_for_resolution(review)
+        if target is None:
+            return review
+        if target.hidden and target.hidden_reason == HIDDEN_REASON_REPORTS:
+            target.hidden = False
+            target.hidden_reason = HIDDEN_REASON_NONE
+            target.save(update_fields=['hidden', 'hidden_reason'])
+            logger.info("dismiss_reports: %s restored by moderator review %s.",
+                        review.target_kind, review.review_identifier)
+        review.resolve(REVIEW_STATUS_DISMISSED, moderator, note or 'Reports dismissed by a moderator')
     return review

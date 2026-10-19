@@ -43,6 +43,18 @@ class StatefulStubbedApiEditTest {
     }
 
     @Test
+    fun `post listings carry the edit time`() = runTest {
+        val api = StatefulStubbedAPI()
+        val token = register(api, "author")
+        val postId = api.makePost(token, CreatePostRequest(caption = "sunny day")).body()!!.postIdentifier
+        api.editPost(token, postId, EditPostRequest("sunny day #beach"))
+
+        val listed = api.getPostsForUser(token, "author", 0).body()!!.single()
+        assertEquals("sunny day #beach", listed.caption)
+        assertNotNull(listed.editedTime)
+    }
+
+    @Test
     fun `editPost refuses negative text and someone else's post`() = runTest {
         val api = StatefulStubbedAPI()
         val token = register(api, "author")

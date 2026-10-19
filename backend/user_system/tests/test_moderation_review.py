@@ -119,6 +119,36 @@ class ModerationReviewTests(TestCase):
             moderation.withdraw_report(comment=self.comment)
         lock.assert_called_once_with(None, self.comment)
 
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=ALLOWED)
+    def test_a_moderators_decision_locks_the_content_first(self, _text, _image):
+        # A dismissal or hide landing between an edit's final check and its
+        # save would give the new text the old text's ruling, so both take the
+        # content row lock — the one the edit holds — before the review's.
+        for decide in (moderation.dismiss_reports, moderation.hide_reviewed_content):
+            with self.subTest(decide=decide.__name__):
+                review = self._report_comment(self.reporters[0])
+                calls = []
+                real_lock = moderation.lock_reviewed_content
+                real_filter = moderation.ModerationReview.objects.select_for_update
+
+                def lock(post=None, comment=None):
+                    calls.append('content')
+                    return real_lock(post=post, comment=comment)
+
+                def review_lock(*args, **kwargs):
+                    calls.append('review')
+                    return real_filter(*args, **kwargs)
+
+                with patch.object(moderation, 'lock_reviewed_content', side_effect=lock), \
+                        patch.object(moderation.ModerationReview.objects, 'select_for_update',
+                                     side_effect=review_lock):
+                    decide(review)
+                self.assertEqual(calls, ['content', 'review'])
+                review.delete()
+                Comment.objects.filter(pk=self.comment.pk).update(hidden=False, hidden_reason='')
+                self.comment.commentreport_set.all().delete()
+
     # --- the automated re-review ----------------------------------------
 
     @patch(IMAGE, return_value=ALLOWED)

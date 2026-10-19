@@ -1232,7 +1232,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             authorProfileImageOriginalUrl = avatar,
             tags = post.tags,
             audience = post.audience,
-            commentsDisabled = post.commentsDisabled
+            commentsDisabled = post.commentsDisabled,
+            // Lists carry the edit time too, so PostListActions can tell a
+            // refreshed row from an older one (issue #462).
+            editedTime = post.editedTime?.toString()
         )
     }
 
