@@ -139,10 +139,9 @@ final class PostActionsViewModel: ObservableObject {
     /// row itself is at least as new — a reload that already carries that
     /// edit, or a later one made elsewhere — in which case the row wins.
     func caption(for post: Post) -> String {
-        guard let override = captionOverrides[post.id] else { return post.caption }
-        guard let rowEdited = post.editedTime.flatMap(RelativeTime.date(from:)) else { return override.caption }
-        guard let savedEdited = override.editedTime.flatMap(RelativeTime.date(from:)) else { return post.caption }
-        return rowEdited < savedEdited ? override.caption : post.caption
+        guard let override = captionOverrides[post.id],
+              SavedEdit.isNewer(saved: override.editedTime, fetched: post.editedTime) else { return post.caption }
+        return override.caption
     }
 
     /// Edit is offered on your own post once it's live — a pending, rejected or

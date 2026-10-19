@@ -10,7 +10,7 @@ import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.util.CaptionEdit
 import com.example.positiveonlysocial.util.PostEvents
-import com.example.positiveonlysocial.util.parseBackendDate
+import com.example.positiveonlysocial.util.savedEditIsNewer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -135,11 +135,8 @@ class PostListActions(
         if (reconciled != current) posts.value = reconciled
     }
 
-    private fun editIsNewer(edit: CaptionEdit, row: Post): Boolean {
-        val editTime = edit.editedTime?.let { parseBackendDate(it) } ?: return false
-        val rowTime = row.editedTime?.let { parseBackendDate(it) } ?: return true
-        return rowTime.before(editTime)
-    }
+    private fun editIsNewer(edit: CaptionEdit, row: Post): Boolean =
+        savedEditIsNewer(edit.editedTime, row.editedTime)
 
     /** Edit is offered on your own post once it's live — a pending, rejected or
      * hidden one isn't yours to rewrite (issue #462). */

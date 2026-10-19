@@ -143,6 +143,35 @@ final class PostDetailViewModel: ObservableObject {
         comment.isReported || reportedCommentIds.contains(comment.id)
     }
     
+    // Edits saved on this screen (issue #462). A load whose request went out
+    // before a save can land after it with the old text, so every load
+    // re-applies these over anything older (see SavedEdit.isNewer).
+    private var savedCaptionEdit: EditPostResponse?
+    private var savedCommentEdits: [String: EditCommentResponse] = [:]
+
+    /// `post` as fetched, with this screen's saved caption edit laid over it
+    /// when the fetch predates that edit.
+    func applyingSavedEdit(to post: PostDisplayData, fetchedEditedTime: String?) -> PostDisplayData {
+        guard let saved = savedCaptionEdit,
+              SavedEdit.isNewer(saved: saved.editedTime, fetched: fetchedEditedTime) else { return post }
+        var reconciled = post
+        reconciled.caption = saved.caption
+        reconciled.isEdited = true
+        return reconciled
+    }
+
+    /// The comment-side counterpart of `applyingSavedEdit(to:fetchedEditedTime:)`.
+    func applyingSavedEdit(to comment: CommentViewData) -> CommentViewData {
+        guard let saved = savedCommentEdits[comment.id],
+              SavedEdit.isNewer(saved: saved.editedTime, fetched: comment.editedTime) else { return comment }
+        var reconciled = comment
+        reconciled.body = saved.body
+        reconciled.formatting = saved.bodyFormatting
+        reconciled.isEdited = true
+        reconciled.editedTime = saved.editedTime
+        return reconciled
+    }
+
     // MARK: - Private Properties
     private let postIdentifier: String
     private let api: Networking
@@ -206,7 +235,7 @@ final class PostDetailViewModel: ObservableObject {
                 let postData = try await api.getPostDetails(sessionManagementToken: token, postIdentifier: postIdentifier)
                 let postFields = try self.decodeSingle(from: postData, type: PostDetailsFields.self)
 
-                self.postDetail = PostDisplayData(
+                self.postDetail = self.applyingSavedEdit(to: PostDisplayData(
                     id: postFields.post_identifier,
                     imageURL: postFields.image_url,
                     originalImageURL: postFields.original_image_url,
@@ -226,7 +255,7 @@ final class PostDetailViewModel: ObservableObject {
                     commentsDisabled: postFields.comments_disabled ?? false,
                     isEdited: postFields.edited_time != nil,
                     isHidden: postFields.hidden ?? false
-                )
+                ), fetchedEditedTime: postFields.edited_time)
                 // Server truth for the reported flag, so it survives reloads.
                 self.isPostReported = postFields.is_reported ?? false
 
@@ -294,7 +323,8 @@ final class PostDetailViewModel: ObservableObject {
                                     createdDate: Self.parseDate(field.creation_time),
                                     isReported: field.is_reported ?? false,
                                     reportReason: field.report_reason,
-                                    isEdited: field.edited_time != nil
+                                    isEdited: field.edited_time != nil,
+                                    editedTime: field.edited_time
                                 )
                             }
                         }
@@ -304,7 +334,9 @@ final class PostDetailViewModel: ObservableObject {
                     for try await commentList in group {
                         if !commentList.isEmpty {
                             // Sort comments by date (oldest first)
-                            let sortedComments = commentList.sorted { $0.createdDate < $1.createdDate }
+                            let sortedComments = commentList
+                                .map { self.applyingSavedEdit(to: $0) }
+                                .sorted { $0.createdDate < $1.createdDate }
                             loadedThreads.append(CommentThreadViewData(comments: sortedComments))
                         }
                     }
@@ -632,7 +664,8 @@ final class PostDetailViewModel: ObservableObject {
             createdDate: oldComment.createdDate,
             isReported: oldComment.isReported,
             reportReason: oldComment.reportReason,
-            isEdited: oldComment.isEdited
+            isEdited: oldComment.isEdited,
+            editedTime: oldComment.editedTime
         )
         
         // Replace the old comment with the new one in the published array
@@ -688,7 +721,8 @@ final class PostDetailViewModel: ObservableObject {
             createdDate: oldComment.createdDate,
             isReported: oldComment.isReported,
             reportReason: oldComment.reportReason,
-            isEdited: oldComment.isEdited
+            isEdited: oldComment.isEdited,
+            editedTime: oldComment.editedTime
         )
         
         commentThreads[threadIndex].comments[commentIndex] = newComment
@@ -848,6 +882,7 @@ final class PostDetailViewModel: ObservableObject {
                 }
                 let data = try await self.api.editPost(sessionManagementToken: userSession.sessionToken, postIdentifier: self.postIdentifier, caption: caption)
                 let saved = try self.decodeSingle(from: data, type: EditPostResponse.self)
+                self.savedCaptionEdit = saved
                 if var post = self.postDetail {
                     post.caption = saved.caption
                     post.isEdited = saved.editedTime != nil
@@ -885,11 +920,13 @@ final class PostDetailViewModel: ObservableObject {
                     formatting: formatting
                 )
                 let saved = try self.decodeSingle(from: data, type: EditCommentResponse.self)
+                self.savedCommentEdits[comment.id] = saved
                 guard let threadIndex = self.commentThreads.firstIndex(where: { $0.id == comment.threadId }),
                       let commentIndex = self.commentThreads[threadIndex].comments.firstIndex(where: { $0.id == comment.id }) else { return }
                 self.commentThreads[threadIndex].comments[commentIndex].body = saved.body
                 self.commentThreads[threadIndex].comments[commentIndex].formatting = saved.bodyFormatting
                 self.commentThreads[threadIndex].comments[commentIndex].isEdited = saved.editedTime != nil
+                self.commentThreads[threadIndex].comments[commentIndex].editedTime = saved.editedTime
             } catch {
                 NSLog("%@", "Failed to edit comment: \(error)")
                 self.alertMessage = "Failed to edit comment: \(error.userFacingMessage)"

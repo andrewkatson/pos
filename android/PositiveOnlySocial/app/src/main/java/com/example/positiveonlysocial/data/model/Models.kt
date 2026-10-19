@@ -855,7 +855,10 @@ data class CommentViewData(
     // That avatar's BlurHash (issue #460), shown blurred while the photo loads.
     val authorProfileImageBlurHash: String? = null,
     // Whether the author changed it after posting (issue #462).
-    val isEdited: Boolean = false
+    val isEdited: Boolean = false,
+    // When it was last edited, as the server sent it (issue #462) — what a
+    // reload is compared against before it may replace an edit saved here.
+    val editedTime: String? = null
 )
 
 data class CommentThreadViewData(

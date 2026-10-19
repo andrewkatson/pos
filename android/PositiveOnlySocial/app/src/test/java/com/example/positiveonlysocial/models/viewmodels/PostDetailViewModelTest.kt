@@ -430,4 +430,52 @@ class PostDetailViewModelTest {
         val locked = ownPostViewModel(commentsDisabled = true)
         assertFalse(locked.canEditComment(locked.commentThreads.value.single().comments.single()))
     }
+
+    @Test
+    fun `a refresh that returns the pre-edit post keeps the saved caption`() = runTest {
+        val own = ownPostViewModel()
+        whenever(api.editPost("token123", postIdentifier, EditPostRequest("new caption"))).thenReturn(
+            Response.success(EditPostResponse("new caption", "2024-01-02T00:00:00Z", emptyList()))
+        )
+        own.editCaption("new caption")
+
+        // getPostDetails still answers with the never-edited post — a response
+        // to a request sent before the save.
+        own.refresh()
+
+        assertEquals("new caption", own.postDetail.value?.caption)
+        assertNotNull(own.postDetail.value?.editedTime)
+    }
+
+    @Test
+    fun `a refresh carrying a later edit made elsewhere replaces the saved caption`() = runTest {
+        val own = ownPostViewModel()
+        whenever(api.editPost("token123", postIdentifier, EditPostRequest("new caption"))).thenReturn(
+            Response.success(EditPostResponse("new caption", "2024-01-02T00:00:00Z", emptyList()))
+        )
+        own.editCaption("new caption")
+        whenever(api.getPostDetails("token123", postIdentifier)).thenReturn(
+            Response.success(Post(postIdentifier, "url", "edited elsewhere", "testuser", 1, editedTime = "2024-01-03T00:00:00Z"))
+        )
+
+        own.refresh()
+
+        assertEquals("edited elsewhere", own.postDetail.value?.caption)
+    }
+
+    @Test
+    fun `a refresh that returns the pre-edit comment keeps the saved edit`() = runTest {
+        val own = ownPostViewModel()
+        val comment = own.commentThreads.value.single().comments.single()
+        whenever(api.editComment("token123", postIdentifier, "t1", "c1", EditCommentRequest("edited", null))).thenReturn(
+            Response.success(EditCommentResponse("edited", null, "2024-01-02T00:00:00Z"))
+        )
+        own.editComment(comment, "edited", null)
+
+        own.refresh()
+
+        val reloaded = own.commentThreads.value.single().comments.single()
+        assertEquals("edited", reloaded.body)
+        assertTrue(reloaded.isEdited)
+    }
 }

@@ -355,6 +355,19 @@ struct Post: Codable, Identifiable, Hashable {
 
 // MARK: - Editing (issue #462)
 
+/// Whether an edit saved on this device is still newer than content just
+/// fetched. A fetch whose request went out before the save can land after it
+/// with the old text and an older (or no) `edited_time`, and must not undo the
+/// edit; a fetch that already carries the edit, or a later one made elsewhere,
+/// is at least as new and wins.
+enum SavedEdit {
+    static func isNewer(saved: String?, fetched: String?) -> Bool {
+        guard let savedDate = saved.flatMap(RelativeTime.date(from:)) else { return false }
+        guard let fetchedDate = fetched.flatMap(RelativeTime.date(from:)) else { return true }
+        return fetchedDate < savedDate
+    }
+}
+
 /// The caption as `editPost` saved it, with the hashtags re-parsed from it.
 struct EditPostResponse: Codable {
     let caption: String
@@ -994,6 +1007,9 @@ struct CommentViewData: Identifiable, Equatable {
     var reportReason: String? = nil
     /// Whether the author changed it after posting (issue #462).
     var isEdited: Bool = false
+    /// When it was last edited, as the server sent it (issue #462) — what a
+    /// reload is compared against before it may replace an edit saved here.
+    var editedTime: String? = nil
 }
 
 // A struct representing a full thread, which is just a list of comments

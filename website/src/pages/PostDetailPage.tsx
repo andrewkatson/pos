@@ -21,6 +21,7 @@ import FormattedText from '../components/FormattedText'
 import LikesModal, { type LikesTarget } from '../components/LikesModal'
 import { captionFontClass } from '../components/textFormatting'
 import { formatRelativeTime } from '../utils/relativeTime'
+import { savedEditIsNewer } from '../utils/editedTime'
 import { profilePathFor } from '../utils/profilePath'
 import {
   commentShareUrl,
@@ -223,6 +224,16 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
   const isLoadingRef = useRef(false)
   const pendingReloadRef = useRef(false)
 
+  // Edits saved on this page (issue #462). A load whose request went out
+  // before a save can land after it with the old text, so each load re-applies
+  // these over anything older than them (see savedEditIsNewer).
+  const savedCaptionEdit = useRef<{ caption: string; tags: string[]; editedTime: string | null } | null>(
+    null,
+  )
+  const savedCommentEdits = useRef<
+    Map<string, { body: string; formatting: CommentFormatSpan[] | null; editedTime: string | null }>
+  >(new Map())
+
   const loadAll = useCallback(async () => {
     // Record the group this (and any coalesced follow-up) load should apply.
     // Set here rather than during render, and read in performLoad, so a re-run
@@ -237,24 +248,36 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
     isLoadingRef.current = true
 
     const performLoad = async () => {
-      const toView = (c: Comment, threadId: string): CommentView => ({
-        id: c.comment_identifier,
-        threadId,
-        authorUsername: c.author_username,
-        authorAvatarUrl: c.author_profile_image_url ?? null,
-        authorAvatarOriginalUrl: c.author_profile_image_original_url ?? null,
-        authorAvatarBlurhash: c.author_profile_image_blurhash ?? null,
-        body: c.body,
-        formatting: c.body_formatting ?? null,
-        audience: c.audience ?? 'public',
-        createdTime: c.creation_time,
-        editedTime: c.edited_time ?? null,
-        likeCount: c.comment_likes,
-        isLiked: c.is_liked ?? likedCommentIds.current.has(c.comment_identifier),
-        isReported: c.is_reported ?? reportedCommentIds.current.has(c.comment_identifier),
-        reportReason: c.report_reason ?? reportedCommentReasons.current.get(c.comment_identifier) ?? null,
-        isOwn: c.author_username === currentUsername,
-      })
+      const toView = (fetched: Comment, threadId: string): CommentView => {
+        const saved = savedCommentEdits.current.get(fetched.comment_identifier)
+        const c =
+          saved && savedEditIsNewer(saved.editedTime, fetched.edited_time)
+            ? {
+                ...fetched,
+                body: saved.body,
+                body_formatting: saved.formatting,
+                edited_time: saved.editedTime,
+              }
+            : fetched
+        return {
+          id: c.comment_identifier,
+          threadId,
+          authorUsername: c.author_username,
+          authorAvatarUrl: c.author_profile_image_url ?? null,
+          authorAvatarOriginalUrl: c.author_profile_image_original_url ?? null,
+          authorAvatarBlurhash: c.author_profile_image_blurhash ?? null,
+          body: c.body,
+          formatting: c.body_formatting ?? null,
+          audience: c.audience ?? 'public',
+          createdTime: c.creation_time,
+          editedTime: c.edited_time ?? null,
+          likeCount: c.comment_likes,
+          isLiked: c.is_liked ?? likedCommentIds.current.has(c.comment_identifier),
+          isReported: c.is_reported ?? reportedCommentIds.current.has(c.comment_identifier),
+          reportReason: c.report_reason ?? reportedCommentReasons.current.get(c.comment_identifier) ?? null,
+          isOwn: c.author_username === currentUsername,
+        }
+      }
 
       // A failure to load the post itself is the only "not found" case. Comment
       // loading is handled separately so a transient comments error doesn't hide
@@ -272,6 +295,15 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
         return
       }
       if (!isMounted.current) return
+      const savedCaption = savedCaptionEdit.current
+      if (savedCaption && savedEditIsNewer(savedCaption.editedTime, details.edited_time)) {
+        details = {
+          ...details,
+          caption: savedCaption.caption,
+          tags: savedCaption.tags,
+          edited_time: savedCaption.editedTime,
+        }
+      }
       setPost(details)
       setPostLikeCount(details.post_likes)
       // Like/report state comes from the server so it survives reloads; older
@@ -501,6 +533,11 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
     try {
       if (target.type === 'editCaption') {
         const saved = await apiClient.editPost(postId, text)
+        savedCaptionEdit.current = {
+          caption: saved.caption,
+          tags: saved.tags,
+          editedTime: saved.edited_time,
+        }
         setPost(prev =>
           prev
             ? { ...prev, caption: saved.caption, edited_time: saved.edited_time, tags: saved.tags }
@@ -515,6 +552,11 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
           text,
           formatting,
         )
+        savedCommentEdits.current.set(comment.id, {
+          body: saved.body,
+          formatting: saved.body_formatting ?? null,
+          editedTime: saved.edited_time,
+        })
         mutateComment(comment.id, c => ({
           ...c,
           body: saved.body,

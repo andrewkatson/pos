@@ -244,7 +244,8 @@ screen and next to an edited comment's time, so a caption changed after people
 liked or commented on it never passes for the original. `edited_time` is
 distinct from `updated_time`, which every save bumps.
 
-A list that shows a caption saved from its own menu keeps showing it until a
-reloaded row carries an `edited_time` at least as new — so a refresh after an
-edit made on another device shows that edit, not the stale local one, while a
-refresh fetched before the save that lands after it does not undo the edit.
+A list or post-detail screen that shows a caption or comment saved from its own
+menu keeps showing it until reloaded content carries an `edited_time` at least
+as new — so a refresh after an edit made on another device shows that edit, not
+the stale local one, while a refresh fetched before the save that lands after it
+does not undo the edit.

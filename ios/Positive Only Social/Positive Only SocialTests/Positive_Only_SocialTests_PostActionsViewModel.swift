@@ -469,7 +469,7 @@ struct Positive_Only_SocialTests_PostActionsViewModel {
         let sut = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account, notificationCenter: center)
 
         // PostDetailViewModel announces a saved caption edit this way.
-        center.post(name: .postCaptionEdited, object: post.id, userInfo: ["caption": "Edited elsewhere"])
+        center.post(name: .postCaptionEdited, object: post.id, userInfo: ["caption": "Edited elsewhere", "editedTime": "2024-01-02T00:00:00Z"])
         await yield()
 
         #expect(sut.caption(for: post) == "Edited elsewhere")

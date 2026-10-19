@@ -9,6 +9,7 @@ import com.example.positiveonlysocial.data.model.*
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.util.PostEvents
 import com.example.positiveonlysocial.util.parseBackendDate
+import com.example.positiveonlysocial.util.savedEditIsNewer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -126,6 +127,29 @@ class PostDetailViewModel(
     val selectedCategory: StateFlow<FollowCategory?> = _selectedCategory.asStateFlow()
 
     private val service = "positive-only-social.Positive-Only-Social"
+
+    // Edits saved on this screen (issue #462). A load whose request went out
+    // before a save can land after it with the old text, so every load
+    // re-applies these over anything older (see savedEditIsNewer).
+    private var savedCaptionEdit: EditPostResponse? = null
+    private val savedCommentEdits = mutableMapOf<String, EditCommentResponse>()
+
+    private fun applySavedEdit(post: Post): Post {
+        val saved = savedCaptionEdit ?: return post
+        if (!savedEditIsNewer(saved.editedTime, post.editedTime)) return post
+        return post.copy(caption = saved.caption, tags = saved.tags, editedTime = saved.editedTime)
+    }
+
+    private fun applySavedEdit(comment: CommentViewData): CommentViewData {
+        val saved = savedCommentEdits[comment.id] ?: return comment
+        if (!savedEditIsNewer(saved.editedTime, comment.editedTime)) return comment
+        return comment.copy(
+            body = saved.body,
+            formatting = saved.bodyFormatting,
+            isEdited = true,
+            editedTime = saved.editedTime
+        )
+    }
 
     init {
         loadAllData()
@@ -265,7 +289,7 @@ class PostDetailViewModel(
             // 1. Fetch the main post details
             val postResponse = api.getPostDetails(token, postIdentifier)
             if (postResponse.isSuccessful) {
-                _postDetail.value = postResponse.body()
+                _postDetail.value = postResponse.body()?.let { applySavedEdit(it) }
             } else {
                 throw Exception("Failed to load post details")
             }
@@ -334,8 +358,9 @@ class PostDetailViewModel(
                                 authorProfileImageOriginalUrl = c.authorProfileImageOriginalUrl,
                                 audience = c.audience,
                                 authorProfileImageBlurHash = c.authorProfileImageBlurHash,
-                                isEdited = c.editedTime != null
-                            )
+                                isEdited = c.editedTime != null,
+                                editedTime = c.editedTime
+                            ).let { applySavedEdit(it) }
                         }
 
                         CommentThreadViewData(threadId, commentViewDataList)
@@ -762,6 +787,7 @@ class PostDetailViewModel(
                 val response = api.editPost(userSession.sessionToken, postIdentifier, EditPostRequest(caption))
                 val saved = response.body()
                 if (response.isSuccessful && saved != null) {
+                    savedCaptionEdit = saved
                     _postDetail.value = _postDetail.value?.copy(
                         caption = saved.caption,
                         tags = saved.tags,
@@ -799,6 +825,7 @@ class PostDetailViewModel(
                 )
                 val saved = response.body()
                 if (response.isSuccessful && saved != null) {
+                    savedCommentEdits[comment.id] = saved
                     _commentThreads.value = _commentThreads.value.map { thread ->
                         if (thread.id != comment.threadId) thread
                         else thread.copy(comments = thread.comments.map {
@@ -806,7 +833,8 @@ class PostDetailViewModel(
                             else it.copy(
                                 body = saved.body,
                                 formatting = saved.bodyFormatting,
-                                isEdited = saved.editedTime != null
+                                isEdited = saved.editedTime != null,
+                                editedTime = saved.editedTime
                             )
                         })
                     }

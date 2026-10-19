@@ -843,6 +843,47 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(!sut.canEditComment(comment))
     }
 
+    @Test func testStaleLoadAfterCaptionEdit_KeepsTheSavedCaption() async throws {
+        let (sut, _, _) = try await setupOwnContentEnvironment(account: "staleCaptionLoad_account")
+        let beforeEdit = try #require(sut.postDetail)
+        sut.editCaption("My edited post")
+        await yield()
+
+        // A load whose request went out before the save: old caption, no edit time.
+        let stale = sut.applyingSavedEdit(to: beforeEdit, fetchedEditedTime: nil)
+        #expect(stale.caption == "My edited post")
+        #expect(stale.isEdited)
+
+        // A load carrying a later edit made on another device wins.
+        var later = beforeEdit
+        later.caption = "Edited elsewhere"
+        let newer = sut.applyingSavedEdit(to: later, fetchedEditedTime: "2999-01-01T00:00:00Z")
+        #expect(newer.caption == "Edited elsewhere")
+    }
+
+    @Test func testStaleLoadAfterCommentEdit_KeepsTheSavedComment() async throws {
+        let (sut, _, commentID) = try await setupOwnContentEnvironment(account: "staleCommentLoad_account")
+        let beforeEdit = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        sut.editComment(beforeEdit, commentText: "My edited comment", formatting: nil)
+        await yield()
+
+        let stale = sut.applyingSavedEdit(to: beforeEdit)
+        #expect(stale.body == "My edited comment")
+        #expect(stale.isEdited)
+
+        var later = beforeEdit
+        later.body = "Edited elsewhere"
+        later.editedTime = "2999-01-01T00:00:00Z"
+        #expect(sut.applyingSavedEdit(to: later).body == "Edited elsewhere")
+    }
+
+    @Test func testSavedEditIsNewer_ComparesEditTimes() {
+        #expect(SavedEdit.isNewer(saved: "2024-01-02T00:00:00Z", fetched: nil))
+        #expect(SavedEdit.isNewer(saved: "2024-01-02T00:00:00Z", fetched: "2024-01-01T00:00:00Z"))
+        #expect(!SavedEdit.isNewer(saved: "2024-01-02T00:00:00Z", fetched: "2024-01-02T00:00:00Z"))
+        #expect(!SavedEdit.isNewer(saved: nil, fetched: nil))
+    }
+
     @Test func testComposerController_SeedsTextAndFormattingForAnEdit() {
         let spans = [CommentFormatSpan(start: 0, end: 4, bold: true), CommentFormatSpan(start: 5, end: 9, italic: true, size: "large")]
         let controller = CommentFormatController(text: "love this", spans: spans)

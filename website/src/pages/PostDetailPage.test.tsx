@@ -1048,3 +1048,72 @@ test("an edit keeps a comment's surrounding whitespace, so restyling stays forma
     expect(mockEditComment).toHaveBeenCalledWith('p1', 't1', 'c1', 'love this ', undefined),
   )
 })
+
+test('a refresh that returns the pre-edit post keeps the saved caption (#462)', async () => {
+  localStorage.setItem('username', 'ada')
+  renderDetail()
+  await screen.findByText('sunshine')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  await userEvent.click(
+    within(screen.getByRole('menu', { name: 'Post options' })).getByRole('menuitem', { name: 'Edit' }),
+  )
+  const field = screen.getByLabelText('Caption text')
+  await userEvent.clear(field)
+  await userEvent.type(field, 'moonlight')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(await screen.findByText('moonlight')).toBeInTheDocument()
+
+  // mockGetDetails still answers with the original, never-edited post — a
+  // response to a request sent before the save.
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh comments' }))
+  await waitFor(() => expect(mockGetDetails).toHaveBeenCalledTimes(2))
+  expect(screen.getByText('moonlight')).toBeInTheDocument()
+  expect(screen.queryByText('sunshine')).not.toBeInTheDocument()
+})
+
+test('a refresh that returns the pre-edit comment keeps the saved edit (#462)', async () => {
+  localStorage.setItem('username', 'bob')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  renderDetail()
+  await screen.findByText('love this')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
+  await userEvent.click(
+    within(screen.getByRole('menu', { name: 'Comment options' })).getByRole('menuitem', { name: 'Edit' }),
+  )
+  const field = screen.getByLabelText('Comment text')
+  await userEvent.type(field, ' a lot')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(await screen.findByText('love this a lot')).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh comments' }))
+  await waitFor(() => expect(mockGetDetails).toHaveBeenCalledTimes(2))
+  expect(await screen.findByText('love this a lot')).toBeInTheDocument()
+})
+
+test('a refresh carrying a later edit made elsewhere replaces the saved one (#462)', async () => {
+  localStorage.setItem('username', 'ada')
+  renderDetail()
+  await screen.findByText('sunshine')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  await userEvent.click(
+    within(screen.getByRole('menu', { name: 'Post options' })).getByRole('menuitem', { name: 'Edit' }),
+  )
+  const field = screen.getByLabelText('Caption text')
+  await userEvent.clear(field)
+  await userEvent.type(field, 'moonlight')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(await screen.findByText('moonlight')).toBeInTheDocument()
+
+  // The save above is stamped 2024-01-02; this one is a day later.
+  mockGetDetails.mockResolvedValue({
+    ...post,
+    caption: 'starlight',
+    edited_time: '2024-01-03T00:00:00.000Z',
+  })
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh comments' }))
+  expect(await screen.findByText('starlight')).toBeInTheDocument()
+})

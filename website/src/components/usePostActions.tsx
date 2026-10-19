@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { apiClient } from '../api/client'
 import type { FeedPost } from '../api/types'
 import { MAX_CAPTION_LENGTH } from '../auth/requirements'
+import { savedEditIsNewer } from '../utils/editedTime'
 import { postShareUrl, shareLink } from '../utils/shareLink'
 import AnchoredMenu, { AnchoredMenuItem } from './AnchoredMenu'
 import CommentComposerDialog from './CommentComposerDialog'
@@ -38,9 +39,7 @@ interface PostOverride {
  * elsewhere, has an edited_time at least as new, and then the row wins. */
 function overrideIsNewer(post: FeedPost, override: PostOverride): boolean {
   if (override.caption === undefined) return false
-  if (!post.edited_time) return true
-  if (!override.captionEditedTime) return false
-  return Date.parse(post.edited_time) < Date.parse(override.captionEditedTime)
+  return savedEditIsNewer(override.captionEditedTime, post.edited_time)
 }
 
 /** What the UI needs to render one post's controls. */
