@@ -103,7 +103,13 @@ class PostListActions(
         // (issue #462), without refetching and reshuffling the list.
         scope.launch {
             PostEvents.captionEdits.collect { edit ->
-                captionEdits[edit.postIdentifier] = edit
+                // An older save's event can arrive after a newer one's; keep
+                // the newest, or a later stale refresh would be "repaired"
+                // with the older caption.
+                val cached = captionEdits[edit.postIdentifier]
+                if (cached == null || !savedEditIsNewer(cached.editedTime, edit.editedTime)) {
+                    captionEdits[edit.postIdentifier] = edit
+                }
                 reconcileCaptionEdits()
             }
         }
@@ -185,6 +191,10 @@ class PostListActions(
                 val response = api.editPost(token, post.postIdentifier, EditPostRequest(caption))
                 val saved = response.body()
                 if (response.isSuccessful && saved != null) {
+                    // An older save's response arriving after a newer one's is
+                    // stale: don't broadcast it.
+                    val cached = captionEdits[post.postIdentifier]
+                    if (cached != null && savedEditIsNewer(cached.editedTime, saved.editedTime)) return@launch
                     PostEvents.captionEdited(post.postIdentifier, saved.caption, saved.tags.orEmpty(), saved.editedTime)
                 } else {
                     _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to edit the caption. Please try again.")

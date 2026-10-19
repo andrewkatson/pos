@@ -265,10 +265,20 @@ export function usePostActions({
     setDialog(null)
     try {
       const saved = await apiClient.editPost(post.post_identifier, caption)
-      setOverride(post.post_identifier, {
-        caption: saved.caption,
-        tags: saved.tags,
-        captionEditedTime: saved.edited_time,
+      // Two saves can overlap (the composer closes before the request ends);
+      // if the newer one's response landed first, this older one is stale.
+      setOverrides(prev => {
+        const current = prev[post.post_identifier]
+        if (current && savedEditIsNewer(current.captionEditedTime, saved.edited_time)) return prev
+        return {
+          ...prev,
+          [post.post_identifier]: {
+            ...current,
+            caption: saved.caption,
+            tags: saved.tags,
+            captionEditedTime: saved.edited_time,
+          },
+        }
       })
     } catch (err) {
       onError(messageFrom(err, 'Failed to edit caption.'))

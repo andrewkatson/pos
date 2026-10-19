@@ -457,6 +457,28 @@ struct Positive_Only_SocialTests_PostActionsViewModel {
         #expect(sut.caption(for: stale) == "Saved here")
     }
 
+    @Test func testOlderCaptionSaveOrNotification_DoesNotReplaceANewerOne() async throws {
+        let account = "reversedCaptionEdits_account"
+        let token = try await setupLoggedInUser(username: "reversedEditor", account: account)
+        _ = try await stubAPI.makePost(sessionManagementToken: token, imageURL: "img/1", caption: "Mine")
+        let data = try await stubAPI.getPostsForUser(sessionManagementToken: token, username: "reversedEditor", batch: 0)
+        let post = try unwrap(try JSONDecoder().decode([Post].self, from: data).first, "the user's own post")
+        let center = NotificationCenter()
+        let sut = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: account, notificationCenter: center)
+
+        // Notifications delivered newest first.
+        center.post(name: .postCaptionEdited, object: post.id,
+                    userInfo: ["caption": "Newest", "editedTime": "2024-01-03T00:00:00Z"])
+        center.post(name: .postCaptionEdited, object: post.id,
+                    userInfo: ["caption": "Older", "editedTime": "2024-01-02T00:00:00Z"])
+        await yield()
+        #expect(sut.caption(for: post) == "Newest")
+
+        // A save response stamped before the recorded edit is refused too.
+        #expect(!sut.recordCaptionOverride(.init(caption: "Oldest", editedTime: "2024-01-01T00:00:00Z"), for: post.id))
+        #expect(sut.caption(for: post) == "Newest")
+    }
+
     @Test func testCaptionEditedOnDetailScreen_ReachesTheRow() async throws {
         let account = "editFromDetail_account"
         let token = try await setupLoggedInUser(username: "detailEditor", account: account)

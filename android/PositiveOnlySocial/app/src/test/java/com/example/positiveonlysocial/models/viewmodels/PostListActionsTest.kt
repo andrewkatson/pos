@@ -404,6 +404,24 @@ class PostListActionsTest {
     }
 
     @Test
+    fun `an older caption event after a newer one does not win a later stale refresh (#462)`() = runTest {
+        loadFeed()
+
+        PostEvents.captionEdited("2", "newest", emptyList(), "2024-01-03T00:00:00Z")
+        PostEvents.captionEdited("2", "older", emptyList(), "2024-01-02T00:00:00Z")
+        advanceUntilIdle()
+        assertEquals("newest", postWithId("2").caption)
+
+        // A refresh fetched before both saves comes back with the pre-edit row.
+        whenever(api.getPostsInFeed("token123", 0))
+            .thenReturn(Response.success(listOf(otherPost, ownPost)))
+        viewModel.refreshFeed()
+        advanceUntilIdle()
+
+        assertEquals("newest", postWithId("2").caption)
+    }
+
+    @Test
     fun `a rejected caption edit leaves the row alone (#462)`() = runTest {
         loadFeed()
         whenever(api.editPost(eq("token123"), eq("2"), any()))

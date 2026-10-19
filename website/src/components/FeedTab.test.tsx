@@ -496,6 +496,42 @@ test('a refreshed row edited elsewhere replaces the locally saved caption (#462)
   )
 })
 
+test('overlapping caption saves answered newest-first keep the newest (#462)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'me', caption: 'mine' },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  const responders: Array<(value: { caption: string; edited_time: string; tags: string[] }) => void> = []
+  mockEditPost.mockImplementation(
+    () =>
+      new Promise(resolve => {
+        responders.push(resolve)
+      }),
+  )
+  const { container } = renderTab()
+
+  async function saveCaption(text: string) {
+    await userEvent.click(await screen.findByRole('button', { name: 'Options for post by me' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Edit' }))
+    const field = screen.getByLabelText('Caption text')
+    await userEvent.clear(field)
+    await userEvent.type(field, text)
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  }
+  await saveCaption('first try')
+  await saveCaption('second try')
+  expect(responders).toHaveLength(2)
+
+  // The newer save answers first, then the older one.
+  responders[1]({ caption: 'second try', edited_time: '2024-01-03T00:00:00.000Z', tags: [] })
+  await waitFor(() =>
+    expect(container.querySelector('.feed-post__caption')).toHaveTextContent('second try'),
+  )
+  responders[0]({ caption: 'first try', edited_time: '2024-01-02T00:00:00.000Z', tags: [] })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(container.querySelector('.feed-post__caption')).toHaveTextContent('second try')
+})
+
 test("the feed menu offers no Edit on someone else's post or your own pending one (#462)", async () => {
   mockGetFeed.mockResolvedValue([
     { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hers' },

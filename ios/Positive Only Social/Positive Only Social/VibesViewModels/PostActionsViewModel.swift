@@ -112,8 +112,9 @@ final class PostActionsViewModel: ObservableObject {
             .sink { [weak self] notification in
                 guard let postIdentifier = notification.object as? String,
                       let caption = notification.userInfo?["caption"] as? String else { return }
-                self?.captionOverrides[postIdentifier] = CaptionOverride(
-                    caption: caption, editedTime: notification.userInfo?["editedTime"] as? String)
+                self?.recordCaptionOverride(
+                    CaptionOverride(caption: caption, editedTime: notification.userInfo?["editedTime"] as? String),
+                    for: postIdentifier)
             }
     }
 
@@ -133,6 +134,18 @@ final class PostActionsViewModel: ObservableObject {
         )
         if let disabled = commentsDisabledOverrides[post.id] { state.commentsDisabled = disabled }
         return state
+    }
+
+    /// Records a saved caption unless the one already recorded is newer — an
+    /// older save response or notification can arrive after a newer one
+    /// (issue #462). Returns whether it was recorded.
+    @discardableResult
+    func recordCaptionOverride(_ override: CaptionOverride, for postIdentifier: String) -> Bool {
+        if SavedEdit.isNewer(saved: captionOverrides[postIdentifier]?.editedTime, fetched: override.editedTime) {
+            return false
+        }
+        captionOverrides[postIdentifier] = override
+        return true
     }
 
     /// The caption a row should show: the one saved this session, unless the
@@ -252,7 +265,10 @@ final class PostActionsViewModel: ObservableObject {
             do {
                 let data = try await api.editPost(sessionManagementToken: token, postIdentifier: post.id, caption: caption)
                 let saved = try JSONDecoder().decode(EditPostResponse.self, from: data)
-                captionOverrides[post.id] = CaptionOverride(caption: saved.caption, editedTime: saved.editedTime)
+                // An older save's response arriving after a newer one's is
+                // stale: neither recorded nor broadcast.
+                guard recordCaptionOverride(CaptionOverride(caption: saved.caption, editedTime: saved.editedTime),
+                                            for: post.id) else { return }
                 var userInfo: [String: Any] = ["caption": saved.caption, "tags": saved.tags]
                 userInfo["editedTime"] = saved.editedTime
                 notificationCenter.post(name: .postCaptionEdited, object: post.id, userInfo: userInfo)
