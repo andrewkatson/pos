@@ -9,7 +9,7 @@ import os
 from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
-from .. import views
+from .. import tasks, views
 from ..classifiers.classifier_constants import NEGATIVE_TEXT, POSITIVE_TEXT
 from ..classifiers.classifier_utils import ClassificationResult
 from ..constants import Fields, MAX_CAPTION_LENGTH, MAX_COMMENT_LENGTH, HIDDEN_REASON_CLASSIFIER, \
@@ -78,6 +78,26 @@ class EditPostTests(PositiveOnlySocialTestCase):
         self._edit(edited_text)
 
         self.assertIsNotNone(self.client.get(list_url, **self.valid_header).json()[0][Fields.edited_time])
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_edit_to_unmatched_text_drops_the_old_interest_buckets(self):
+        # In TESTING the categorizer keyword-matches bucket slugs.
+        Post.objects.filter(pk=self.post.pk).update(caption='nature')
+        tasks.categorize_post(self.post.post_identifier)
+        self.assertEqual(list(self.post.interest_categories.values_list('slug', flat=True)), ['nature'])
+
+        self.assertEqual(self._edit('just some ordinary words').status_code, 200)
+
+        self.assertEqual(self.post.interest_categories.count(), 0)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_edit_recategorizes_the_new_caption(self):
+        Post.objects.filter(pk=self.post.pk).update(caption='nature')
+        tasks.categorize_post(self.post.post_identifier)
+
+        self.assertEqual(self._edit('lovely music').status_code, 200)
+
+        self.assertEqual(list(self.post.interest_categories.values_list('slug', flat=True)), ['music'])
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_post_details_report_edited_time(self):

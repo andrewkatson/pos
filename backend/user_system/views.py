@@ -2370,7 +2370,13 @@ def edit_post(request, post_identifier):
         model_chain.apply_round(locked, [text_result], get_available_apis())
         locked.save(update_fields=['caption', 'edited_time', 'updated_time', *model_chain.CHAIN_FIELDS])
         set_post_tags(locked, caption)
-    # The interest buckets were drawn from the old caption (issues #446/#35).
+        # The interest buckets (issues #446/#35) were drawn from the old
+        # caption. Drop them now rather than wait for the re-run: categorize_post
+        # never clears buckets on an empty result, so a caption that no longer
+        # matches anything would otherwise keep the old ones — and their feed
+        # boost — for good. If the re-run fails, the post is simply
+        # uncategorized, which the categorize_posts backfill picks up.
+        locked.interest_categories.clear()
     tasks.enqueue_post_categorization(locked.post_identifier)
 
     logger.info(f"Post caption edited: post_id: {post_identifier} by user_id: {request.user.id}")

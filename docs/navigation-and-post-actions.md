@@ -210,7 +210,10 @@ comment's [model chain](post-classification.md) afresh, since the text is all
 there is to it; a caption edit folds its judge into the post's existing chain,
 which also covers the unchanged image. A caption edit also re-harvests the
 post's [hashtags](hashtags.md) and re-runs its
-[interest categorization](interest-tags.md).
+[interest categorization](interest-tags.md), dropping the old caption's buckets
+first so a caption that no longer matches anything doesn't keep them (if the
+re-run fails, the uncategorized post is picked up by the `categorize_posts`
+backfill).
 
 Only live content can be edited (`409` otherwise): not a post that is pending,
 rejected or hidden, not a hidden comment, and not a post or comment whose
