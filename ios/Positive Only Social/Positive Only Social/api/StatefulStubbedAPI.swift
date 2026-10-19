@@ -286,6 +286,9 @@ final class StatefulStubbedAPI: Networking {
 
     // MARK: - Configuration
     public var simulatedLatency: TimeInterval = 0.1
+    /// Extra latency for one thread's comments, keyed by thread id, so a test
+    /// can hold one thread of a post's load while others finish (issue #462).
+    public var extraCommentLatencyByThread: [String: TimeInterval] = [:]
     /// The stub's seam for content the creation-time classifier let through but
     /// the report-triggered re-review rejects (issue #467). A report count hides
     /// nothing at all, so this word in a caption or comment body is the only way
@@ -1936,6 +1939,9 @@ final class StatefulStubbedAPI: Networking {
 
     func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         await simulateNetwork()
+        if let extra = extraCommentLatencyByThread[commentThreadIdentifier] {
+            try? await Task.sleep(for: .seconds(extra))
+        }
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
         // A thread on a private account's post reads as missing to a
         // non-follower (issue #96).

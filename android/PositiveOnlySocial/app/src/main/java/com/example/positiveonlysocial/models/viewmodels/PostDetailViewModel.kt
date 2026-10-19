@@ -360,7 +360,7 @@ class PostDetailViewModel(
                                 authorProfileImageBlurHash = c.authorProfileImageBlurHash,
                                 isEdited = c.editedTime != null,
                                 editedTime = c.editedTime
-                            ).let { applySavedEdit(it) }
+                            )
                         }
 
                         CommentThreadViewData(threadId, commentViewDataList)
@@ -375,7 +375,13 @@ class PostDetailViewModel(
             // post's comments always read top-to-bottom in chronological order
             // (issue #293). Comments within each thread are already sorted oldest
             // first above.
-            _commentThreads.value = nonEmptyThreads.sortedBy { it.comments.firstOrNull()?.createdDate }
+            // Saved edits are laid over the fetched comments only now, at the
+            // moment of publishing: a thread that finished early was buffered
+            // while the others loaded, and an edit saved meanwhile (issue #462)
+            // must not be undone by that buffered copy.
+            _commentThreads.value = nonEmptyThreads
+                .map { thread -> thread.copy(comments = thread.comments.map { applySavedEdit(it) }) }
+                .sortedBy { it.comments.firstOrNull()?.createdDate }
 
         } catch (e: Exception) {
             Log.e(TAG, "Error loading post details", e)

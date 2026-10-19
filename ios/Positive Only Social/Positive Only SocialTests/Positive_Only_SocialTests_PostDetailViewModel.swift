@@ -877,6 +877,26 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(sut.applyingSavedEdit(to: later).body == "Edited elsewhere")
     }
 
+    @Test func testEditSavedWhileARefreshLoadsOtherThreads_SurvivesIt() async throws {
+        let account = "editDuringRefresh_account"
+        let (sut, postID, commentID) = try await setupOwnContentEnvironment(account: account)
+        let otherToken = try await registerUserAndGetToken(username: "otherCommenter")
+        let (slowThreadID, _) = try await commentOnPostAndGetIDs(token: otherToken, postID: postID, body: "Their comment")
+        await sut.refresh()
+        let comment = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+
+        // Refresh again with the other thread held: the user's own thread
+        // comes back (pre-edit) and is buffered while that one loads.
+        stubAPI.extraCommentLatencyByThread[slowThreadID] = 2
+        let refresh = Task { await sut.refresh() }
+        await yield(for: .seconds(0.5))
+        sut.editComment(comment, commentText: "Edited mid-refresh", formatting: nil)
+        await refresh.value
+
+        let after = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(after.body == "Edited mid-refresh")
+    }
+
     @Test func testSavedEditIsNewer_ComparesEditTimes() {
         #expect(SavedEdit.isNewer(saved: "2024-01-02T00:00:00Z", fetched: nil))
         #expect(SavedEdit.isNewer(saved: "2024-01-02T00:00:00Z", fetched: "2024-01-01T00:00:00Z"))

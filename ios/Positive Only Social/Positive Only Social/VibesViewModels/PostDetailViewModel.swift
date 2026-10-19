@@ -334,16 +334,21 @@ final class PostDetailViewModel: ObservableObject {
                     for try await commentList in group {
                         if !commentList.isEmpty {
                             // Sort comments by date (oldest first)
-                            let sortedComments = commentList
-                                .map { self.applyingSavedEdit(to: $0) }
-                                .sorted { $0.createdDate < $1.createdDate }
+                            let sortedComments = commentList.sorted { $0.createdDate < $1.createdDate }
                             loadedThreads.append(CommentThreadViewData(comments: sortedComments))
                         }
                     }
                 }
                 
+                // Saved edits are laid over the fetched comments only now, at
+                // the moment of publishing: a thread that finished early was
+                // buffered while the others loaded, and an edit saved meanwhile
+                // (issue #462) must not be undone by that buffered copy.
+                let reconciledThreads = loadedThreads.map { thread in
+                    CommentThreadViewData(comments: thread.comments.map { self.applyingSavedEdit(to: $0) })
+                }
                 // Sort threads by their first comment's date
-                self.commentThreads = loadedThreads.sorted {
+                self.commentThreads = reconciledThreads.sorted {
                     ($0.comments.first?.createdDate ?? Date()) < ($1.comments.first?.createdDate ?? Date())
                 }
                 

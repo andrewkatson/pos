@@ -1117,3 +1117,40 @@ test('a refresh carrying a later edit made elsewhere replaces the saved one (#46
   await userEvent.click(screen.getByRole('button', { name: 'Refresh comments' }))
   expect(await screen.findByText('starlight')).toBeInTheDocument()
 })
+
+test('an edit saved while a refresh is still loading other threads survives it (#462)', async () => {
+  localStorage.setItem('username', 'bob')
+  const other: Comment = { ...comment, comment_identifier: 'c2', body: 'so pretty', author_username: 'cy' }
+  mockGetThreadRefs.mockResolvedValue([
+    { comment_thread_identifier: 't1' },
+    { comment_thread_identifier: 't2' },
+  ])
+  mockGetThreadComments.mockImplementation(async threadId => (threadId === 't1' ? [comment] : [other]))
+  renderDetail()
+  await screen.findByText('so pretty')
+
+  // Refresh: thread t1 comes back at once (pre-edit), t2 is held.
+  let releaseT2: (value: Comment[]) => void = () => {}
+  mockGetThreadComments.mockImplementation(threadId =>
+    threadId === 't1'
+      ? Promise.resolve([comment])
+      : new Promise<Comment[]>(resolve => {
+          releaseT2 = resolve
+        }),
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh comments' }))
+  await waitFor(() => expect(mockGetThreadComments).toHaveBeenCalledWith('t2', 0, undefined))
+
+  // While t2 is pending, edit the t1 comment (still on screen from before).
+  await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
+  await userEvent.click(
+    within(screen.getByRole('menu', { name: 'Comment options' })).getByRole('menuitem', { name: 'Edit' }),
+  )
+  await userEvent.type(screen.getByLabelText('Comment text'), ' a lot')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(await screen.findByText('love this a lot')).toBeInTheDocument()
+
+  releaseT2([other])
+  await waitFor(() => expect(screen.getByRole('button', { name: /Refresh/ })).not.toBeDisabled())
+  expect(screen.getByText('love this a lot')).toBeInTheDocument()
+})

@@ -248,36 +248,24 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
     isLoadingRef.current = true
 
     const performLoad = async () => {
-      const toView = (fetched: Comment, threadId: string): CommentView => {
-        const saved = savedCommentEdits.current.get(fetched.comment_identifier)
-        const c =
-          saved && savedEditIsNewer(saved.editedTime, fetched.edited_time)
-            ? {
-                ...fetched,
-                body: saved.body,
-                body_formatting: saved.formatting,
-                edited_time: saved.editedTime,
-              }
-            : fetched
-        return {
-          id: c.comment_identifier,
-          threadId,
-          authorUsername: c.author_username,
-          authorAvatarUrl: c.author_profile_image_url ?? null,
-          authorAvatarOriginalUrl: c.author_profile_image_original_url ?? null,
-          authorAvatarBlurhash: c.author_profile_image_blurhash ?? null,
-          body: c.body,
-          formatting: c.body_formatting ?? null,
-          audience: c.audience ?? 'public',
-          createdTime: c.creation_time,
-          editedTime: c.edited_time ?? null,
-          likeCount: c.comment_likes,
-          isLiked: c.is_liked ?? likedCommentIds.current.has(c.comment_identifier),
-          isReported: c.is_reported ?? reportedCommentIds.current.has(c.comment_identifier),
-          reportReason: c.report_reason ?? reportedCommentReasons.current.get(c.comment_identifier) ?? null,
-          isOwn: c.author_username === currentUsername,
-        }
-      }
+      const toView = (c: Comment, threadId: string): CommentView => ({
+        id: c.comment_identifier,
+        threadId,
+        authorUsername: c.author_username,
+        authorAvatarUrl: c.author_profile_image_url ?? null,
+        authorAvatarOriginalUrl: c.author_profile_image_original_url ?? null,
+        authorAvatarBlurhash: c.author_profile_image_blurhash ?? null,
+        body: c.body,
+        formatting: c.body_formatting ?? null,
+        audience: c.audience ?? 'public',
+        createdTime: c.creation_time,
+        editedTime: c.edited_time ?? null,
+        likeCount: c.comment_likes,
+        isLiked: c.is_liked ?? likedCommentIds.current.has(c.comment_identifier),
+        isReported: c.is_reported ?? reportedCommentIds.current.has(c.comment_identifier),
+        reportReason: c.report_reason ?? reportedCommentReasons.current.get(c.comment_identifier) ?? null,
+        isOwn: c.author_username === currentUsername,
+      })
 
       // A failure to load the post itself is the only "not found" case. Comment
       // loading is handled separately so a transient comments error doesn't hide
@@ -377,7 +365,16 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
         built.sort((a, b) =>
           (a.comments[0]?.createdTime ?? '').localeCompare(b.comments[0]?.createdTime ?? ''),
         )
-        setThreads(built)
+        // Saved edits are laid over the fetched comments only now, at the
+        // moment of publishing: earlier batches were buffered while later ones
+        // loaded, and an edit saved meanwhile (issue #462) must not be undone
+        // by that buffered copy.
+        const withSavedEdit = (view: CommentView): CommentView => {
+          const saved = savedCommentEdits.current.get(view.id)
+          if (!saved || !savedEditIsNewer(saved.editedTime, view.editedTime)) return view
+          return { ...view, body: saved.body, formatting: saved.formatting, editedTime: saved.editedTime }
+        }
+        setThreads(built.map(thread => ({ ...thread, comments: thread.comments.map(withSavedEdit) })))
         // Clear any stale "failed to load comments" message from a prior attempt.
         setErrorMessage(null)
       } catch {

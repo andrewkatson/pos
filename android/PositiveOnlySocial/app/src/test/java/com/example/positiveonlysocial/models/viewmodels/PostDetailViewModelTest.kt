@@ -28,7 +28,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import kotlinx.coroutines.test.advanceUntilIdle
 import org.mockito.kotlin.any
+import org.mockito.kotlin.doSuspendableAnswer
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
@@ -477,5 +479,37 @@ class PostDetailViewModelTest {
         val reloaded = own.commentThreads.value.single().comments.single()
         assertEquals("edited", reloaded.body)
         assertTrue(reloaded.isEdited)
+    }
+
+    @Test
+    fun `an edit saved while a refresh is still loading other threads survives it`() = runTest {
+        val ownComment = CommentDto("c1", "my comment", "testuser", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z", 0)
+        val otherComment = CommentDto("c2", "theirs", "someone", "2024-01-01T01:00:00Z", "2024-01-01T01:00:00Z", 0)
+        whenever(api.getCommentsForPost("token123", postIdentifier, 0)).thenReturn(
+            Response.success(listOf(CommentThreadDto("t1"), CommentThreadDto("t2")))
+        )
+        whenever(api.getCommentsForThread("token123", "t1", 0, null)).thenReturn(Response.success(listOf(ownComment)))
+        whenever(api.getCommentsForThread("token123", "t2", 0, null)).thenReturn(Response.success(listOf(otherComment)))
+        val vm = PostDetailViewModel(postIdentifier, api, keychainHelper)
+        val comment = vm.commentThreads.value.flatMap { it.comments }.single { it.id == "c1" }
+
+        // Refresh: t1 comes back at once (pre-edit), t2 is held.
+        val releaseT2 = kotlinx.coroutines.CompletableDeferred<Unit>()
+        whenever(api.getCommentsForThread("token123", "t2", 0, null)).doSuspendableAnswer {
+            releaseT2.await()
+            Response.success(listOf(otherComment))
+        }
+        vm.refresh()
+        assertTrue(vm.isRefreshing.value)
+
+        whenever(api.editComment("token123", postIdentifier, "t1", "c1", EditCommentRequest("edited", null))).thenReturn(
+            Response.success(EditCommentResponse("edited", null, "2024-01-02T00:00:00Z"))
+        )
+        vm.editComment(comment, "edited", null)
+        releaseT2.complete(Unit)
+        advanceUntilIdle()
+
+        assertFalse(vm.isRefreshing.value)
+        assertEquals("edited", vm.commentThreads.value.flatMap { it.comments }.single { it.id == "c1" }.body)
     }
 }
