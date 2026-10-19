@@ -897,6 +897,38 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(after.body == "Edited mid-refresh")
     }
 
+    @Test func testSlowCaptionSaveAfterARefreshShowedALaterEdit_ChangesNothing() async throws {
+        let account = "slowCaptionSave_account"
+        let (sut, postID, _) = try await setupOwnContentEnvironment(account: account)
+        // Another device edits the caption; a refresh shows it.
+        let session = try #require(try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account))
+        _ = try await stubAPI.editPost(sessionManagementToken: session.sessionToken, postIdentifier: postID, caption: "Edited elsewhere")
+        await sut.refresh()
+        #expect(sut.postDetail?.caption == "Edited elsewhere")
+
+        // This device's earlier save's response arrives last.
+        sut.applySavedCaption(EditPostResponse(caption: "Saved here", editedTime: "2000-01-01T00:00:00Z", tags: []))
+
+        #expect(sut.postDetail?.caption == "Edited elsewhere")
+    }
+
+    @Test func testSlowCommentSaveAfterARefreshShowedALaterEdit_ChangesNothing() async throws {
+        let account = "slowCommentSave_account"
+        let (sut, postID, commentID) = try await setupOwnContentEnvironment(account: account)
+        let comment = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        let session = try #require(try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account))
+        _ = try await stubAPI.editComment(sessionManagementToken: session.sessionToken, postIdentifier: postID,
+                                          commentThreadIdentifier: comment.threadId, commentIdentifier: commentID,
+                                          commentText: "Edited elsewhere", formatting: nil)
+        await sut.refresh()
+
+        sut.applySavedComment(EditCommentResponse(body: "Saved here", bodyFormatting: nil, editedTime: "2000-01-01T00:00:00Z"),
+                              commentId: commentID, threadId: comment.threadId)
+
+        let shown = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(shown.body == "Edited elsewhere")
+    }
+
     @Test func testSavedEditIsNewer_ComparesEditTimes() {
         #expect(SavedEdit.isNewer(saved: "2024-01-02T00:00:00Z", fetched: nil))
         #expect(SavedEdit.isNewer(saved: "2024-01-02T00:00:00Z", fetched: "2024-01-01T00:00:00Z"))

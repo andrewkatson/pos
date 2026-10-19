@@ -512,4 +512,51 @@ class PostDetailViewModelTest {
         assertFalse(vm.isRefreshing.value)
         assertEquals("edited", vm.commentThreads.value.flatMap { it.comments }.single { it.id == "c1" }.body)
     }
+
+    @Test
+    fun `a slow caption save landing after a refresh showed a later edit changes nothing`() = runTest {
+        val own = ownPostViewModel()
+        val respond = kotlinx.coroutines.CompletableDeferred<Unit>()
+        whenever(api.editPost("token123", postIdentifier, EditPostRequest("new caption"))).doSuspendableAnswer {
+            respond.await()
+            Response.success(EditPostResponse("new caption", "2024-01-02T00:00:00Z", emptyList()))
+        }
+        own.editCaption("new caption")
+
+        // Before the save's response arrives, a refresh shows a later edit.
+        whenever(api.getPostDetails("token123", postIdentifier)).thenReturn(
+            Response.success(Post(postIdentifier, "url", "edited elsewhere", "testuser", 1, editedTime = "2024-01-03T00:00:00Z"))
+        )
+        own.refresh()
+        assertEquals("edited elsewhere", own.postDetail.value?.caption)
+
+        respond.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("edited elsewhere", own.postDetail.value?.caption)
+    }
+
+    @Test
+    fun `a slow comment save landing after a refresh showed a later edit changes nothing`() = runTest {
+        val own = ownPostViewModel()
+        val comment = own.commentThreads.value.single().comments.single()
+        val respond = kotlinx.coroutines.CompletableDeferred<Unit>()
+        whenever(api.editComment("token123", postIdentifier, "t1", "c1", EditCommentRequest("edited", null))).doSuspendableAnswer {
+            respond.await()
+            Response.success(EditCommentResponse("edited", null, "2024-01-02T00:00:00Z"))
+        }
+        own.editComment(comment, "edited", null)
+
+        whenever(api.getCommentsForThread("token123", "t1", 0, null)).thenReturn(Response.success(listOf(
+            CommentDto("c1", "edited elsewhere", "testuser", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z", 0,
+                editedTime = "2024-01-03T00:00:00Z")
+        )))
+        own.refresh()
+        assertEquals("edited elsewhere", own.commentThreads.value.single().comments.single().body)
+
+        respond.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("edited elsewhere", own.commentThreads.value.single().comments.single().body)
+    }
 }

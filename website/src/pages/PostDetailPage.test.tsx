@@ -1154,3 +1154,77 @@ test('an edit saved while a refresh is still loading other threads survives it (
   await waitFor(() => expect(screen.getByRole('button', { name: /Refresh/ })).not.toBeDisabled())
   expect(screen.getByText('love this a lot')).toBeInTheDocument()
 })
+
+test('a slow caption save landing after a refresh showed a later edit changes nothing (#462)', async () => {
+  localStorage.setItem('username', 'ada')
+  let respond: (value: { caption: string; edited_time: string; tags: string[] }) => void = () => {}
+  mockEditPost.mockImplementation(
+    () =>
+      new Promise(resolve => {
+        respond = resolve
+      }),
+  )
+  renderDetail()
+  await screen.findByText('sunshine')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Post options' }))
+  await userEvent.click(
+    within(screen.getByRole('menu', { name: 'Post options' })).getByRole('menuitem', { name: 'Edit' }),
+  )
+  const field = screen.getByLabelText('Caption text')
+  await userEvent.clear(field)
+  await userEvent.type(field, 'moonlight')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+  // Before the save's response arrives, a refresh shows a later edit.
+  mockGetDetails.mockResolvedValue({
+    ...post,
+    caption: 'starlight',
+    edited_time: '2024-01-03T00:00:00.000Z',
+  })
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh comments' }))
+  expect(await screen.findByText('starlight')).toBeInTheDocument()
+
+  respond({ caption: 'moonlight', edited_time: '2024-01-02T00:00:00.000Z', tags: [] })
+  await waitFor(() => expect(mockEditPost).toHaveBeenCalled())
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(screen.getByText('starlight')).toBeInTheDocument()
+  expect(screen.queryByText('moonlight')).not.toBeInTheDocument()
+})
+
+test('a slow comment save landing after a refresh showed a later edit changes nothing (#462)', async () => {
+  localStorage.setItem('username', 'bob')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  let respond: (value: {
+    body: string
+    body_formatting: null
+    edited_time: string
+  }) => void = () => {}
+  mockEditComment.mockImplementation(
+    () =>
+      new Promise(resolve => {
+        respond = resolve
+      }),
+  )
+  renderDetail()
+  await screen.findByText('love this')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
+  await userEvent.click(
+    within(screen.getByRole('menu', { name: 'Comment options' })).getByRole('menuitem', { name: 'Edit' }),
+  )
+  await userEvent.type(screen.getByLabelText('Comment text'), ' a lot')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+  mockGetThreadComments.mockResolvedValue([
+    { ...comment, body: 'edited elsewhere', edited_time: '2024-01-03T00:00:00.000Z' },
+  ])
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh comments' }))
+  expect(await screen.findByText('edited elsewhere')).toBeInTheDocument()
+
+  respond({ body: 'love this a lot', body_formatting: null, edited_time: '2024-01-02T00:00:00.000Z' })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(screen.getByText('edited elsewhere')).toBeInTheDocument()
+  expect(screen.queryByText('love this a lot')).not.toBeInTheDocument()
+})

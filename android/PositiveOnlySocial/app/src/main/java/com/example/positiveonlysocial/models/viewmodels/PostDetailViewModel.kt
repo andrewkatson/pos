@@ -793,6 +793,13 @@ class PostDetailViewModel(
                 val response = api.editPost(userSession.sessionToken, postIdentifier, EditPostRequest(caption))
                 val saved = response.body()
                 if (response.isSuccessful && saved != null) {
+                    // A slow response can arrive after a refresh already showed
+                    // a later edit (made on another device, or a newer save from
+                    // here): then it is stale and changes nothing — not the
+                    // screen, the saved-edit cache, or the lists.
+                    if (savedEditIsNewer(savedCaptionEdit?.editedTime, saved.editedTime) ||
+                        savedEditIsNewer(_postDetail.value?.editedTime, saved.editedTime)
+                    ) return@launch
                     savedCaptionEdit = saved
                     _postDetail.value = _postDetail.value?.copy(
                         caption = saved.caption,
@@ -831,6 +838,12 @@ class PostDetailViewModel(
                 )
                 val saved = response.body()
                 if (response.isSuccessful && saved != null) {
+                    // As for captions — compared against the comment as it is
+                    // shown now, not as it was when the edit began.
+                    val shown = _commentThreads.value.flatMap { it.comments }.firstOrNull { it.id == comment.id }
+                    if (savedEditIsNewer(savedCommentEdits[comment.id]?.editedTime, saved.editedTime) ||
+                        savedEditIsNewer(shown?.editedTime, saved.editedTime)
+                    ) return@launch
                     savedCommentEdits[comment.id] = saved
                     _commentThreads.value = _commentThreads.value.map { thread ->
                         if (thread.id != comment.threadId) thread

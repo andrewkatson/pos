@@ -530,15 +530,19 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
     try {
       if (target.type === 'editCaption') {
         const saved = await apiClient.editPost(postId, text)
+        // A slow response can arrive after a refresh already showed a later
+        // edit (made on another device, or a newer save from here): then it is
+        // stale and changes nothing.
+        if (savedEditIsNewer(savedCaptionEdit.current?.editedTime, saved.edited_time)) return
         savedCaptionEdit.current = {
           caption: saved.caption,
           tags: saved.tags,
           editedTime: saved.edited_time,
         }
         setPost(prev =>
-          prev
-            ? { ...prev, caption: saved.caption, edited_time: saved.edited_time, tags: saved.tags }
-            : prev,
+          !prev || savedEditIsNewer(prev.edited_time, saved.edited_time)
+            ? prev
+            : { ...prev, caption: saved.caption, edited_time: saved.edited_time, tags: saved.tags },
         )
       } else {
         const { comment } = target
@@ -549,17 +553,26 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
           text,
           formatting,
         )
+        // As for captions: a response older than what is already shown (or
+        // saved) is stale. Compared against the comment as it is now, not as
+        // it was when the edit began.
+        const cached = savedCommentEdits.current.get(comment.id)
+        if (savedEditIsNewer(cached?.editedTime, saved.edited_time)) return
         savedCommentEdits.current.set(comment.id, {
           body: saved.body,
           formatting: saved.body_formatting ?? null,
           editedTime: saved.edited_time,
         })
-        mutateComment(comment.id, c => ({
-          ...c,
-          body: saved.body,
-          formatting: saved.body_formatting ?? null,
-          editedTime: saved.edited_time,
-        }))
+        mutateComment(comment.id, c =>
+          savedEditIsNewer(c.editedTime, saved.edited_time)
+            ? c
+            : {
+                ...c,
+                body: saved.body,
+                formatting: saved.body_formatting ?? null,
+                editedTime: saved.edited_time,
+              },
+        )
       }
     } catch (err) {
       const what = target.type === 'editCaption' ? 'caption' : 'comment'

@@ -157,6 +157,7 @@ final class PostDetailViewModel: ObservableObject {
         var reconciled = post
         reconciled.caption = saved.caption
         reconciled.isEdited = true
+        reconciled.editedTime = saved.editedTime
         return reconciled
     }
 
@@ -254,7 +255,8 @@ final class PostDetailViewModel: ObservableObject {
                     audience: postFields.audience,
                     commentsDisabled: postFields.comments_disabled ?? false,
                     isEdited: postFields.edited_time != nil,
-                    isHidden: postFields.hidden ?? false
+                    isHidden: postFields.hidden ?? false,
+                    editedTime: postFields.edited_time
                 ), fetchedEditedTime: postFields.edited_time)
                 // Server truth for the reported flag, so it survives reloads.
                 self.isPostReported = postFields.is_reported ?? false
@@ -394,7 +396,8 @@ final class PostDetailViewModel: ObservableObject {
                 audience: post.audience,
                 commentsDisabled: post.commentsDisabled,
                 isEdited: post.isEdited,
-                isHidden: post.isHidden
+                isHidden: post.isHidden,
+                editedTime: post.editedTime
             )
             self.postDetail = post
         }
@@ -440,7 +443,8 @@ final class PostDetailViewModel: ObservableObject {
                 audience: post.audience,
                 commentsDisabled: post.commentsDisabled,
                 isEdited: post.isEdited,
-                isHidden: post.isHidden
+                isHidden: post.isHidden,
+                editedTime: post.editedTime
             )
             self.postDetail = post
         }
@@ -887,21 +891,49 @@ final class PostDetailViewModel: ObservableObject {
                 }
                 let data = try await self.api.editPost(sessionManagementToken: userSession.sessionToken, postIdentifier: self.postIdentifier, caption: caption)
                 let saved = try self.decodeSingle(from: data, type: EditPostResponse.self)
-                self.savedCaptionEdit = saved
-                if var post = self.postDetail {
-                    post.caption = saved.caption
-                    post.isEdited = saved.editedTime != nil
-                    self.postDetail = post
-                }
-                // Lists that already show this post pick up the new caption.
-                var userInfo: [String: Any] = ["caption": saved.caption, "tags": saved.tags]
-                userInfo["editedTime"] = saved.editedTime
-                NotificationCenter.default.post(name: .postCaptionEdited, object: self.postIdentifier, userInfo: userInfo)
+                self.applySavedCaption(saved)
             } catch {
                 NSLog("%@", "Failed to edit caption: \(error)")
                 self.alertMessage = "Failed to edit caption: \(error.userFacingMessage)"
             }
         }
+    }
+
+    /// Shows a caption the server saved, unless the response is stale: a slow
+    /// one can arrive after a refresh already showed a later edit (made on
+    /// another device, or a newer save from here), and then it changes nothing
+    /// — not the screen, the saved-edit cache, or the lists.
+    func applySavedCaption(_ saved: EditPostResponse) {
+        if SavedEdit.isNewer(saved: savedCaptionEdit?.editedTime, fetched: saved.editedTime)
+            || SavedEdit.isNewer(saved: postDetail?.editedTime, fetched: saved.editedTime) {
+            return
+        }
+        savedCaptionEdit = saved
+        if var post = postDetail {
+            post.caption = saved.caption
+            post.isEdited = saved.editedTime != nil
+            post.editedTime = saved.editedTime
+            postDetail = post
+        }
+        // Lists that already show this post pick up the new caption.
+        var userInfo: [String: Any] = ["caption": saved.caption, "tags": saved.tags]
+        userInfo["editedTime"] = saved.editedTime
+        NotificationCenter.default.post(name: .postCaptionEdited, object: postIdentifier, userInfo: userInfo)
+    }
+
+    /// The comment counterpart of `applySavedCaption`, compared against the
+    /// comment as it is shown now rather than as it was when the edit began.
+    func applySavedComment(_ saved: EditCommentResponse, commentId: String, threadId: String) {
+        guard !SavedEdit.isNewer(saved: savedCommentEdits[commentId]?.editedTime, fetched: saved.editedTime),
+              let threadIndex = commentThreads.firstIndex(where: { $0.id == threadId }),
+              let commentIndex = commentThreads[threadIndex].comments.firstIndex(where: { $0.id == commentId }),
+              !SavedEdit.isNewer(saved: commentThreads[threadIndex].comments[commentIndex].editedTime,
+                                 fetched: saved.editedTime) else { return }
+        savedCommentEdits[commentId] = saved
+        commentThreads[threadIndex].comments[commentIndex].body = saved.body
+        commentThreads[threadIndex].comments[commentIndex].formatting = saved.bodyFormatting
+        commentThreads[threadIndex].comments[commentIndex].isEdited = saved.editedTime != nil
+        commentThreads[threadIndex].comments[commentIndex].editedTime = saved.editedTime
     }
 
     /// Saves an edit to one of the user's own comments, with the same
@@ -925,13 +957,7 @@ final class PostDetailViewModel: ObservableObject {
                     formatting: formatting
                 )
                 let saved = try self.decodeSingle(from: data, type: EditCommentResponse.self)
-                self.savedCommentEdits[comment.id] = saved
-                guard let threadIndex = self.commentThreads.firstIndex(where: { $0.id == comment.threadId }),
-                      let commentIndex = self.commentThreads[threadIndex].comments.firstIndex(where: { $0.id == comment.id }) else { return }
-                self.commentThreads[threadIndex].comments[commentIndex].body = saved.body
-                self.commentThreads[threadIndex].comments[commentIndex].formatting = saved.bodyFormatting
-                self.commentThreads[threadIndex].comments[commentIndex].isEdited = saved.editedTime != nil
-                self.commentThreads[threadIndex].comments[commentIndex].editedTime = saved.editedTime
+                self.applySavedComment(saved, commentId: comment.id, threadId: comment.threadId)
             } catch {
                 NSLog("%@", "Failed to edit comment: \(error)")
                 self.alertMessage = "Failed to edit comment: \(error.userFacingMessage)"

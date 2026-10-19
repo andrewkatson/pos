@@ -978,6 +978,9 @@ struct PostDisplayData: Identifiable, Equatable {
     /// moderator. Only ever true on the viewer's own post (nobody else is shown
     /// a hidden one), and such a post can't be edited (issue #462).
     var isHidden: Bool = false
+    /// When the caption was last edited, as the server sent it (issue #462) —
+    /// what a slow save response is compared against before it may replace it.
+    var editedTime: String? = nil
 }
 
 // A struct representing a single comment, for use in the view
