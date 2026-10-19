@@ -72,6 +72,24 @@ def _get_or_create_review(post, comment):
         return ModerationReview.objects.get(post=post, comment=comment), False
 
 
+def lock_reviewed_content(post=None, comment=None):
+    """Row-lock the post or comment a review is (or would be) about.
+
+    The shared locking protocol for review transitions and caption/comment
+    edits (issue #462): whoever opens, escalates or resolves a review, and an
+    edit's final check-and-write, first locks the CONTENT row and only then
+    touches the review row — always in that order, so they serialize without
+    deadlocking. The content row rather than the review row, because opening a
+    review inserts one: there is no review row to lock yet. An edit holding the
+    lock therefore sees every review state it is checking for, and no review
+    can open or change state until the edit has committed (or vice versa).
+    Call inside transaction.atomic(). Returns the locked row, or None if it is
+    gone.
+    """
+    target = post if post is not None else comment
+    return type(target).objects.select_for_update().filter(pk=target.pk).first()
+
+
 def record_report(post=None, comment=None):
     """Advance the moderation review for freshly reported content.
 
@@ -80,26 +98,31 @@ def record_report(post=None, comment=None):
     pending or already escalated they do nothing at all, once a moderator has
     decided (hidden or dismissed) they do nothing forever, and on content the
     automated re-review cleared they only count toward escalating it to a human.
+
+    The transition happens under the content row lock (lock_reviewed_content),
+    so it cannot interleave with an edit's final check and write. The re-review
+    is queued only after that lock is released.
     """
-    review, created = _get_or_create_review(post, comment)
-    if created:
-        logger.info("record_report: opened review %s for %s; queuing automated re-review.",
-                    review.review_identifier, review.target_kind)
-        tasks.enqueue_report_review(review.review_identifier)
-        return review
+    with transaction.atomic():
+        lock_reviewed_content(post, comment)
+        review, created = _get_or_create_review(post, comment)
+        if not created:
+            if review.status != REVIEW_STATUS_CLEARED:
+                # Pending (already queued), escalated (a human is on it), or
+                # terminal (decided — piling on is exactly what must not work).
+                logger.info("record_report: review %s is %s; the report changes nothing.",
+                            review.review_identifier, review.status)
+                return review
+            if review.reports_since_last_review() >= REPORTS_AFTER_CLEAR_BEFORE_ESCALATION:
+                review.status = REVIEW_STATUS_ESCALATED
+                review.save(update_fields=['status', 'updated'])
+                logger.info("record_report: review %s escalated to a moderator after %d further reports.",
+                            review.review_identifier, review.reports_since_last_review())
+            return review
 
-    if review.status != REVIEW_STATUS_CLEARED:
-        # Pending (already queued), escalated (a human is on it), or terminal
-        # (decided — piling on is exactly what must not work).
-        logger.info("record_report: review %s is %s; the report changes nothing.",
-                    review.review_identifier, review.status)
-        return review
-
-    if review.reports_since_last_review() >= REPORTS_AFTER_CLEAR_BEFORE_ESCALATION:
-        review.status = REVIEW_STATUS_ESCALATED
-        review.save(update_fields=['status', 'updated'])
-        logger.info("record_report: review %s escalated to a moderator after %d further reports.",
-                    review.review_identifier, review.reports_since_last_review())
+    logger.info("record_report: opened review %s for %s; queuing automated re-review.",
+                review.review_identifier, review.target_kind)
+    tasks.enqueue_report_review(review.review_identifier)
     return review
 
 
@@ -112,15 +135,18 @@ def withdraw_report(post=None, comment=None):
     moderator a pointless queue entry: an escalation whose reports have all been
     withdrawn has nothing left to look at, so it drops back to cleared.
     """
-    review = ModerationReview.objects.filter(post=post, comment=comment).first()
-    if review is None or review.status != REVIEW_STATUS_ESCALATED:
-        return review
-    if review.report_count() == 0:
-        review.status = REVIEW_STATUS_CLEARED
-        review.reports_at_last_review = 0
-        review.save(update_fields=['status', 'reports_at_last_review', 'updated'])
-        logger.info("withdraw_report: review %s de-escalated; every report was retracted.",
-                    review.review_identifier)
+    with transaction.atomic():
+        # Same lock order as record_report (content, then review).
+        lock_reviewed_content(post, comment)
+        review = ModerationReview.objects.filter(post=post, comment=comment).first()
+        if review is None or review.status != REVIEW_STATUS_ESCALATED:
+            return review
+        if review.report_count() == 0:
+            review.status = REVIEW_STATUS_CLEARED
+            review.reports_at_last_review = 0
+            review.save(update_fields=['status', 'reports_at_last_review', 'updated'])
+            logger.info("withdraw_report: review %s de-escalated; every report was retracted.",
+                        review.review_identifier)
     return review
 
 

@@ -223,7 +223,13 @@ inherit that. A comment's formatting-only change keeps the reviewed text and is
 still allowed, and the review row is left untouched for the audit trail. These
 checks, and whether a commenter can still see the post, are repeated under a row
 lock after classification, so content hidden, reported or decided while its edit
-was being judged is not overwritten. A comment on
+was being judged is not overwritten. That lock is the content row, and every
+review transition — opening on a first report, escalating, de-escalating on a
+retraction, and the automated re-review's verdict — takes the same content row
+lock before touching the review row, so an edit's final check-and-write and a
+review change serialize rather than interleave. Likewise a caption's interest
+categorization only writes its buckets if the caption it read is still the
+post's caption, so a run overtaken by an edit discards its stale result. A comment on
 a post whose author has [turned commenting off](#disabling--locking-comments-issue-492)
 is frozen as it stands (`403`), and clients hide Edit there; a comment on a post
 its author can no longer see is answered like a missing one.
@@ -237,4 +243,5 @@ distinct from `updated_time`, which every save bumps.
 
 A list that shows a caption saved from its own menu keeps showing it until a
 reloaded row carries an `edited_time` at least as new — so a refresh after an
-edit made on another device shows that edit, not the stale local one.
+edit made on another device shows that edit, not the stale local one, while a
+refresh fetched before the save that lands after it does not undo the edit.

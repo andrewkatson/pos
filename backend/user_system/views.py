@@ -2354,7 +2354,10 @@ def edit_post(request, post_identifier):
 
     with transaction.atomic():
         # The post may have been hidden (a report review, a moderator),
-        # reported, or deleted while the classifier ran.
+        # reported, or deleted while the classifier ran. Every review
+        # transition takes this same content row lock before touching the
+        # review (moderation.lock_reviewed_content), so the checks below and
+        # the write cannot interleave with a review opening or escalating.
         locked = Post.objects.select_for_update().filter(pk=post.pk, hidden=False).first()
         if locked is None or _under_open_review(locked) or _review_decided(locked):
             return log_and_return_json("edit_post", {'error': "This post can't be edited right now"}, status=409)
@@ -3872,6 +3875,9 @@ def edit_comment(request, post_identifier, comment_thread_identifier, comment_id
         current_post = Post.objects.select_related('author').filter(pk=post.pk).first()
         if current_post is None or not can_view_post(current_post, request.user):
             return log_and_return_json("edit_comment", {'error': "Comment not found"}, status=400)
+        # The content row lock every review transition also takes first
+        # (moderation.lock_reviewed_content): held from these checks through
+        # the write, no review can open or escalate in between.
         locked = Comment.objects.select_for_update().filter(pk=comment.pk, hidden=False).first()
         if (locked is None or _under_open_review(locked)
                 or (text_result is not None and _review_decided(locked))

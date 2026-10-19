@@ -49,16 +49,25 @@ object PostEvents {
     }
 
     // A caption edit (issue #462), saved from the detail screen or a list row,
-    // has to reach every list already showing that post. Carries the post id,
-    // the saved caption, and its re-parsed hashtags.
-    private val _captionEdits = MutableSharedFlow<Triple<String, String, List<String>>>(
+    // has to reach every list already showing that post.
+    private val _captionEdits = MutableSharedFlow<CaptionEdit>(
         extraBufferCapacity = 16,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
-    val captionEdits: SharedFlow<Triple<String, String, List<String>>> = _captionEdits.asSharedFlow()
+    val captionEdits: SharedFlow<CaptionEdit> = _captionEdits.asSharedFlow()
 
     /** Announce that [postIdentifier]'s caption was edited to [caption]. */
-    fun captionEdited(postIdentifier: String, caption: String, tags: List<String>) {
-        _captionEdits.tryEmit(Triple(postIdentifier, caption, tags))
+    fun captionEdited(postIdentifier: String, caption: String, tags: List<String>, editedTime: String?) {
+        _captionEdits.tryEmit(CaptionEdit(postIdentifier, caption, tags, editedTime))
     }
 }
+
+/** A saved caption edit: the caption, its re-parsed hashtags, and the edit
+ * time the server stamped on it — what lets a list tell a refreshed row that
+ * is older than the edit from one that is newer. */
+data class CaptionEdit(
+    val postIdentifier: String,
+    val caption: String,
+    val tags: List<String>,
+    val editedTime: String?
+)

@@ -72,6 +72,25 @@ class CategorizePostTaskTests(TestCase):
         tasks.categorize_post(post.post_identifier)
         self.assertEqual(self._slugs(post), ['nature'])
 
+    def test_a_run_overtaken_by_a_caption_edit_discards_its_buckets(self):
+        # Issue #462: the caption is edited while this (older) run is still
+        # consulting the categorizer. The edit queued its own run; this one's
+        # buckets describe the old caption and must not overwrite that.
+        post = self._post("nature")
+        real = tasks.interest_classifier_class.categorize_text_interests
+
+        def categorize_then_edit(caption):
+            Post.objects.filter(pk=post.pk).update(caption="music")
+            return real(caption)
+
+        with patch.object(tasks.interest_classifier_class, 'categorize_text_interests',
+                          side_effect=categorize_then_edit):
+            tasks.categorize_post(post.post_identifier)
+        self.assertEqual(self._slugs(post), [])
+
+        tasks.categorize_post(post.post_identifier)
+        self.assertEqual(self._slugs(post), ['music'])
+
     def test_provider_outage_does_not_clear_existing_buckets(self):
         # The categorizer returns [] both when nothing matches and when it could
         # not run (no provider, provider down). A redelivered job during an

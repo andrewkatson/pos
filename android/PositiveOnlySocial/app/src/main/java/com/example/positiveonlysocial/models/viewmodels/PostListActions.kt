@@ -8,7 +8,9 @@ import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.ReportRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.util.CaptionEdit
 import com.example.positiveonlysocial.util.PostEvents
+import com.example.positiveonlysocial.util.parseBackendDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -100,10 +102,43 @@ class PostListActions(
         // And show a caption edited anywhere — this list included — in place
         // (issue #462), without refetching and reshuffling the list.
         scope.launch {
-            PostEvents.captionEdits.collect { (postId, caption, tags) ->
-                updatePost(postId) { it.copy(caption = caption, tags = tags) }
+            PostEvents.captionEdits.collect { edit ->
+                captionEdits[edit.postIdentifier] = edit
+                reconcileCaptionEdits()
             }
         }
+        // A refresh whose request went out before an edit was saved can land
+        // after it and replace the list with the old caption. Re-apply saved
+        // edits to any row older than them whenever the list changes; a row at
+        // least as new (a later edit made elsewhere, or a reload that already
+        // carries this one) wins.
+        scope.launch {
+            posts.collect { reconcileCaptionEdits() }
+        }
+    }
+
+    // Caption edits saved this session, keyed by post id (issue #462).
+    private val captionEdits = mutableMapOf<String, CaptionEdit>()
+
+    private fun reconcileCaptionEdits() {
+        val current = posts.value
+        val reconciled = current.map { post ->
+            val edit = captionEdits[post.postIdentifier]
+            if (edit != null && editIsNewer(edit, post) &&
+                (post.caption != edit.caption || post.editedTime != edit.editedTime)
+            ) {
+                post.copy(caption = edit.caption, tags = edit.tags, editedTime = edit.editedTime)
+            } else {
+                post
+            }
+        }
+        if (reconciled != current) posts.value = reconciled
+    }
+
+    private fun editIsNewer(edit: CaptionEdit, row: Post): Boolean {
+        val editTime = edit.editedTime?.let { parseBackendDate(it) } ?: return false
+        val rowTime = row.editedTime?.let { parseBackendDate(it) } ?: return true
+        return rowTime.before(editTime)
     }
 
     /** Edit is offered on your own post once it's live — a pending, rejected or
@@ -153,7 +188,7 @@ class PostListActions(
                 val response = api.editPost(token, post.postIdentifier, EditPostRequest(caption))
                 val saved = response.body()
                 if (response.isSuccessful && saved != null) {
-                    PostEvents.captionEdited(post.postIdentifier, saved.caption, saved.tags.orEmpty())
+                    PostEvents.captionEdited(post.postIdentifier, saved.caption, saved.tags.orEmpty(), saved.editedTime)
                 } else {
                     _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to edit the caption. Please try again.")
                 }

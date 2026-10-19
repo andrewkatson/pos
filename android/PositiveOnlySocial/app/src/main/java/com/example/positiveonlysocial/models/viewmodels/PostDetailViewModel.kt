@@ -768,7 +768,7 @@ class PostDetailViewModel(
                         editedTime = saved.editedTime
                     )
                     // Lists already showing this post pick up the new caption.
-                    PostEvents.captionEdited(postIdentifier, saved.caption, saved.tags.orEmpty())
+                    PostEvents.captionEdited(postIdentifier, saved.caption, saved.tags.orEmpty(), saved.editedTime)
                 } else {
                     _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to edit the caption. Please try again.")
                 }

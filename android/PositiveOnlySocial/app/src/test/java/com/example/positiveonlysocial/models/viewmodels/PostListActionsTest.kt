@@ -370,6 +370,40 @@ class PostListActionsTest {
     }
 
     @Test
+    fun `a stale refresh landing after the save keeps the saved caption (#462)`() = runTest {
+        loadFeed()
+        whenever(api.editPost("token123", "2", EditPostRequest("still mine")))
+            .thenReturn(Response.success(EditPostResponse("still mine", "2024-01-02T00:00:00Z", emptyList())))
+        actions.editCaption(ownPost, "still mine")
+        advanceUntilIdle()
+
+        // A refresh fetched before the save comes back afterwards, pre-edit.
+        whenever(api.getPostsInFeed("token123", 0))
+            .thenReturn(Response.success(listOf(otherPost, ownPost)))
+        viewModel.refreshFeed()
+        advanceUntilIdle()
+
+        assertEquals("still mine", postWithId("2").caption)
+    }
+
+    @Test
+    fun `a refreshed row edited later elsewhere replaces the saved caption (#462)`() = runTest {
+        loadFeed()
+        whenever(api.editPost("token123", "2", EditPostRequest("still mine")))
+            .thenReturn(Response.success(EditPostResponse("still mine", "2024-01-02T00:00:00Z", emptyList())))
+        actions.editCaption(ownPost, "still mine")
+        advanceUntilIdle()
+
+        whenever(api.getPostsInFeed("token123", 0)).thenReturn(Response.success(listOf(
+            otherPost, ownPost.copy(caption = "edited on the web", editedTime = "2024-01-03T00:00:00Z")
+        )))
+        viewModel.refreshFeed()
+        advanceUntilIdle()
+
+        assertEquals("edited on the web", postWithId("2").caption)
+    }
+
+    @Test
     fun `a rejected caption edit leaves the row alone (#462)`() = runTest {
         loadFeed()
         whenever(api.editPost(eq("token123"), eq("2"), any()))
@@ -393,7 +427,7 @@ class PostListActionsTest {
     fun `a caption edited on the detail screen reaches the list (#462)`() = runTest {
         loadFeed()
 
-        PostEvents.captionEdited("2", "edited elsewhere", emptyList())
+        PostEvents.captionEdited("2", "edited elsewhere", emptyList(), "2024-01-02T00:00:00Z")
         advanceUntilIdle()
 
         assertEquals("edited elsewhere", postWithId("2").caption)
