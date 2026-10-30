@@ -4,6 +4,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -56,8 +58,16 @@ fun HomeScreen(
 
         val searchedUsers by viewModel.searchedUsers.collectAsState()
         val searchText by viewModel.searchText.collectAsState()
+        val isSearching by viewModel.isSearching.collectAsState()
         val currentUsername by viewModel.currentUsername.collectAsState()
 
+        val hasMoreResults by viewModel.hasMoreResults.collectAsState()
+        val allSearchResults by viewModel.allSearchResults.collectAsState()
+        val isLoadingAllResults by viewModel.isLoadingAllResults.collectAsState()
+
+        val errorMessage by viewModel.errorMessage.collectAsState()
+
+        var showAllResultsDialog by remember { mutableStateOf(false) }
         val focusManager = LocalFocusManager.current
 
         Column(modifier = Modifier.fillMaxSize().dismissKeyboardOnTap()) {
@@ -75,13 +85,56 @@ fun HomeScreen(
                 keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
             )
 
-            if (searchText.isNotEmpty()) {
+            if (searchText.trim().isNotEmpty()) {
                 // Search Results
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(1),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    when {
+                        searchText.trim().length < 3 -> {
+                            item {
+                                Text(
+                                    text = "Enter at least 3 characters",
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp)
+                                        .testTag("SearchStatus")
+                                )
+                            }
+                        }
+
+                        isSearching -> {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp),
+                                    contentAlignment = androidx.compose.ui.Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.testTag("SearchLoading")
+                                    )
+                                }
+                            }
+                        }
+
+                        searchedUsers.isEmpty() -> {
+                            item {
+                                Text(
+                                    text = "No users found",
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp)
+                                        .testTag("SearchStatus")
+                                )
+                            }
+                        }
+}
+                    if (searchText.trim().length >= 3 && !isSearching) {
                     items(searchedUsers) { user ->
                         Card(
                             modifier = Modifier
@@ -130,6 +183,27 @@ fun HomeScreen(
                             }
                         }
                     }
+                    if (hasMoreResults) {
+                        item {
+                            Button(
+                                onClick = {
+                                    showAllResultsDialog = true
+                                    viewModel.loadAllSearchResults()
+                                },
+                                enabled = !isLoadingAllResults,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    if (isLoadingAllResults) {
+                                        "Loading..."
+                                    } else {
+                                        "View all results"
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    }
                 }
             } else {
                 // The signed-in user's own profile.
@@ -167,6 +241,105 @@ fun HomeScreen(
                     }
                 }
             }
+        }
+        if (errorMessage != null) {
+    AlertDialog(
+        onDismissRequest = {
+            showAllResultsDialog = false
+            viewModel.clearError()
+        },
+        title = { Text("Search error") },
+        text = {
+            Text(errorMessage ?: "Something went wrong. Please try again.")
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    showAllResultsDialog = false
+                    viewModel.clearError() }) {
+                Text("OK")
+            }
+        }
+    )
+}
+        if (showAllResultsDialog && errorMessage == null) {
+            AlertDialog(
+                onDismissRequest = {
+                    showAllResultsDialog = false
+                },
+                title = {
+                    Text("Search results")
+                },
+                text = {
+                    if (isLoadingAllResults) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = androidx.compose.ui.Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    } else {
+                        LazyColumn {
+                            lazyItems(allSearchResults) { user ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            showAllResultsDialog = false
+
+                                            if (user.username == currentUsername) {
+                                                viewModel.updateSearchText("")
+                                            } else {
+                                                navController.navigate(
+                                                    Screen.Profile.createRoute(user.username)
+                                                )
+                                            }
+                                        }
+                                        .padding(12.dp),
+                                    verticalAlignment =
+                                        androidx.compose.ui.Alignment.CenterVertically
+                                ) {
+                                    ProfileAvatar(
+                                        imageUrl = user.authorProfileImageUrl,
+                                        originalImageUrl = user.authorProfileImageOriginalUrl,
+                                        contentDescription = null,
+                                        size = 40.dp,
+                                        blurHash = user.authorProfileImageBlurHash
+                                    )
+
+                                    Spacer(modifier = Modifier.width(16.dp))
+
+                                    Text(
+                                        text = user.username,
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+
+                                    if (user.identityIsVerified) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Verified",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showAllResultsDialog = false
+                        }
+                    ) {
+                        Text("Close")
+                    }
+                }
+            )
         }
     }
 }
