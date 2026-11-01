@@ -94,9 +94,12 @@
   justify-content: center;
 }
 
+/* The page background is the contrasting ink on each theme's danger colour:
+   black on the dark theme's #ff6b6b, white on the light theme's #c62828. White
+   on #ff6b6b would be only ~2.8:1. */
 .interest-pill__remove:hover {
   background: var(--auth-danger);
-  color: var(--auth-on-accent);
+  color: var(--auth-bg);
 }
 
 .interest-pill__remove:disabled {
