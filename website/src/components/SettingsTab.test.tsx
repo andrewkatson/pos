@@ -298,6 +298,24 @@ test('notification toggle flips the preference and persists it (#342/#343)', asy
   expect(toggle).toHaveTextContent('Off')
 })
 
+test('turning a parent notification off hides its children (#444)', async () => {
+  mockGetNotifPrefs.mockResolvedValue([
+    { type: 'all', label: 'Push notifications', parent: null, enabled: true },
+    { type: 'new_like', label: 'Likes', parent: 'all', enabled: true },
+    { type: 'new_like_friend', label: 'From friends', parent: 'new_like', enabled: true },
+  ])
+  renderTab()
+
+  const likes = await screen.findByRole('button', { name: /Likes/ })
+  expect(screen.getByRole('button', { name: /From friends/ })).toHaveAttribute('data-depth', '2')
+
+  await userEvent.click(likes)
+
+  expect(mockSetNotifPref).toHaveBeenCalledWith('new_like', false)
+  expect(screen.queryByRole('button', { name: /From friends/ })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Push notifications/ })).toBeInTheDocument()
+})
+
 test('a failed notification toggle reverts and surfaces an error', async () => {
   mockGetNotifPrefs.mockResolvedValue([
     { type: 'post_rejected', label: 'Post moderation', enabled: true },

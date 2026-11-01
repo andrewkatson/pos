@@ -8,7 +8,7 @@ with `website/deploy-web.sh`). Beyond gunicorn, the backend relies on several
 | Unit | Kind | What it does | Enabled when |
 | --- | --- | --- | --- |
 | `gunicorn.service` | long-lived | Serves the API (WSGI). | always |
-| `classification-worker.service` | long-lived | RQ worker draining the async post/profile-photo moderation queue (`manage.py classification_worker`). | `REDIS_URL` set (queue mode) |
+| `classification-worker.service` | long-lived | RQ worker draining the async post/profile-photo moderation queue (`manage.py classification_worker`), then the activity push `notifications` queue whenever moderation is idle. | `REDIS_URL` set (queue mode) |
 | `sweep-classifications.timer` | timer (15 min) | `manage.py sweep_classifications` — re-enqueues stuck-pending items (and unconverted follow requests on accounts that went public) and purges tombstones. | always |
 | `cleanup-orphan-images.timer` | timer (daily) | `manage.py cleanup_orphan_images` — reclaims orphaned S3 images. | always |
 

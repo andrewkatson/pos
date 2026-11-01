@@ -173,9 +173,11 @@ struct SettingsView: View {
                 }
 
                 // MARK: - Notifications Section (issues #342/#343)
+                // Rows nest under their parent and hide while it is off (#444).
                 if !viewModel.notificationPreferences.isEmpty {
                     Section(header: Text("Notifications")) {
-                        ForEach(viewModel.notificationPreferences) { pref in
+                        ForEach(NotificationPreference.visibleRows(viewModel.notificationPreferences), id: \.pref.type) { row in
+                            let pref = row.pref
                             Toggle(pref.label, isOn: Binding(
                                 get: { pref.enabled },
                                 set: { viewModel.updateNotificationPreference(pref, enabled: $0) }
@@ -183,6 +185,7 @@ struct SettingsView: View {
                             // Disabled while its save is in flight, so a rapid
                             // re-toggle can't race (#342/#343).
                             .disabled(viewModel.savingPreferences.contains(pref.type))
+                            .padding(.leading, CGFloat(row.depth) * 16)
                             .accessibilityIdentifier("NotificationToggle_\(pref.type)")
                         }
                     }

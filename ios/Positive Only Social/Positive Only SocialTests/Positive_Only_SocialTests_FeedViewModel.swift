@@ -66,6 +66,24 @@ struct Positive_Only_SocialTests_FeedViewModel {
         #expect(sut.feedPosts.isEmpty == true)
     }
     
+    @Test func testFetchFeed_FailedPage_IsNotTheEndOfTheFeed() async throws {
+        let sut = FeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "fetchFeedFailedPageNotEnd")
+
+        // Given: A stored session the backend doesn't recognise, so the
+        // request throws rather than returning an empty page.
+        let userSession = UserSession(sessionToken: "unknown-token", username: "ghost", userId: "1", isIdentityVerified: false)
+        try keychainHelper.save(userSession, for: GVOAppConstants.keychainService, account: "fetchFeedFailedPageNotEnd")
+
+        sut.fetchFeed()
+        await yield()
+
+        // Then: The feed isn't marked finished (issue #528) — only an empty
+        // page means that.
+        #expect(stubAPI.getPostsInFeedCallCount == 1)
+        #expect(sut.isLoadingNextPage == false)
+        #expect(sut.reachedEnd == false)
+    }
+
     @Test func testFetchFeed_WhileAlreadyLoading_DoesNotFetch() async throws {
         let sut = FeedViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "fetchFeedWhileAlreadyLoading")
         
@@ -159,6 +177,8 @@ struct Positive_Only_SocialTests_FeedViewModel {
         #expect(sut.feedPosts.count == 3)
         #expect(sut.feedPosts.last?.imageUrl == "image.url/1")
         #expect(stubAPI.getPostsInFeedCallCount == 2)
+        // More may exist until a page comes back empty (issue #528).
+        #expect(sut.reachedEnd == false)
 
         // --- 3. Fetch Third Page (Page 2 - Empty) ---
         // When: We fetch again
@@ -169,6 +189,8 @@ struct Positive_Only_SocialTests_FeedViewModel {
         #expect(sut.isLoadingNextPage == false)
         #expect(sut.feedPosts.count == 3)
         #expect(stubAPI.getPostsInFeedCallCount == 3)
+        // ...so the feed is finished and shows the banner (issue #528).
+        #expect(sut.reachedEnd == true)
         
         // --- 4. Try to Fetch Again (Should be blocked by `canLoadMore`) ---
         // When: We try one more time
@@ -229,6 +251,7 @@ struct Positive_Only_SocialTests_FeedViewModel {
         await yield()
         #expect(sut.feedPosts.count == 1)
         #expect(stubAPI.getPostsInFeedCallCount == 2)
+        #expect(sut.reachedEnd == true)
 
         // And: Two more posts now exist on the backend (3 total = 2 pages)
         _ = try await stubAPI.makePost(sessionManagementToken: userBToken, imageURL: "image.url/2", caption: "Post 2")
@@ -239,6 +262,8 @@ struct Positive_Only_SocialTests_FeedViewModel {
 
         // Then: The freshest first page (2 newest) replaces the list...
         #expect(sut.feedPosts.count == 2)
+        // ...which may have more after it, so it isn't finished (issue #528).
+        #expect(sut.reachedEnd == false)
 
         // ...and pagination is reset, so a subsequent fetch loads page 1 again.
         sut.fetchFeed()
