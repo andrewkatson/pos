@@ -46,11 +46,13 @@
   border: none;
   background: #dc3232;
   color: #ffffff;
-  transition: opacity 0.15s ease;
+  transition: background-color 0.15s ease;
 }
 
+/* Darken rather than fade, which would let the white page bleed through and
+   drop the white label below 4.5:1. */
 .delete-account__danger-button:not(:disabled):hover {
-  opacity: 0.85;
+  background: #b82828;
 }
 
 .delete-account__danger-button:disabled {
