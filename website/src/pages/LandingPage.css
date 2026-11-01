@@ -1,8 +1,13 @@
+/* The logged-out pages are light, like the auth pages (see LoginPage.css):
+   same #ffffff page, #16181d text and the darker #1b6ea4 accent, which unlike
+   the brand #5ba4dc holds AA contrast under white text and on white. */
 .landing {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background-color: #000000;
+  background-color: #ffffff;
+  color: #16181d;
+  color-scheme: light;
 }
 
 .landing__nav {
@@ -24,18 +29,18 @@
 
 .landing__nav-button--login {
   background: transparent;
-  color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: #16181d;
+  border: 1px solid rgba(22, 24, 29, 0.28);
 }
 
 .landing__nav-button--login:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(22, 24, 29, 0.05);
 }
 
 .landing__nav-button--signup {
-  background: #5ba4dc;
+  background: #1b6ea4;
   color: #ffffff;
-  border: 1px solid #5ba4dc;
+  border: 1px solid #1b6ea4;
 }
 
 .landing__nav-button--signup:hover {
@@ -64,13 +69,13 @@
   font-size: clamp(2.5rem, 8vw, 5rem);
   font-weight: 800;
   letter-spacing: -0.02em;
-  color: #ffffff;
+  color: #16181d;
 }
 
 .landing__subtitle {
   margin: 0;
   font-size: clamp(1rem, 3vw, 1.25rem);
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(22, 24, 29, 0.62);
 }
 
 .landing__footer {
@@ -82,11 +87,11 @@
 
 .landing__footer-link {
   font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(22, 24, 29, 0.62);
   text-decoration: none;
 }
 
 .landing__footer-link:hover {
-  color: rgba(255, 255, 255, 0.8);
+  color: #16181d;
   text-decoration: underline;
 }

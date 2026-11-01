@@ -107,6 +107,11 @@
 
   --auth-overlay: rgba(22, 24, 29, 0.45);
 
+  /* `:root` is `color-scheme: dark`, which would give the date picker,
+     placeholders and scrollbars their dark native rendering on a white page. */
+  color-scheme: light;
+  color: var(--auth-fg);
+
   min-height: 100vh;
   display: flex;
   align-items: center;
@@ -507,6 +512,12 @@
 
 .modal__confirm:hover {
   opacity: 0.85;
+}
+
+.modal__confirm:disabled {
+  background: var(--auth-inert);
+  color: var(--auth-on-inert);
+  cursor: not-allowed;
 }
 
 /* ---- Google sign-in (issue #10) ---- */
