@@ -253,7 +253,9 @@ was being judged is not overwritten. That lock is the content row, and every
 review transition — opening on a first report, escalating, de-escalating on a
 retraction, and the automated re-review's verdict — takes the same content row
 lock before touching the review row, so an edit's final check-and-write and a
-review change serialize rather than interleave. Likewise a caption's interest
+review change serialize rather than interleave. A report is saved in that same
+locked transaction as the review it opens or advances, so no edit can land
+between a report and its review. Likewise a caption's interest
 categorization only writes its buckets if the caption it read is still the
 post's caption, so a run overtaken by an edit discards its stale result. A comment on
 a post whose author has [turned commenting off](#disabling--locking-comments-issue-492)

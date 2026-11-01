@@ -2069,7 +2069,7 @@ def _review_decided(content):
     """Whether a moderator has already decided this content's report review
     (hidden or dismissed — the terminal statuses). A decision is final for the
     text it was made about: further reports change nothing (see
-    moderation.record_report). Replacing the text would carry that immunity
+    moderation.advance_review). Replacing the text would carry that immunity
     over to words nobody reviewed, so text edits are refused once a decision
     exists (issue #462); a comment's formatting-only change keeps the text the
     decision covered and stays allowed. The review row is left as it is, for
@@ -2377,14 +2377,18 @@ def edit_post(request, post_identifier):
         # boost — for good. If the re-run fails, the post is simply
         # uncategorized, which the categorize_posts backfill picks up.
         locked.interest_categories.clear()
+        # Snapshot the response while the lock is held: read afterwards, the
+        # tags could already be another, later edit's, mismatched with this
+        # caption and edited_time.
+        saved = {
+            Fields.caption: locked.caption,
+            Fields.edited_time: locked.edited_time,
+            **_post_tags(locked),
+        }
     tasks.enqueue_post_categorization(locked.post_identifier)
 
     logger.info(f"Post caption edited: post_id: {post_identifier} by user_id: {request.user.id}")
-    return log_and_return_json("edit_post", {
-        Fields.caption: locked.caption,
-        Fields.edited_time: locked.edited_time,
-        **_post_tags(locked),
-    })
+    return log_and_return_json("edit_post", saved)
 
 
 @csrf_exempt
@@ -2419,6 +2423,13 @@ def report_post(request, post_identifier):
         # lock, which set_account_privacy also takes: an owner going private
         # is either seen here or waits until this commits (issue #96).
         with transaction.atomic():
+            # The post's row first (issue #462): the report and the review it
+            # opens or advances commit together under the lock an edit holds
+            # through its final check and save, so an edit can't slip in
+            # between the report and its review. Post before author, the order
+            # comment_on_post takes them too.
+            if moderation.lock_reviewed_content(post=post) is None:
+                return log_and_return_json("report_post", {'error': "No post with that identifier"}, status=400)
             if not in_same_age_band(post.author, request.user) or not _post_author_still_admits(post, request.user):
                 logger.warning(f"Report post failed: Post {post_identifier} not visible to user_id: {request.user.id}")
                 return log_and_return_json("report_post", {'error': "No post with that identifier"}, status=400)
@@ -2436,13 +2447,13 @@ def report_post(request, post_identifier):
                 return log_and_return_json("report_post", {'error': "Daily report limit reached"}, status=400)
 
             post.postreport_set.create(user=request.user, reason=reason)
+            # A report never hides anything (issue #467): it opens a
+            # moderation review, which re-examines the post itself and
+            # escalates to a human moderator if enough people keep flagging
+            # content the re-review cleared. See user_system/moderation.py.
+            review, opened = moderation.advance_review(post=post)
         logger.info(f"Post reported successful: post_id: {post_identifier} by user_id: {request.user.id}")
-
-        # A report never hides anything (issue #467): it opens a moderation
-        # review, which re-examines the post itself and escalates to a human
-        # moderator if enough people keep flagging content the re-review
-        # cleared. See user_system/moderation.py.
-        moderation.record_report(post=post)
+        moderation.queue_opened_review(review, opened)
 
         return log_and_return_json("report_post", {'message': 'Post reported'})
     else:
@@ -3974,6 +3985,13 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
             logger.warning(f"Report comment failed: Comment {comment_identifier} not visible to user_id: {request.user.id}")
             return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
 
+        # The comment's row next (issue #462), so the report and the review
+        # it opens or advances commit together under the lock an edit holds
+        # through its final check and save. After the author lock above — the
+        # order edit_comment takes them in too.
+        if moderation.lock_reviewed_content(comment=comment) is None:
+            return log_and_return_json("report_comment", {'error': "Comment not found"}, status=400)
+
         if comment.author == request.user:
             logger.warning(f"Report comment failed: Cannot report own comment for user_id: {request.user.id}")
             return log_and_return_json("report_comment", {'error': "Cannot report own comment"}, status=400)
@@ -3987,11 +4005,11 @@ def report_comment(request, post_identifier, comment_thread_identifier, comment_
             return log_and_return_json("report_comment", {'error': "Daily report limit reached"}, status=400)
 
         comment.commentreport_set.create(user=request.user, reason=reason)
+        # As for posts, a report never hides a comment (issue #467) — it opens
+        # a moderation review of the comment itself. See moderation.py.
+        review, opened = moderation.advance_review(comment=comment)
     logger.info(f"Report comment successful: comment_id: {comment_identifier} by user_id: {request.user.id}")
-
-    # As for posts, a report never hides a comment (issue #467) — it opens a
-    # moderation review of the comment itself. See user_system/moderation.py.
-    moderation.record_report(comment=comment)
+    moderation.queue_opened_review(review, opened)
 
     return log_and_return_json("report_comment", {'message': 'Comment reported'})
 

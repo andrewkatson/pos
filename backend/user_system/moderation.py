@@ -90,39 +90,58 @@ def lock_reviewed_content(post=None, comment=None):
     return type(target).objects.select_for_update().filter(pk=target.pk).first()
 
 
-def record_report(post=None, comment=None):
-    """Advance the moderation review for freshly reported content.
+def advance_review(post=None, comment=None):
+    """Advance the moderation review for content that was just reported.
 
-    The first report opens a review and queues the automated re-review of the
-    content. Later reports never hide anything by themselves: while a review is
-    pending or already escalated they do nothing at all, once a moderator has
-    decided (hidden or dismissed) they do nothing forever, and on content the
-    automated re-review cleared they only count toward escalating it to a human.
+    The first report opens a review. Later reports never hide anything by
+    themselves: while a review is pending or already escalated they do nothing
+    at all, once a moderator has decided (hidden or dismissed) they do nothing
+    forever, and on content the automated re-review cleared they only count
+    toward escalating it to a human.
 
-    The transition happens under the content row lock (lock_reviewed_content),
-    so it cannot interleave with an edit's final check and write. The re-review
-    is queued only after that lock is released.
+    Must run inside transaction.atomic() with the content row already locked
+    (lock_reviewed_content) — the same transaction that inserts the report, so
+    the report and the review it opens commit together and no edit can land
+    between them (issue #462). Returns (review, opened); pass both to
+    queue_opened_review once the transaction has committed.
     """
+    review, opened = _get_or_create_review(post, comment)
+    if opened:
+        return review, True
+    if review.status != REVIEW_STATUS_CLEARED:
+        # Pending (already queued), escalated (a human is on it), or terminal
+        # (decided — piling on is exactly what must not work).
+        logger.info("advance_review: review %s is %s; the report changes nothing.",
+                    review.review_identifier, review.status)
+        return review, False
+    if review.reports_since_last_review() >= REPORTS_AFTER_CLEAR_BEFORE_ESCALATION:
+        review.status = REVIEW_STATUS_ESCALATED
+        review.save(update_fields=['status', 'updated'])
+        logger.info("advance_review: review %s escalated to a moderator after %d further reports.",
+                    review.review_identifier, review.reports_since_last_review())
+    return review, False
+
+
+def queue_opened_review(review, opened):
+    """Queue the automated re-review of a review advance_review just opened.
+    Call after the transaction that opened it has committed, so the (possibly
+    minutes-long) cascade never runs while the content row lock is held."""
+    if opened:
+        logger.info("queue_opened_review: opened review %s for %s; queuing automated re-review.",
+                    review.review_identifier, review.target_kind)
+        tasks.enqueue_report_review(review.review_identifier)
+
+
+def record_report(post=None, comment=None):
+    """Advance the moderation review for content whose report is already saved:
+    advance_review under the content row lock, then queue_opened_review. The
+    report endpoints insert the report in that same locked transaction instead
+    (see views.report_post / report_comment); this is the entry point for
+    callers that have no report write of their own to fold in."""
     with transaction.atomic():
         lock_reviewed_content(post, comment)
-        review, created = _get_or_create_review(post, comment)
-        if not created:
-            if review.status != REVIEW_STATUS_CLEARED:
-                # Pending (already queued), escalated (a human is on it), or
-                # terminal (decided — piling on is exactly what must not work).
-                logger.info("record_report: review %s is %s; the report changes nothing.",
-                            review.review_identifier, review.status)
-                return review
-            if review.reports_since_last_review() >= REPORTS_AFTER_CLEAR_BEFORE_ESCALATION:
-                review.status = REVIEW_STATUS_ESCALATED
-                review.save(update_fields=['status', 'updated'])
-                logger.info("record_report: review %s escalated to a moderator after %d further reports.",
-                            review.review_identifier, review.reports_since_last_review())
-            return review
-
-    logger.info("record_report: opened review %s for %s; queuing automated re-review.",
-                review.review_identifier, review.target_kind)
-    tasks.enqueue_report_review(review.review_identifier)
+        review, opened = advance_review(post, comment)
+    queue_opened_review(review, opened)
     return review
 
 

@@ -532,3 +532,63 @@ class EditCommentTests(PositiveOnlySocialTestCase):
         self.assertEqual(self._edit(edited_text).status_code, 200)
         self.comment.refresh_from_db()
         self.assertEqual(self.comment.audience, 'friends')
+
+
+class ReportLocksContentFirstTests(PositiveOnlySocialTestCase):
+    """The first report and the review it opens must commit together under the
+    content row lock an edit holds through its final check and save (issue
+    #462); otherwise an edit could land between the report and its review, and
+    the review would judge replacement text. SQLite ignores row locks, so these
+    pin the order: the lock is taken before the report row exists, and the
+    review is open by the time the response returns."""
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def setUp(self):
+        super().setUp()
+        self.post, self.post_identifier = super().make_post_and_login_user()
+        created = self._comment_on_post(self.session_management_token, self.post_identifier)
+        self.thread_identifier = created[Fields.comment_thread_identifier]
+        self.comment = Comment.objects.get(comment_identifier=created[Fields.comment_identifier])
+        reporter = self.make_user_with_prefix()
+        self.reporter_header = {'HTTP_AUTHORIZATION': f'Bearer {reporter[Fields.session_management_token]}'}
+
+    def _recording_lock(self, report_count):
+        seen = []
+        real = views.moderation.lock_reviewed_content
+
+        def lock(post=None, comment=None):
+            seen.append(report_count())
+            return real(post=post, comment=comment)
+
+        return seen, patch.object(views.moderation, 'lock_reviewed_content', side_effect=lock)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_reporting_a_post_locks_it_before_saving_the_report(self):
+        seen, lock_patch = self._recording_lock(lambda: self.post.postreport_set.count())
+        with lock_patch:
+            response = self.client.post(
+                reverse('report_post', kwargs={'post_identifier': str(self.post_identifier)}),
+                data={'reason': 'not nice'}, content_type='application/json', **self.reporter_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(seen[0], 0)
+        self.assertEqual(self.post.postreport_set.count(), 1)
+        self.assertTrue(ModerationReview.objects.filter(post=self.post).exists())
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_reporting_a_comment_locks_it_before_saving_the_report(self):
+        seen, lock_patch = self._recording_lock(lambda: self.comment.commentreport_set.count())
+        with lock_patch:
+            response = self.client.post(
+                reverse('report_comment', kwargs={
+                    'post_identifier': str(self.post_identifier),
+                    'comment_thread_identifier': str(self.thread_identifier),
+                    'comment_identifier': str(self.comment.comment_identifier),
+                }),
+                data={'reason': 'not nice'}, content_type='application/json', **self.reporter_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(seen[0], 0)
+        self.assertEqual(self.comment.commentreport_set.count(), 1)
+        self.assertTrue(ModerationReview.objects.filter(comment=self.comment).exists())
+
