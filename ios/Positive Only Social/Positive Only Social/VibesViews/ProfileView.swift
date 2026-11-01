@@ -81,6 +81,8 @@ struct ProfileBodyView: View {
 
     /// Whether the profile's options popover (Share Profile, issue #510) is open.
     @State private var showProfileMenu = false
+    // Confetti when the viewer scrolls to the end of the grid (issue #528).
+    @StateObject private var celebration = EndOfListCelebration()
 
     /// The accessibility identifier for each grid tile. The Profile tab keeps
     /// "MyPostImage" so your own grid stays distinguishable from someone else's.
@@ -97,6 +99,7 @@ struct ProfileBodyView: View {
             Divider()
             postGrid
         }
+        .celebratesEndOfList(celebration, reachedEnd: viewModel.reachedEnd)
         // Surfaces the outcome when one of your posts' async review (#282)
         // resolves to a rejection while this grid is visible. Only your own
         // posts carry a status, so this never fires on someone else's profile.
@@ -548,6 +551,15 @@ struct ProfileBodyView: View {
             // in a partial last row, so it blends with the screen in both light and
             // dark mode instead of painting black boxes next to posts (#415).
             .background(Color(.systemBackground))
+
+            if viewModel.reachedEnd {
+                FeedEndBanner(
+                    message: viewModel.isOwnProfile
+                        ? FeedEndMessage.ownProfile
+                        : FeedEndMessage.profile(of: viewModel.user.username),
+                    celebration: celebration
+                )
+            }
         }
     }
 }
