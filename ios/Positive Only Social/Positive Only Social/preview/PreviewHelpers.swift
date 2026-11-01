@@ -529,7 +529,10 @@ struct MockedAPI: Networking {
     }
 
     func getNotificationPreferences(sessionManagementToken: String) async throws -> Data {
-        let prefs = [NotificationPreference(type: "post_rejected", label: "Post moderation", enabled: true)]
+        let prefs = [NotificationPreference(type: "all", label: "Push notifications", enabled: true),
+                     NotificationPreference(type: "post_rejected", label: "Post moderation", enabled: true, parent: "all"),
+                     NotificationPreference(type: "new_like", label: "Likes", enabled: true, parent: "all"),
+                     NotificationPreference(type: "new_like_friend", label: "From friends", enabled: true, parent: "new_like")]
         return try encode(NotificationPreferencesResponse(preferences: prefs))
     }
 
