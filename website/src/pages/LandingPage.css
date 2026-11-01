@@ -24,7 +24,7 @@
   padding: 0.55rem 1.4rem;
   border-radius: 999px;
   cursor: pointer;
-  transition: opacity 0.15s ease, background-color 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .landing__nav-button--login {
@@ -43,8 +43,11 @@
   border: 1px solid #1b6ea4;
 }
 
+/* Darken rather than fade: at reduced opacity the white page bleeds through
+   and the white label drops below 4.5:1. */
 .landing__nav-button--signup:hover {
-  opacity: 0.85;
+  background: #155a87;
+  border-color: #155a87;
 }
 
 .landing__main {
