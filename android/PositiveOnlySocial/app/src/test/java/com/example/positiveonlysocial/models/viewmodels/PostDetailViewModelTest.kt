@@ -537,6 +537,27 @@ class PostDetailViewModelTest {
     }
 
     @Test
+    fun `a failed comment lock keeps a caption saved while it was in flight`() = runTest {
+        val own = ownPostViewModel()
+        val respond = kotlinx.coroutines.CompletableDeferred<Unit>()
+        whenever(api.lockComments("token123", postIdentifier)).doSuspendableAnswer {
+            respond.await()
+            Response.error(500, "{\"error\":\"Server error\"}".toResponseBody())
+        }
+        own.lockComments()
+
+        whenever(api.editPost("token123", postIdentifier, EditPostRequest("new caption"))).thenReturn(
+            Response.success(EditPostResponse("new caption", "2024-01-02T00:00:00Z", emptyList()))
+        )
+        own.editCaption("new caption")
+        respond.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(false, own.postDetail.value?.commentsDisabled)
+        assertEquals("new caption", own.postDetail.value?.caption)
+    }
+
+    @Test
     fun `a slow comment save landing after a refresh showed a later edit changes nothing`() = runTest {
         val own = ownPostViewModel()
         val comment = own.commentThreads.value.single().comments.single()

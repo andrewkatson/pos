@@ -525,12 +525,15 @@ class PostDetailViewModel(
     fun lockComments() {
         val previous = _postDetail.value ?: return
         _postDetail.value = previous.copy(commentsDisabled = true)
+        // On failure, revert only the flag: a caption or comment edit saved
+        // meanwhile (issue #462) must survive the rollback.
+        val revert = { _postDetail.value = _postDetail.value?.copy(commentsDisabled = false) }
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 if (userSession == null) {
                     Log.e(TAG, "No active session found — cannot perform action")
-                    _postDetail.value = previous
+                    revert()
                     _alertMessage.value = "Not logged in."
                     return@launch
                 }
@@ -538,12 +541,12 @@ class PostDetailViewModel(
                 if (response.isSuccessful) {
                     PostEvents.commentsDisabledChanged(postIdentifier, true)
                 } else {
-                    _postDetail.value = previous
+                    revert()
                     _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to turn off commenting. Please try again.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to lock comments", e)
-                _postDetail.value = previous
+                revert()
                 _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
@@ -556,12 +559,13 @@ class PostDetailViewModel(
     fun unlockComments() {
         val previous = _postDetail.value ?: return
         _postDetail.value = previous.copy(commentsDisabled = false)
+        val revert = { _postDetail.value = _postDetail.value?.copy(commentsDisabled = true) }
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
                 if (userSession == null) {
                     Log.e(TAG, "No active session found — cannot perform action")
-                    _postDetail.value = previous
+                    revert()
                     _alertMessage.value = "Not logged in."
                     return@launch
                 }
@@ -569,12 +573,12 @@ class PostDetailViewModel(
                 if (response.isSuccessful) {
                     PostEvents.commentsDisabledChanged(postIdentifier, false)
                 } else {
-                    _postDetail.value = previous
+                    revert()
                     _alertMessage.value = ApiErrors.messageFor(response, fallback = "Failed to turn on commenting. Please try again.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to unlock comments", e)
-                _postDetail.value = previous
+                revert()
                 _alertMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
             }
         }
