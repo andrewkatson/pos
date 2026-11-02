@@ -58,7 +58,7 @@ function PostGrid({
 }: PostGridProps) {
   const navigate = useNavigate()
   const gridRef = useRef<HTMLDivElement>(null)
-  const { stateFor, toggleLike, toggleSave, openMenu, openMenuPostId, openLikes, dialogs } =
+  const { stateFor, withEdits, toggleLike, toggleSave, openMenu, openMenuPostId, openLikes, dialogs } =
     usePostActions({
       currentUsername,
       onPostDeleted,
@@ -97,7 +97,7 @@ function PostGrid({
   return (
     <>
       <div ref={gridRef} className="post-grid">
-        {posts.map(post => {
+        {posts.map(withEdits).map(post => {
           const badge = statusBadgeLabel(post)
           return (
             <div key={post.post_identifier} className="post-grid__item">

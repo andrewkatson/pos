@@ -137,7 +137,7 @@ struct ForYouFeedView: View {
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
                                         blurHash: post.blurHash,
-                                        caption: post.caption,
+                                        caption: postActions.caption(for: post),
                                         captionFont: post.captionFont,
                                         backgroundColor: post.backgroundColor,
                                         placeholderColor: Color(.systemGray5)
@@ -162,7 +162,7 @@ struct ForYouFeedView: View {
                         // chosen caption font (issue #318) applies here too, so
                         // the feed matches the detail view (issue #450).
                         if post.imageUrl != nil {
-                            Text(post.caption)
+                            Text(postActions.caption(for: post))
                                 .font(TextFormatting.captionFont(post.captionFont, size: UIFont.preferredFont(forTextStyle: .body).pointSize))
                                 .padding(.horizontal)
                                 .accessibilityIdentifier("PostCaption")
@@ -269,7 +269,7 @@ struct FollowingFeedView: View {
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
                                         blurHash: post.blurHash,
-                                        caption: post.caption,
+                                        caption: postActions.caption(for: post),
                                         captionFont: post.captionFont,
                                         backgroundColor: post.backgroundColor,
                                         placeholderColor: Color(.systemGray5)
@@ -297,7 +297,7 @@ struct FollowingFeedView: View {
                         // chosen caption font (issue #318) applies here too, so
                         // the feed matches the detail view (issue #450).
                         if post.imageUrl != nil {
-                            Text(post.caption)
+                            Text(postActions.caption(for: post))
                                 .font(TextFormatting.captionFont(post.captionFont, size: UIFont.preferredFont(forTextStyle: .body).pointSize))
                                 .padding(.horizontal)
                                 .accessibilityIdentifier("PostCaption")
@@ -403,7 +403,7 @@ struct TopFeedView: View {
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
                                         blurHash: post.blurHash,
-                                        caption: post.caption,
+                                        caption: postActions.caption(for: post),
                                         captionFont: post.captionFont,
                                         backgroundColor: post.backgroundColor,
                                         placeholderColor: Color(.systemGray5)
@@ -423,7 +423,7 @@ struct TopFeedView: View {
                         .accessibilityIdentifier("TopPostImage")
 
                         if post.imageUrl != nil {
-                            Text(post.caption)
+                            Text(postActions.caption(for: post))
                                 .font(TextFormatting.captionFont(post.captionFont, size: UIFont.preferredFont(forTextStyle: .body).pointSize))
                                 .padding(.horizontal)
                                 .accessibilityIdentifier("PostCaption")

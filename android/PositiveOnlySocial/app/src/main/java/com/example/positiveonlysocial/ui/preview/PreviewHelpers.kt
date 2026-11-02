@@ -351,6 +351,10 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun editPost(token: String, postId: String, request: EditPostRequest): Response<EditPostResponse> {
+        return Response.success(EditPostResponse(request.caption, null, emptyList()))
+    }
+
     override suspend fun lockComments(token: String, postId: String): Response<SetCommentsDisabledResponse> {
         return Response.success(SetCommentsDisabledResponse(commentsDisabled = true))
     }
@@ -489,6 +493,16 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
                 error = null
             )
         )
+    }
+
+    override suspend fun editComment(
+        token: String,
+        postId: String,
+        threadId: String,
+        commentId: String,
+        request: EditCommentRequest
+    ): Response<EditCommentResponse> {
+        return Response.success(EditCommentResponse(request.commentText, request.bodyFormatting, null))
     }
 
     override suspend fun deleteComment(

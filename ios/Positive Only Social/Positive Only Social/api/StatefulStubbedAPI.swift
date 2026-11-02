@@ -125,6 +125,8 @@ fileprivate struct MockPost {
     /// Hashtags parsed from the caption (issue #379), normalized and sorted.
     var tags: [String] = []
     let createdDate = Date()
+    /// When the author last edited the caption (issue #462); nil if never.
+    var editedDate: Date? = nil
 }
 
 /// One post as the three listing endpoints (feed, following feed, user posts)
@@ -165,6 +167,8 @@ fileprivate struct PostListingFields: Codable {
     let comments_disabled: Bool
     /// Hashtags parsed from the caption (issue #379).
     let tags: [String]
+    /// When the caption was last edited (issue #462).
+    let edited_time: String?
 }
 
 fileprivate struct MockCommentThread {
@@ -188,6 +192,8 @@ fileprivate struct MockComment {
     var hiddenReason: String = GVOAppConstants.emptyString
     let createdDate = Date()
     var updatedDate = Date()
+    /// When the author last edited the comment (issue #462); nil if never.
+    var editedDate: Date? = nil
 }
 
 fileprivate struct MockAppeal {
@@ -280,6 +286,9 @@ final class StatefulStubbedAPI: Networking {
 
     // MARK: - Configuration
     public var simulatedLatency: TimeInterval = 0.1
+    /// Extra latency for one thread's comments, keyed by thread id, so a test
+    /// can hold one thread of a post's load while others finish (issue #462).
+    public var extraCommentLatencyByThread: [String: TimeInterval] = [:]
     /// The stub's seam for content the creation-time classifier let through but
     /// the report-triggered re-review rejects (issue #467). A report count hides
     /// nothing at all, so this word in a caption or comment body is the only way
@@ -412,7 +421,8 @@ final class StatefulStubbedAPI: Networking {
             appealable: isOwnGrid ? isAppealable(post) : nil,
             audience: post.audience,
             comments_disabled: post.commentsDisabled,
-            tags: post.tags
+            tags: post.tags,
+            edited_time: post.editedDate.map { ISO8601DateFormatter().string(from: $0) }
         )
     }
 
@@ -1265,6 +1275,32 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
+    /// Owner-only: replaces a live post's caption (issue #462). The stub
+    /// classifier rejects "negative", like makePost, and a rejection leaves the
+    /// original caption alone.
+    func editPost(sessionManagementToken: String, postIdentifier: String, caption: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let postIndex = posts.firstIndex(where: { $0.postIdentifier == postIdentifier && $0.authorId == user.id }) else { throw APIError.badServerResponse(statusCode: 400) }
+        if posts[postIndex].isHidden {
+            throw APIError.serverError(statusCode: 409, serverMessage: "This post can't be edited right now")
+        }
+        if caption != posts[postIndex].caption {
+            if caption.contains("negative") {
+                throw APIError.serverError(statusCode: 400, serverMessage: "Your edit was not saved because your caption did not meet our positivity guidelines. Your original caption is unchanged.")
+            }
+            posts[postIndex].caption = caption
+            posts[postIndex].tags = Self.extractTags(from: caption)
+            posts[postIndex].editedDate = Date()
+        }
+        let post = posts[postIndex]
+        return try createSerializedResponse(fields: EditPostResponse(
+            caption: post.caption,
+            editedTime: post.editedDate.map { ISO8601DateFormatter().string(from: $0) },
+            tags: post.tags
+        ))
+    }
+
     /// Owner-only: stops new comments/replies on a post (issue #492).
     func lockComments(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         await simulateNetwork()
@@ -1598,6 +1634,7 @@ final class StatefulStubbedAPI: Networking {
             let tags: [String]
             let author_profile_image_url: String?
             let author_profile_image_original_url: String?
+            let edited_time: String?
         }
         let userReport = post.reports.first(where: { $0.username == user.username })
         let authorAvatar = approvedAvatarUrl(forUserId: post.authorId)
@@ -1625,7 +1662,8 @@ final class StatefulStubbedAPI: Networking {
             comments_disabled: post.commentsDisabled,
             tags: post.tags,
             author_profile_image_url: authorAvatar,
-            author_profile_image_original_url: authorAvatar
+            author_profile_image_original_url: authorAvatar,
+            edited_time: post.editedDate.map { ISO8601DateFormatter().string(from: $0) }
         )
         return try createSerializedResponse(fields: fields)
     }
@@ -1798,6 +1836,46 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
+    /// Author-only: replaces a comment's text and formatting (issue #462).
+    /// Someone else's comment answers like a missing one; a comment on a post
+    /// whose commenting is off is frozen; "negative" text is refused and the
+    /// original kept.
+    func editComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
+        guard let commentIndex = reachableCommentIndex(
+            postIdentifier: postIdentifier, threadIdentifier: commentThreadIdentifier,
+            commentIdentifier: commentIdentifier, viewer: user),
+              comments[commentIndex].authorUsername == user.username else { throw APIError.badServerResponse(statusCode: 400) }
+        if let post = findPost(byIdentifier: postIdentifier), post.commentsDisabled {
+            throw APIError.serverError(statusCode: 403, serverMessage: "Comments are disabled for this post")
+        }
+        if comments[commentIndex].isHidden {
+            throw APIError.serverError(statusCode: 409, serverMessage: "This comment can't be edited right now")
+        }
+        let newFormatting = (formatting?.isEmpty ?? true) ? nil : formatting
+        let original = comments[commentIndex]
+        if commentText != original.body || newFormatting != original.bodyFormatting {
+            if commentText != original.body && commentText.contains("negative") {
+                throw APIError.serverError(statusCode: 400, serverMessage: "Your edit was not saved because your comment did not meet our positivity guidelines. Your original comment is unchanged.")
+            }
+            comments[commentIndex].body = commentText
+            comments[commentIndex].bodyFormatting = newFormatting
+            comments[commentIndex].editedDate = Date()
+            // Keep the thread's copy in step, as deleteComment does.
+            if let threadIndex = commentThreads.firstIndex(where: { $0.commentThreadIdentifier == commentThreadIdentifier }),
+               let threadCommentIndex = commentThreads[threadIndex].comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }) {
+                commentThreads[threadIndex].comments[threadCommentIndex] = comments[commentIndex]
+            }
+        }
+        let saved = comments[commentIndex]
+        return try createSerializedResponse(fields: EditCommentResponse(
+            body: saved.body,
+            bodyFormatting: saved.bodyFormatting,
+            editedTime: saved.editedDate.map { ISO8601DateFormatter().string(from: $0) }
+        ))
+    }
+
     func reportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, reason: String) async throws -> Data {
         await simulateNetwork()
         guard let reporter = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
@@ -1861,6 +1939,9 @@ final class StatefulStubbedAPI: Networking {
 
     func getCommentsForThread(sessionManagementToken: String, commentThreadIdentifier: String, batch: Int, category: String? = nil) async throws -> Data {
         await simulateNetwork()
+        if let extra = extraCommentLatencyByThread[commentThreadIdentifier] {
+            try? await Task.sleep(for: .seconds(extra))
+        }
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
         // A thread on a private account's post reads as missing to a
         // non-follower (issue #96).
@@ -1891,6 +1972,7 @@ final class StatefulStubbedAPI: Networking {
             let is_liked: Bool
             let is_reported: Bool
             let report_reason: String?
+            let edited_time: String?
         }
 
         let dateFormatter = ISO8601DateFormatter()
@@ -1907,7 +1989,8 @@ final class StatefulStubbedAPI: Networking {
                    comment_likes: comment.likes.count,
                    is_liked: comment.likes.contains(user.username),
                    is_reported: userReport != nil,
-                   report_reason: userReport?.reason)
+                   report_reason: userReport?.reason,
+                   edited_time: comment.editedDate.map { dateFormatter.string(from: $0) })
         }
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }

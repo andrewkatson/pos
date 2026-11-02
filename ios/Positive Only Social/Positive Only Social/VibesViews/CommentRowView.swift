@@ -178,7 +178,8 @@ struct CommentRowView: View {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityHint("Opens \(comment.authorUsername)'s profile")
                         .accessibilityIdentifier("CommentAuthor")
-                    Text(RelativeTime.string(from: comment.createdDate))
+                    // Marks a comment changed after it was posted (issue #462).
+                    Text(RelativeTime.string(from: comment.createdDate) + (comment.isEdited ? " · edited" : ""))
                         .font(.caption)
                         .foregroundColor(.secondary)
                     // Who can see this comment, on your own comments only
@@ -313,6 +314,12 @@ struct CommentRowView: View {
             // Share is offered for any comment — yours and others' (issue #34).
             menuRow("Share Comment", identifier: "ShareCommentActionButton") {
                 viewModel.shareComment(comment)
+            }
+            // Edit your own comment (issue #462) in the composer you wrote it in.
+            if viewModel.canEditComment(comment) {
+                menuRow("Edit Comment", identifier: "EditCommentActionButton") {
+                    viewModel.commentToEdit = comment
+                }
             }
             if viewModel.isOwnComment(comment) {
                 menuRow("Delete Comment", identifier: "DeleteCommentActionButton", isDestructive: true) {

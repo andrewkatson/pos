@@ -762,4 +762,188 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(sut.commentThreads.first(where: { $0.id == threadID })?.comments.count == commentCountBefore)
         #expect(sut.alertMessage != nil)
     }
+
+    // --- Editing (issue #462) ---
+
+    @Test func testEditCaption_OwnPost_SavesCaptionAndMarksEdited() async throws {
+        let (sut, postID, _) = try await setupOwnContentEnvironment(account: "editCaption_account")
+        #expect(sut.canEditPost, "Pre-condition: a live post of your own is editable")
+        #expect(sut.postDetail?.isEdited == false)
+
+        sut.editCaption("My edited post")
+        await yield()
+
+        #expect(sut.postDetail?.caption == "My edited post")
+        #expect(sut.postDetail?.isEdited == true)
+        // The edit is server-side, so it survives a reload.
+        await sut.refresh()
+        #expect(sut.postDetail?.caption == "My edited post")
+        #expect(sut.postDetail?.isEdited == true)
+        _ = postID
+    }
+
+    @Test func testEditCaption_Rejected_KeepsOriginalAndAlerts() async throws {
+        let (sut, _, _) = try await setupOwnContentEnvironment(account: "editCaptionRejected_account")
+
+        sut.editCaption("a negative caption")
+        await yield()
+
+        #expect(sut.postDetail?.caption == "My own post")
+        #expect(sut.postDetail?.isEdited == false)
+        #expect(sut.alertMessage != nil)
+    }
+
+    @Test func testEditComment_OwnComment_SavesBodyAndFormatting() async throws {
+        let (sut, _, commentID) = try await setupOwnContentEnvironment(account: "editComment_account")
+        let comment = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(sut.canEditComment(comment))
+
+        let bold = [CommentFormatSpan(start: 0, end: 2, bold: true)]
+        sut.editComment(comment, commentText: "My edited comment", formatting: bold)
+        await yield()
+
+        let edited = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(edited.body == "My edited comment")
+        #expect(edited.formatting == bold)
+        #expect(edited.isEdited)
+        await sut.refresh()
+        let reloaded = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(reloaded.body == "My edited comment")
+        #expect(reloaded.isEdited)
+    }
+
+    @Test func testEditComment_Rejected_KeepsOriginalAndAlerts() async throws {
+        let (sut, _, commentID) = try await setupOwnContentEnvironment(account: "editCommentRejected_account")
+        let comment = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+
+        sut.editComment(comment, commentText: "negative now", formatting: nil)
+        await yield()
+
+        let after = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(after.body == "My own comment")
+        #expect(!after.isEdited)
+        #expect(sut.alertMessage != nil)
+    }
+
+    @Test func testEdit_NotOfferedOnOthersContent() async throws {
+        let (sut, _, _, commentID) = try await setupTestEnvironment(account: "editOthers_account")
+        #expect(!sut.canEditPost)
+        let comment = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(!sut.canEditComment(comment))
+    }
+
+    @Test func testEditComment_NotOfferedOnceCommentsAreLocked() async throws {
+        let account = "editLockedComment_account"
+        let (sut, postID, commentID) = try await setupOwnContentEnvironment(account: account)
+        let session = try #require(try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account))
+        _ = try await stubAPI.lockComments(sessionManagementToken: session.sessionToken, postIdentifier: postID)
+        await sut.refresh()
+
+        let comment = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(!sut.canEditComment(comment))
+    }
+
+    @Test func testStaleLoadAfterCaptionEdit_KeepsTheSavedCaption() async throws {
+        let (sut, _, _) = try await setupOwnContentEnvironment(account: "staleCaptionLoad_account")
+        let beforeEdit = try #require(sut.postDetail)
+        sut.editCaption("My edited post")
+        await yield()
+
+        // A load whose request went out before the save: old caption, no edit time.
+        let stale = sut.applyingSavedEdit(to: beforeEdit, fetchedEditedTime: nil)
+        #expect(stale.caption == "My edited post")
+        #expect(stale.isEdited)
+
+        // A load carrying a later edit made on another device wins.
+        var later = beforeEdit
+        later.caption = "Edited elsewhere"
+        let newer = sut.applyingSavedEdit(to: later, fetchedEditedTime: "2999-01-01T00:00:00Z")
+        #expect(newer.caption == "Edited elsewhere")
+    }
+
+    @Test func testStaleLoadAfterCommentEdit_KeepsTheSavedComment() async throws {
+        let (sut, _, commentID) = try await setupOwnContentEnvironment(account: "staleCommentLoad_account")
+        let beforeEdit = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        sut.editComment(beforeEdit, commentText: "My edited comment", formatting: nil)
+        await yield()
+
+        let stale = sut.applyingSavedEdit(to: beforeEdit)
+        #expect(stale.body == "My edited comment")
+        #expect(stale.isEdited)
+
+        var later = beforeEdit
+        later.body = "Edited elsewhere"
+        later.editedTime = "2999-01-01T00:00:00Z"
+        #expect(sut.applyingSavedEdit(to: later).body == "Edited elsewhere")
+    }
+
+    @Test func testEditSavedWhileARefreshLoadsOtherThreads_SurvivesIt() async throws {
+        let account = "editDuringRefresh_account"
+        let (sut, postID, commentID) = try await setupOwnContentEnvironment(account: account)
+        let otherToken = try await registerUserAndGetToken(username: "otherCommenter")
+        let (slowThreadID, _) = try await commentOnPostAndGetIDs(token: otherToken, postID: postID, body: "Their comment")
+        await sut.refresh()
+        let comment = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+
+        // Refresh again with the other thread held: the user's own thread
+        // comes back (pre-edit) and is buffered while that one loads.
+        stubAPI.extraCommentLatencyByThread[slowThreadID] = 2
+        let refresh = Task { await sut.refresh() }
+        await yield(for: .seconds(0.5))
+        sut.editComment(comment, commentText: "Edited mid-refresh", formatting: nil)
+        await refresh.value
+
+        let after = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(after.body == "Edited mid-refresh")
+    }
+
+    @Test func testSlowCaptionSaveAfterARefreshShowedALaterEdit_ChangesNothing() async throws {
+        let account = "slowCaptionSave_account"
+        let (sut, postID, _) = try await setupOwnContentEnvironment(account: account)
+        // Another device edits the caption; a refresh shows it.
+        let session = try #require(try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account))
+        _ = try await stubAPI.editPost(sessionManagementToken: session.sessionToken, postIdentifier: postID, caption: "Edited elsewhere")
+        await sut.refresh()
+        #expect(sut.postDetail?.caption == "Edited elsewhere")
+
+        // This device's earlier save's response arrives last.
+        sut.applySavedCaption(EditPostResponse(caption: "Saved here", editedTime: "2000-01-01T00:00:00Z", tags: []))
+
+        #expect(sut.postDetail?.caption == "Edited elsewhere")
+    }
+
+    @Test func testSlowCommentSaveAfterARefreshShowedALaterEdit_ChangesNothing() async throws {
+        let account = "slowCommentSave_account"
+        let (sut, postID, commentID) = try await setupOwnContentEnvironment(account: account)
+        let comment = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        let session = try #require(try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: account))
+        _ = try await stubAPI.editComment(sessionManagementToken: session.sessionToken, postIdentifier: postID,
+                                          commentThreadIdentifier: comment.threadId, commentIdentifier: commentID,
+                                          commentText: "Edited elsewhere", formatting: nil)
+        await sut.refresh()
+
+        sut.applySavedComment(EditCommentResponse(body: "Saved here", bodyFormatting: nil, editedTime: "2000-01-01T00:00:00Z"),
+                              commentId: commentID, threadId: comment.threadId)
+
+        let shown = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(shown.body == "Edited elsewhere")
+    }
+
+    @Test func testSavedEditIsNewer_ComparesEditTimes() {
+        #expect(SavedEdit.isNewer(saved: "2024-01-02T00:00:00Z", fetched: nil))
+        #expect(SavedEdit.isNewer(saved: "2024-01-02T00:00:00Z", fetched: "2024-01-01T00:00:00Z"))
+        #expect(!SavedEdit.isNewer(saved: "2024-01-02T00:00:00Z", fetched: "2024-01-02T00:00:00Z"))
+        #expect(!SavedEdit.isNewer(saved: nil, fetched: nil))
+    }
+
+    @Test func testComposerController_SeedsTextAndFormattingForAnEdit() {
+        let spans = [CommentFormatSpan(start: 0, end: 4, bold: true), CommentFormatSpan(start: 5, end: 9, italic: true, size: "large")]
+        let controller = CommentFormatController(text: "love this", spans: spans)
+        #expect(controller.text == "love this")
+        #expect(controller.spans == spans)
+        #expect(controller.isSubmittable)
+
+        let caption = CommentFormatController(text: String(repeating: "a", count: GVOAppConstants.maxCaptionLength + 1), maxLength: GVOAppConstants.maxCaptionLength)
+        #expect(!caption.isSubmittable, "A caption edit is held to the caption limit, not the comment one")
+    }
 }
