@@ -2359,7 +2359,7 @@ def edit_post(request, post_identifier):
         # transition takes this same content row lock before touching the
         # review (moderation.lock_reviewed_content), so the checks below and
         # the write cannot interleave with a review opening or escalating.
-        locked = Post.objects.select_for_update().filter(pk=post.pk, hidden=False).first()
+        locked = Post.objects.select_for_update(no_key=True).filter(pk=post.pk, hidden=False).first()
         if locked is None or _under_open_review(locked) or _review_decided(locked):
             return log_and_return_json("edit_post", {'error': "This post can't be edited right now"}, status=409)
         locked.caption = caption
@@ -3375,7 +3375,7 @@ def _comments_locked_for_update(post):
     UPDATE takes the same row lock, so a lock that lands while the classifier
     runs is either seen here or waits until the new comment is committed —
     never slips in between. Returns None if the post has since been deleted."""
-    return (Post.objects.select_for_update()
+    return (Post.objects.select_for_update(no_key=True)
             .filter(pk=post.pk)
             .values_list('comments_disabled', flat=True)
             .first())
@@ -3904,7 +3904,7 @@ def edit_comment(request, post_identifier, comment_thread_identifier, comment_id
         # The content row lock every review transition also takes first
         # (moderation.lock_reviewed_content): held from these checks through
         # the write, no review can open or escalate in between.
-        locked = Comment.objects.select_for_update().filter(pk=comment.pk, hidden=False).first()
+        locked = Comment.objects.select_for_update(no_key=True).filter(pk=comment.pk, hidden=False).first()
         if (locked is None or _under_open_review(locked)
                 or (text_result is not None and _review_decided(locked))
                 # Classification was skipped because the text matched the body

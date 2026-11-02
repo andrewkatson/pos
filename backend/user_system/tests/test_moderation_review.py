@@ -119,6 +119,18 @@ class ModerationReviewTests(TestCase):
             moderation.withdraw_report(comment=self.comment)
         lock.assert_called_once_with(None, self.comment)
 
+    def test_the_content_lock_does_not_block_foreign_key_checks(self):
+        # FOR NO KEY UPDATE, not FOR UPDATE: likes, saves and reports lock the
+        # author before Postgres's KEY SHARE check on the post, so a full
+        # FOR UPDATE here (taken post-then-author) could deadlock with them.
+        for target in ({'post': self.post}, {'comment': self.comment}):
+            with self.subTest(target=next(iter(target))):
+                model = type(next(iter(target.values())))
+                real = model.objects.select_for_update
+                with patch.object(model.objects, 'select_for_update', side_effect=real) as lock:
+                    moderation.lock_reviewed_content(**target)
+                lock.assert_called_once_with(no_key=True)
+
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=ALLOWED)
     def test_a_moderators_decision_locks_the_content_first(self, _text, _image):

@@ -83,11 +83,15 @@ def lock_reviewed_content(post=None, comment=None):
     review inserts one: there is no review row to lock yet. An edit holding the
     lock therefore sees every review state it is checking for, and no review
     can open or change state until the edit has committed (or vice versa).
+    The lock is FOR NO KEY UPDATE: it still excludes every other locker of the
+    row, but not the KEY SHARE locks Postgres takes for the foreign-key checks
+    of likes, saves, comments and reports inserted against it — paths that
+    lock the author first, so a full FOR UPDATE here could deadlock with them.
     Call inside transaction.atomic(). Returns the locked row, or None if it is
     gone.
     """
     target = post if post is not None else comment
-    return type(target).objects.select_for_update().filter(pk=target.pk).first()
+    return type(target).objects.select_for_update(no_key=True).filter(pk=target.pk).first()
 
 
 def advance_review(post=None, comment=None):

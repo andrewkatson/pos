@@ -355,7 +355,7 @@ def categorize_post(post_identifier):
         # queued its own run for the new one — so if this run finishes last it
         # must not overwrite that one's result. edit_post writes the caption
         # under this same row lock.
-        current = Post.objects.select_for_update().filter(pk=post.pk, caption=post.caption).first()
+        current = Post.objects.select_for_update(no_key=True).filter(pk=post.pk, caption=post.caption).first()
         if current is None:
             logger.info("categorize_post: post %s changed or vanished while categorizing; "
                         "discarding the stale buckets.", post_identifier)
@@ -812,7 +812,7 @@ def review_reported_content(review_identifier):
         # Content row first, then the review row — the lock order every review
         # transition and caption/comment edit shares (see
         # moderation.lock_reviewed_content), so this cannot deadlock with them.
-        locked_target = type(target).objects.select_for_update().filter(pk=target.pk).first()
+        locked_target = type(target).objects.select_for_update(no_key=True).filter(pk=target.pk).first()
         # Re-claim the row under lock so a concurrent duplicate delivery cannot
         # apply the transition (and its side effects) twice.
         claimed = ModerationReview.objects.select_for_update().filter(
