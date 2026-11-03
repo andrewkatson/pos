@@ -30,6 +30,7 @@ TIMEOUT = 15
 POST_ROW_LOCK = ('FROM "user_system_post"', 'FOR NO KEY UPDATE')
 COMMENT_ROW_LOCK = ('FROM "user_system_comment"', 'FOR NO KEY UPDATE')
 POST_UPDATE = ('UPDATE "user_system_post"',)
+COMMENT_UPDATE = ('UPDATE "user_system_comment"',)
 
 edited_text = 'positive and edited #sunny'
 
@@ -166,11 +167,16 @@ class RowLockOrderTests(PositiveOnlySocialTransactionTestCase):
         self.assertTrue(holder.paused.wait(TIMEOUT), "first operation never took its lock")
         waiter = Actor(second)
         waiter.start()
+        # Both threads are joined however this goes, so a failure never leaves
+        # one querying through teardown and patch cleanup.
         try:
-            self._wait_until_blocked(waiter)
+            try:
+                self._wait_until_blocked(waiter)
+            finally:
+                first_result = holder.finish()
         finally:
-            first_result = holder.finish()
-        return first_result, waiter.finish()
+            second_result = waiter.finish()
+        return first_result, second_result
 
     # -- edits vs reports ------------------------------------------------------
 
@@ -223,6 +229,22 @@ class RowLockOrderTests(PositiveOnlySocialTransactionTestCase):
         self.post.refresh_from_db()
         self.assertTrue(self.post.hidden)
         self.assertNotEqual(self.post.caption, edited_text)
+
+    def test_comment_edit_waiting_on_a_hide_rechecks_the_committed_row(self):
+        # Only the comment's row is held, so the edit gets past the post and
+        # author locks and waits on the comment row itself; its locked
+        # `hidden=False` read then finds the hidden comment and refuses.
+        def hide():
+            with transaction.atomic():
+                Comment.objects.select_for_update(no_key=True).get(pk=self.comment.pk)
+                Comment.objects.filter(pk=self.comment.pk).update(hidden=True, hidden_reason=HIDDEN_REASON_REPORTS)
+
+        _, edited = self._run_second_while_first_holds_lock(hide, COMMENT_UPDATE, self._edit_comment)
+
+        self.assertEqual(edited.status_code, 409)
+        self.comment.refresh_from_db()
+        self.assertTrue(self.comment.hidden)
+        self.assertNotEqual(self.comment.body, edited_text)
 
     def test_stale_categorization_waits_for_the_edit_then_discards_its_buckets(self):
         Post.objects.filter(pk=self.post.pk).update(caption='nature')

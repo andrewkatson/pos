@@ -11,6 +11,9 @@ on:
       - 'backend/**'
       - '.github/workflows/backend-tests.yml'
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Run Pytest
