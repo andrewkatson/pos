@@ -1,5 +1,7 @@
-/* Positive-interest picker (issues #446/#35). The web app is dark-only, so
-   these mirror the app's dark palette (accent #5ba4dc) rather than theming. */
+/* Positive-interest picker (issues #446/#35). It appears on the light register
+   page and in the dark Settings interests dialog, so every colour is one of the
+   `--auth-*` tokens from LoginPage.css: dark on `:root`, light inside
+   `.auth-page`. */
 
 .interest-picker {
   display: flex;
@@ -19,7 +21,7 @@
   display: block;
   font-size: 0.85rem;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--auth-fg-strong);
   margin-bottom: 8px;
   padding: 0;
 }
@@ -31,9 +33,9 @@
 }
 
 .interest-chip {
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border: 1px solid var(--auth-border-cancel);
   background: transparent;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--auth-fg);
   border-radius: 999px;
   padding: 6px 14px;
   font-size: 0.9rem;
@@ -42,13 +44,13 @@
 }
 
 .interest-chip:hover {
-  border-color: #5ba4dc;
+  border-color: var(--auth-accent);
 }
 
 .interest-chip--selected {
-  background: #5ba4dc;
-  border-color: #5ba4dc;
-  color: #ffffff;
+  background: var(--auth-accent);
+  border-color: var(--auth-accent);
+  color: var(--auth-on-accent);
 }
 
 .interest-chip:disabled {
@@ -69,18 +71,18 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: #1a1a1a;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--auth-surface);
+  border: 1px solid var(--auth-border);
   border-radius: 999px;
   padding: 4px 6px 4px 12px;
   font-size: 0.9rem;
-  color: #ffffff;
+  color: var(--auth-fg);
 }
 
 .interest-pill__remove {
   border: none;
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
+  background: var(--auth-divider-line);
+  color: var(--auth-fg);
   border-radius: 50%;
   width: 20px;
   height: 20px;
@@ -92,8 +94,12 @@
   justify-content: center;
 }
 
+/* The page background is the contrasting ink on each theme's danger colour:
+   black on the dark theme's #ff6b6b, white on the light theme's #c62828. White
+   on #ff6b6b would be only ~2.8:1. */
 .interest-pill__remove:hover {
-  background: #c0392b;
+  background: var(--auth-danger);
+  color: var(--auth-bg);
 }
 
 .interest-pill__remove:disabled {
@@ -107,14 +113,29 @@
   align-items: stretch;
 }
 
+/* The entry reuses the app's `.search-bar` and `.modal__confirm`. The search
+   bar is hard-coded dark in MainApp.css, so its colours are re-pointed at the
+   tokens here, and its bottom margin dropped so the Add button lines up. */
 .interest-freeform-entry .search-bar {
   flex: 1;
   min-width: 0;
+  margin-bottom: 0;
+  background: var(--auth-surface);
+  border-color: var(--auth-border);
+  color: var(--auth-fg);
+}
+
+.interest-freeform-entry .search-bar::placeholder {
+  color: var(--auth-fg-subtle);
+}
+
+.interest-freeform-entry .search-bar:focus {
+  border-color: var(--auth-accent);
 }
 
 .interest-picker__hint {
   font-size: 0.78rem;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--auth-fg-subtle);
   margin: 6px 0 0;
 }
 
@@ -123,8 +144,8 @@
   margin: 8px 0 0;
   padding: 8px 12px;
   border-radius: 8px;
-  background: rgba(192, 57, 43, 0.15);
-  border: 1px solid rgba(192, 57, 43, 0.4);
-  color: #f5b7b1;
+  background: var(--auth-danger-bg);
+  border: 1px solid var(--auth-danger-border);
+  color: var(--auth-danger);
   font-size: 0.82rem;
 }

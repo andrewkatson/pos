@@ -74,6 +74,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private val followRequestIds = mutableMapOf<String, Long>()
     private var nextFollowRequestId = 1L
     private val COMMENT_BATCH_SIZE = 10
+    // Comments per thread-comments page, matching the backend.
+    private val THREAD_COMMENT_BATCH_SIZE = 30
     private val LIKE_BATCH_SIZE = 10
 
     // ============================================================================================
@@ -157,7 +159,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val authorId: String,
         // Null for a text-only post (#307).
         val imageUrl: String?,
-        val caption: String,
+        // var so a caption edit (issue #462) can replace it.
+        var caption: String,
         // Whole-caption font + whole-tile background color keys (issue #318).
         val captionFont: String = "default",
         val backgroundColor: String = "default",
@@ -177,7 +180,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // Reporting user id -> their reason, so retract flows can show the reason.
         val reports: MutableMap<String, String> = mutableMapOf(),
         // Hashtags parsed from the caption (issue #379), normalized and sorted.
-        val tags: List<String> = emptyList()
+        var tags: List<String> = emptyList(),
+        // When the author last edited the caption (issue #462); null if never.
+        var editedTime: Long? = null
     )
 
     private data class AppealMock(
@@ -199,9 +204,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     private data class CommentMock(
         val commentIdentifier: String = UUID.randomUUID().toString(),
         val authorId: String,
-        val body: String,
+        // var so an edit (issue #462) can replace them.
+        var body: String,
         // Inline formatting spans over `body` (issue #318); null = plain.
-        val bodyFormatting: List<CommentFormatSpan>? = null,
+        var bodyFormatting: List<CommentFormatSpan>? = null,
         // Who may see this comment (issue #445).
         val audience: String = PostAudience.PUBLIC.value,
         val creationTime: Long = System.currentTimeMillis(),
@@ -209,7 +215,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var hiddenReason: String = "",
         val likes: MutableSet<String> = mutableSetOf(),
         // Reporting user id -> their reason, so retract flows can show the reason.
-        val reports: MutableMap<String, String> = mutableMapOf()
+        val reports: MutableMap<String, String> = mutableMapOf(),
+        // When the author last edited it (issue #462); null if never.
+        var editedTime: Long? = null
     )
 
     // ============================================================================================
@@ -942,6 +950,24 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     }
 
     // Owner-only: stops new comments/replies on a post (issue #492).
+    // Owner-only caption edit (issue #462). The stub classifier rejects
+    // "negative", like makePost, and a rejection leaves the original alone.
+    override suspend fun editPost(token: String, postId: String, request: EditPostRequest): Response<EditPostResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val post = posts.find { it.postIdentifier == postId && it.authorId == user.id }
+            ?: return errorGeneric(400, "No post with that identifier by that user")
+        if (post.hidden) return errorGeneric(409, "This post can't be edited right now")
+        if (request.caption != post.caption) {
+            if (request.caption.contains("negative")) {
+                return errorGeneric(400, "Your edit was not saved because your caption did not meet our positivity guidelines. Your original caption is unchanged.")
+            }
+            post.caption = request.caption
+            post.tags = extractTags(request.caption)
+            post.editedTime = System.currentTimeMillis()
+        }
+        return Response.success(EditPostResponse(post.caption, post.editedTime?.toString(), post.tags))
+    }
+
     override suspend fun lockComments(token: String, postId: String): Response<SetCommentsDisabledResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
         val post = posts.find { it.postIdentifier == postId && it.authorId == user.id }
@@ -1206,7 +1232,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             authorProfileImageOriginalUrl = avatar,
             tags = post.tags,
             audience = post.audience,
-            commentsDisabled = post.commentsDisabled
+            commentsDisabled = post.commentsDisabled,
+            // Lists carry the edit time too, so PostListActions can tell a
+            // refreshed row from an older one (issue #462).
+            editedTime = post.editedTime?.toString()
         )
     }
 
@@ -1252,7 +1281,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             authorProfileImageOriginalUrl = avatar,
             tags = post.tags,
             audience = post.audience,
-            commentsDisabled = post.commentsDisabled
+            commentsDisabled = post.commentsDisabled,
+            editedTime = post.editedTime?.toString()
         ))
     }
 
@@ -1395,6 +1425,36 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse("Comment deleted", null))
     }
 
+    // Author-only comment edit (issue #462): someone else's comment reads as
+    // missing, a comment on a post with commenting off is frozen, and
+    // "negative" text is refused with the original kept.
+    override suspend fun editComment(
+        token: String,
+        postId: String,
+        threadId: String,
+        commentId: String,
+        request: EditCommentRequest
+    ): Response<EditCommentResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val comment = findComment(postId, threadId, commentId)
+            ?.takeIf { postPrivacyAdmits(postId, user) && it.authorId == user.id }
+            ?: return errorGeneric(400, "Comment not found")
+        if (posts.find { it.postIdentifier == postId }?.commentsDisabled == true) {
+            return errorGeneric(403, "Comments are disabled for this post")
+        }
+        if (comment.hidden) return errorGeneric(409, "This comment can't be edited right now")
+        val formatting = request.bodyFormatting?.ifEmpty { null }
+        if (request.commentText != comment.body || formatting != comment.bodyFormatting) {
+            if (request.commentText != comment.body && request.commentText.contains("negative")) {
+                return errorGeneric(400, "Your edit was not saved because your comment did not meet our positivity guidelines. Your original comment is unchanged.")
+            }
+            comment.body = request.commentText
+            comment.bodyFormatting = formatting
+            comment.editedTime = System.currentTimeMillis()
+        }
+        return Response.success(EditCommentResponse(comment.body, comment.bodyFormatting, comment.editedTime?.toString()))
+    }
+
     override suspend fun reportComment(token: String, postId: String, threadId: String, commentId: String, request: ReportRequest): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val comment = findComment(postId, threadId, commentId)?.takeIf { postPrivacyAdmits(postId, user) }
@@ -1448,7 +1508,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             ?: return errorGeneric(404, "Thread not found")
 
         val comments = visibleComments(thread, user, category).sortedBy { it.creationTime }
-        val batched = getBatch(comments, batch, COMMENT_BATCH_SIZE)
+        // Paged like the backend, so the client's keep-fetching-while-full
+        // loop (issue #537) sees full pages exactly when more remain.
+        val batched = getBatch(comments, batch, THREAD_COMMENT_BATCH_SIZE)
 
         val dtos = batched.map { c ->
             val author = users.find { it.id == c.authorId }!!
@@ -1466,7 +1528,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 authorProfileImageUrl = avatar,
                 authorProfileImageOriginalUrl = avatar,
                 bodyFormatting = c.bodyFormatting,
-                audience = c.audience
+                audience = c.audience,
+                editedTime = c.editedTime?.toString()
             )
         }
         return Response.success(dtos)
@@ -1918,7 +1981,7 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse(message = "Device registered.", error = null))
     }
 
-    // Per-type push preferences, mirroring the backend's PUSH_TYPE_CHOICES.
+    // Per-type push preferences, mirroring the backend's PUSH_TYPE_TREE (#444).
     // Defaults to enabled; toggling stores an override.
     private val notificationOverrides = mutableMapOf<String, Boolean>()
 
@@ -1926,11 +1989,24 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         token: String
     ): Response<NotificationPreferencesResponse> {
         getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
-        val prefs = listOf(
-            NotificationPreference(
-                type = "post_rejected", label = "Post moderation",
-                enabled = notificationOverrides["post_rejected"] ?: true)
+        fun sources(kind: String, withOther: Boolean) = listOfNotNull(
+            Triple("${kind}_following", "From people I follow", kind),
+            Triple("${kind}_friend", "From friends", kind),
+            Triple("${kind}_family", "From family", kind),
+            if (withOther) Triple("${kind}_other", "From everyone else", kind) else null
         )
+        val tree = listOf<Triple<String, String, String?>>(
+            Triple("all", "Push notifications", null),
+            Triple("post_rejected", "Post moderation", "all"),
+            Triple("new_post", "New posts", "all")
+        ) + sources("new_post", false) +
+            Triple("new_comment", "Comments and replies", "all") + sources("new_comment", true) +
+            Triple("new_like", "Likes", "all") + sources("new_like", true)
+        val prefs = tree.map { (type, label, parent) ->
+            NotificationPreference(
+                type = type, label = label, parent = parent,
+                enabled = notificationOverrides[type] ?: true)
+        }
         return Response.success(NotificationPreferencesResponse(preferences = prefs))
     }
 

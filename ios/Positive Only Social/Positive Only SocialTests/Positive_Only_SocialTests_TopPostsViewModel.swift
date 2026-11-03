@@ -148,6 +148,7 @@ struct Positive_Only_SocialTests_TopPostsViewModel {
         sut.fetchTopPosts()
         await yield()
         #expect(sut.topPosts.count == 3)
+        #expect(sut.reachedEnd == false)
 
         // An empty page stops further fetches
         sut.fetchTopPosts()
@@ -156,6 +157,12 @@ struct Positive_Only_SocialTests_TopPostsViewModel {
         await yield()
         #expect(sut.topPosts.count == 3)
         #expect(stubAPI.getTopPostsCallCount == 3)
+        // ...and finishes the board, so it shows the banner (issue #528).
+        #expect(sut.reachedEnd == true)
+
+        // Picking another period starts a new board that isn't finished yet.
+        sut.selectPeriod(.year)
+        #expect(sut.reachedEnd == false)
     }
 
     @Test func testTopPosts_StayWithinViewersAgeBand() async throws {

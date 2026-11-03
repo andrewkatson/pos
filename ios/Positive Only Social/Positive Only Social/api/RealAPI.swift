@@ -166,6 +166,16 @@ final class RealAPI: Networking {
         let category: String
     }
 
+    private struct EditPostBody: Encodable {
+        let caption: String
+    }
+
+    private struct EditCommentBody: Encodable {
+        let comment_text: String
+        // Nil omits the field, which the backend reads as a plain comment.
+        let body_formatting: [CommentFormatSpan]?
+    }
+
     private struct ReportBody: Encodable { // Re-used for posts and comments
         let reason: String
     }
@@ -619,6 +629,17 @@ final class RealAPI: Networking {
         )
     }
 
+    /// Owner-only: replaces a live post's caption (issue #462).
+    func editPost(sessionManagementToken: String, postIdentifier: String, caption: String) async throws -> Data {
+        let requestBody = try encode(EditPostBody(caption: caption))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentEdit],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Owner-only: stops new comments/replies on a post (issue #492).
     func lockComments(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         return try await performRequest(
@@ -845,6 +866,17 @@ final class RealAPI: Networking {
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentThreads, commentThreadIdentifier, GVOAppConstants.pathSegmentComments, commentIdentifier, GVOAppConstants.pathSegmentDelete],
             method: .post,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Author-only: replaces a comment's text and formatting (issue #462).
+    func editComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?) async throws -> Data {
+        let requestBody = try encode(EditCommentBody(comment_text: commentText, body_formatting: formatting))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPosts, postIdentifier, GVOAppConstants.pathSegmentThreads, commentThreadIdentifier, GVOAppConstants.pathSegmentComments, commentIdentifier, GVOAppConstants.pathSegmentEdit],
+            method: .post,
+            body: requestBody,
             authToken: sessionManagementToken
         )
     }

@@ -21,3 +21,10 @@ body {
   background-color: #000000;
   color: #ffffff;
 }
+
+/* The logged-out pages (landing, legal, auth) are light. Matching the body to
+   them keeps overscroll and any gap below the page white instead of black. */
+body:has(.landing, .legal-page, .auth-page) {
+  background-color: #ffffff;
+  color: #16181d;
+}

@@ -351,6 +351,10 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun editPost(token: String, postId: String, request: EditPostRequest): Response<EditPostResponse> {
+        return Response.success(EditPostResponse(request.caption, null, emptyList()))
+    }
+
     override suspend fun lockComments(token: String, postId: String): Response<SetCommentsDisabledResponse> {
         return Response.success(SetCommentsDisabledResponse(commentsDisabled = true))
     }
@@ -489,6 +493,16 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
                 error = null
             )
         )
+    }
+
+    override suspend fun editComment(
+        token: String,
+        postId: String,
+        threadId: String,
+        commentId: String,
+        request: EditCommentRequest
+    ): Response<EditCommentResponse> {
+        return Response.success(EditCommentResponse(request.commentText, request.bodyFormatting, null))
     }
 
     override suspend fun deleteComment(
@@ -773,7 +787,10 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         return Response.success(
             NotificationPreferencesResponse(
                 preferences = listOf(
-                    NotificationPreference(type = "post_rejected", label = "Post moderation", enabled = true)
+                    NotificationPreference(type = "all", label = "Push notifications", enabled = true),
+                    NotificationPreference(type = "post_rejected", label = "Post moderation", enabled = true, parent = "all"),
+                    NotificationPreference(type = "new_like", label = "Likes", enabled = true, parent = "all"),
+                    NotificationPreference(type = "new_like_friend", label = "From friends", enabled = true, parent = "new_like")
                 )
             )
         )

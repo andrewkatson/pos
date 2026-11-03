@@ -36,11 +36,23 @@ function SavedPostsView() {
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
+  // Bumped by every replacement of the list. StrictMode replays the mount
+  // effect in development, so two first-page loads can overlap; a page still in
+  // flight from before the latest one would otherwise append onto it (or let
+  // automatic filling request the same next page twice).
+  const loadGeneration = useRef(0)
+
   const load = useCallback(async (pageToLoad: number, replace: boolean) => {
+    if (replace) {
+      loadGeneration.current += 1
+      setIsLoading(true)
+    }
+    const generation = loadGeneration.current
+    const isCurrent = () => isMounted.current && generation === loadGeneration.current
     try {
       if (isMounted.current) setErrorMessage(null) // drop any stale error before reloading
       const newPosts = await apiClient.getSavedPosts(pageToLoad)
-      if (!isMounted.current) return
+      if (!isCurrent()) return
       if (replace) {
         setPosts(newPosts)
         setCanLoadMore(newPosts.length > 0)
@@ -52,7 +64,7 @@ function SavedPostsView() {
         setPage(prev => prev + 1)
       }
     } catch (err) {
-      if (isMounted.current) {
+      if (isCurrent()) {
         // Surface the client's sanitized, user-facing message (offline, auth
         // expiry, rate limit) when there is one, matching the other settings
         // pages; fall back to generic copy otherwise.
@@ -60,13 +72,18 @@ function SavedPostsView() {
         setCanLoadMore(false)
       }
     } finally {
-      if (isMounted.current) setIsLoading(false)
+      if (isCurrent()) setIsLoading(false)
     }
   }, [])
 
   useEffect(() => {
     void Promise.resolve().then(() => load(0, true))
   }, [load])
+
+  const loadNext = useCallback(() => {
+    setIsLoading(true)
+    void load(page, false)
+  }, [load, page])
 
   const dropPost = useCallback((postIdentifier: string) => {
     setPosts(prev => prev.filter(post => post.post_identifier !== postIdentifier))
@@ -108,6 +125,7 @@ function SavedPostsView() {
             // Unsaving removes the post from the collection, so drop its tile.
             onPostUnsaved={dropPost}
             onError={setErrorMessage}
+            onFillRequest={canLoadMore && !isLoading ? loadNext : undefined}
           />
         )}
 
@@ -120,10 +138,7 @@ function SavedPostsView() {
           <button
             type="button"
             className="load-more"
-            onClick={() => {
-              setIsLoading(true)
-              void load(page, false)
-            }}
+            onClick={loadNext}
           >
             Load more
           </button>

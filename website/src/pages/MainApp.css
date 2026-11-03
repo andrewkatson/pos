@@ -747,6 +747,84 @@
   color: #ffffff;
 }
 
+/* The "you finished!" banner at the end of a feed or profile (issue #528). */
+.feed-end {
+  margin: 1.5rem auto 0.5rem;
+  max-width: 420px;
+  padding: 1.25rem 1rem;
+  border: 1px solid rgba(91, 164, 220, 0.45);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(91, 164, 220, 0.18), rgba(255, 126, 182, 0.14));
+  text-align: center;
+}
+
+.feed-end__icon {
+  display: block;
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.feed-end__title {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.feed-end__message {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.75);
+  overflow-wrap: anywhere;
+}
+
+/* Full-screen confetti burst played once when the banner scrolls into view.
+   Purely decorative: it never takes clicks and is skipped entirely under
+   prefers-reduced-motion (FeedEndBanner checks before mounting it). */
+.confetti {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.confetti__piece {
+  position: absolute;
+  top: -16px;
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  opacity: 0;
+  animation-name: confetti-fall;
+  animation-timing-function: cubic-bezier(0.25, 0.6, 0.5, 1);
+  animation-fill-mode: forwards;
+}
+
+.confetti__piece--round {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+@keyframes confetti-fall {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--confetti-drift, 0px), 105vh, 0) rotate(var(--confetti-spin, 540deg));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confetti {
+    display: none;
+  }
+}
+
 /* Top-of-list refresh control — the web equivalent of mobile pull-to-refresh. */
 .refresh-button {
   margin: 0 0 0.75rem auto;
@@ -776,21 +854,8 @@
   padding: 2rem 0;
 }
 
-.spinner {
-  display: inline-block;
-  width: 28px;
-  height: 28px;
-  border: 3px solid rgba(91, 164, 220, 0.3);
-  border-top-color: #5ba4dc;
-  border-radius: 50%;
-  animation: spin 0.75s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+/* `.spinner` lives in LoginPage.css, tokenised so it also works on the light
+   auth pages. */
 
 /* ---- Form (New Post) ---- */
 
@@ -987,6 +1052,18 @@
   gap: 1rem;
 }
 
+/* Nested notification toggles (issue #444): a kind under the master switch, a
+   relationship source under its kind. */
+.settings-row--toggle[data-depth='1'] {
+  margin-left: 1.25rem;
+  width: calc(100% - 1.25rem);
+}
+
+.settings-row--toggle[data-depth='2'] {
+  margin-left: 2.5rem;
+  width: calc(100% - 2.5rem);
+}
+
 .settings-row__value {
   color: #5ba4dc;
   font-weight: 600;
@@ -1043,50 +1120,11 @@
   color: #ff6b6b;
 }
 
-/* ---- Modal overlay (shared by Settings dialogs) ---- */
-
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1.5rem;
-  z-index: 100;
-}
-
-.modal {
-  background: #1a1a1a;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 16px;
-  padding: 1.75rem;
-  max-width: 480px;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.modal__title {
-  margin: 0;
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: #ffffff;
-}
-
-.modal__body {
-  margin: 0;
-  font-size: 0.9rem;
-  line-height: 1.55;
-  color: rgba(255, 255, 255, 0.75);
-}
-
-.modal__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-}
+/* ---- Modals ----
+   `.modal-overlay`, `.modal`, `.modal__title/__body/__actions/__cancel/__confirm`
+   live in LoginPage.css. They are shared with the light auth pages, so they are
+   written against the `--auth-*` tokens there; a hard-coded copy here would
+   win the cascade and paint the register page's dialogs dark. */
 
 /* The Settings terms-of-service dialog (issue #493): several sections, so it
    scrolls inside the modal instead of pushing the Ok button off screen. */
@@ -1113,79 +1151,8 @@
   overflow-y: auto;
 }
 
-.modal__cancel {
-  background: none;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 0.95rem;
-  padding: 0.55rem 1.2rem;
-  cursor: pointer;
-}
-
-.modal__cancel:hover {
-  border-color: rgba(255, 255, 255, 0.4);
-}
-
-.modal__confirm {
-  background: #5ba4dc;
-  border: none;
-  border-radius: 8px;
-  color: #ffffff;
-  font-size: 0.95rem;
-  font-weight: 600;
-  padding: 0.55rem 1.2rem;
-  cursor: pointer;
-}
-
-.modal__confirm:hover {
-  opacity: 0.85;
-}
-
-.modal__confirm:disabled {
-  background: #444;
-  cursor: not-allowed;
-}
-
-/* ---- Error/dismiss banner (shared with auth pages) ---- */
-
-.auth-error {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.85rem 1rem;
-  background: rgba(220, 50, 50, 0.18);
-  border: 1px solid rgba(220, 50, 50, 0.4);
-  border-radius: 10px;
-  color: #ff6b6b;
-  font-size: 0.9rem;
-}
-
-.auth-error p {
-  margin: 0;
-  flex: 1;
-}
-
-.auth-error__dismiss {
-  background: none;
-  border: none;
-  color: #ff6b6b;
-  cursor: pointer;
-  font-size: 0.85rem;
-  padding: 0;
-  line-height: 1;
-}
-
-.auth-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.auth-label {
-  font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.7);
-}
+/* `.auth-error`, `.auth-field` and `.auth-label` are also shared with the auth
+   pages and live, tokenised, in LoginPage.css for the same reason. */
 
 /* ---- Profile header ---- */
 

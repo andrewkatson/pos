@@ -356,7 +356,37 @@ data class Post(
     // Nullable because Gson ignores Kotlin defaults for absent JSON (an older
     // response omitting it yields null); read as `commentsDisabled == true`.
     // Appended last so positional constructions are unaffected.
-    @SerializedName("comments_disabled") val commentsDisabled: Boolean? = false
+    @SerializedName("comments_disabled") val commentsDisabled: Boolean? = false,
+    // When the author last edited the caption (issue #462); null if never, and
+    // absent on older responses. Appended last so positional constructions are
+    // unaffected.
+    @SerializedName("edited_time") val editedTime: String? = null
+)
+
+// --- Editing (issue #462) ---
+
+data class EditPostRequest(
+    val caption: String
+)
+
+/** The caption as editPost saved it, with its hashtags re-parsed. */
+data class EditPostResponse(
+    val caption: String,
+    @SerializedName("edited_time") val editedTime: String? = null,
+    val tags: List<String>? = null
+)
+
+data class EditCommentRequest(
+    @SerializedName("comment_text") val commentText: String,
+    // Null omits the field, which the backend reads as a plain comment.
+    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null
+)
+
+/** The comment as editComment saved it. */
+data class EditCommentResponse(
+    val body: String,
+    @SerializedName("body_formatting") val bodyFormatting: List<CommentFormatSpan>? = null,
+    @SerializedName("edited_time") val editedTime: String? = null
 )
 
 // --- Comment DTOs ---
@@ -405,7 +435,9 @@ data class CommentDto(
     // The comment author avatar's BlurHash (issue #460), shown blurred while the
     // avatar loads. Nullable (Gson ignores Kotlin defaults for absent JSON) and
     // appended last so positional constructions are unaffected.
-    @SerializedName("author_profile_image_blurhash") val authorProfileImageBlurHash: String? = null
+    @SerializedName("author_profile_image_blurhash") val authorProfileImageBlurHash: String? = null,
+    // When the author last edited it (issue #462); null if never. Appended last.
+    @SerializedName("edited_time") val editedTime: String? = null
 )
 
 // --- User/Profile DTOs ---
@@ -530,11 +562,43 @@ data class RegisterDeviceRequest(
 // One push type the user can toggle in Settings → Notifications (#342/#343).
 // Fields are nullable because Gson ignores Kotlin defaults for absent JSON keys
 // (see the other DTOs in this file); callers treat a null as its safe default.
+// `parent` places the row in the preference tree (issue #444): null for the
+// master switch, or from an older backend that sends no tree. `enabled` is the
+// row's own setting; a push is delivered only when every ancestor is on too.
 data class NotificationPreference(
     @SerializedName("type") val type: String? = null,
     @SerializedName("label") val label: String? = null,
-    @SerializedName("enabled") val enabled: Boolean? = null
+    @SerializedName("enabled") val enabled: Boolean? = null,
+    @SerializedName("parent") val parent: String? = null
 )
+
+/** A Settings → Notifications row with how deep it is indented. */
+data class NotificationRow(val pref: NotificationPreference, val depth: Int)
+
+/**
+ * The toggles to show, in order (issue #444). The backend lists every parent
+ * before its children; a row is indented under its parent and hidden while any
+ * ancestor is off, since an off parent silences everything beneath it. A row
+ * whose parent is missing shows at the top level.
+ */
+fun visibleNotificationRows(prefs: List<NotificationPreference>): List<NotificationRow> {
+    val byType = prefs.filter { it.type != null }.associateBy { it.type }
+    val shownDepth = mutableMapOf<String, Int>()
+    val rows = mutableListOf<NotificationRow>()
+    for (pref in prefs) {
+        val type = pref.type ?: continue
+        val parent = pref.parent?.let { byType[it] }
+        var depth = 0
+        if (parent != null) {
+            val parentDepth = shownDepth[parent.type] ?: continue
+            if (parent.enabled == false) continue
+            depth = parentDepth + 1
+        }
+        shownDepth[type] = depth
+        rows.add(NotificationRow(pref, depth))
+    }
+    return rows
+}
 
 data class NotificationPreferencesResponse(
     @SerializedName("preferences") val preferences: List<NotificationPreference>? = null
@@ -821,13 +885,24 @@ data class CommentViewData(
     // Who may see this comment (issue #445); null/"public" shows no scope badge.
     val audience: String? = null,
     // That avatar's BlurHash (issue #460), shown blurred while the photo loads.
-    val authorProfileImageBlurHash: String? = null
+    val authorProfileImageBlurHash: String? = null,
+    // Whether the author changed it after posting (issue #462).
+    val isEdited: Boolean = false,
+    // When it was last edited, as the server sent it (issue #462) — what a
+    // reload is compared against before it may replace an edit saved here.
+    val editedTime: String? = null
 )
 
 data class CommentThreadViewData(
     val id: String,
     val comments: List<CommentViewData>
-)
+) {
+    /** Ids of the comments that have a later reply in this thread — every
+     * comment but the last. Only these get a collapse control: there is nothing
+     * below the last one to fold away (issue #537). */
+    val commentIdsWithReplies: Set<String>
+        get() = comments.dropLast(1).map { it.id }.toSet()
+}
 // =============================================================================
 // APPEALS (backend appeal endpoints)
 // =============================================================================

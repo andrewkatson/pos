@@ -151,6 +151,24 @@ test('renders the post grid and opens a post', async () => {
   expect(screen.getByText('Post page')).toBeInTheDocument()
 })
 
+test("celebrates reaching the end of someone else's posts (#528)", async () => {
+  mockGetPosts.mockImplementation((_username, batch) =>
+    Promise.resolve(
+      batch === 0
+        ? [{ post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'bob', caption: 'hi' }]
+        : [],
+    ),
+  )
+  renderProfile()
+
+  await screen.findByRole('button', { name: 'Post by bob' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  const banner = await screen.findByRole('status')
+  expect(banner).toHaveTextContent('You finished!')
+  expect(banner).toHaveTextContent("You've seen all of bob's posts.")
+})
+
 test('refresh reloads both the profile details and the posts', async () => {
   mockGetPosts.mockResolvedValue([
     { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'bob', caption: 'hi' },

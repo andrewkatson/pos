@@ -71,6 +71,23 @@ object CommentFormatting {
     fun setSize(styles: List<CharStyle>, start: Int, end: Int, size: String): List<CharStyle> =
         applyToRange(styles, start, end) { it.copy(size = size) }
 
+    /** Expand stored spans back into one style per character of [text], so an
+     * edit (issue #462) opens with the comment's existing formatting. The
+     * inverse of [toSpans]; spans past the end of the text are clipped. */
+    fun fromSpans(text: String, spans: List<CommentFormatSpan>?): List<CharStyle> {
+        var styles = emptyStyles(text.length)
+        spans.orEmpty().forEach { span ->
+            styles = applyToRange(styles, span.start.coerceAtLeast(0), span.end.coerceAtMost(text.length)) {
+                it.copy(
+                    bold = it.bold || span.bold,
+                    italic = it.italic || span.italic,
+                    size = span.size
+                )
+            }
+        }
+        return styles
+    }
+
     /** Compress the style list into sorted, non-overlapping spans, dropping
      * unstyled runs. Returns null when there is no formatting. */
     fun toSpans(styles: List<CharStyle>): List<CommentFormatSpan>? {

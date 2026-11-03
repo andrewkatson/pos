@@ -482,6 +482,12 @@ class Post(models.Model):
     creation_time = models.DateTimeField(auto_now_add=True, null=True,
                                          blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    # When the author last edited the caption (issue #462); null if never.
+    # Distinct from updated_time, which auto_now bumps on every save — a
+    # classification transition or a comments lock is not an edit. Clients show
+    # "edited" whenever it is set, so a caption changed after people liked or
+    # commented on it never passes for the original.
+    edited_time = models.DateTimeField(null=True, blank=True, default=None)
     author = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE)
     # Who may see this post (issue #392). Defaults to public so posts created
     # before the feature — and by clients that never send an audience — behave
@@ -698,6 +704,9 @@ class Comment(models.Model):
     creation_time = models.DateTimeField(auto_now_add=True, null=True,
                                          blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
+    # When the author last edited the body (issue #462); null if never. See
+    # Post.edited_time.
+    edited_time = models.DateTimeField(null=True, blank=True, default=None)
     # Who may see this comment (issue #445). Mirrors Post.audience: the same
     # nested-circle tiers, defaulting to public so comments created before the
     # feature — and by clients that never send an audience — stay visible to

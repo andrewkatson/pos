@@ -200,4 +200,20 @@ class TopPostsViewModelTest {
         assertNotNull(viewModel.loadError.value)
         assertFalse(viewModel.isLoadingNextPage.value)
     }
+
+    @Test
+    fun `reachedEnd turns on at the end of the board and resets with the period (issue 528)`() = runTest {
+        val page0 = listOf(Post("1", "url1", "caption1", "user1", 5))
+        whenever(api.getTopPosts("token123", 0, "week")).thenReturn(Response.success(page0))
+        whenever(api.getTopPosts("token123", 1, "week")).thenReturn(Response.success(emptyList()))
+        whenever(api.getTopPosts("token123", 0, "year")).thenReturn(Response.success(page0))
+
+        viewModel.fetchTopPosts()
+        assertFalse(viewModel.reachedEnd.value)
+        viewModel.fetchTopPosts()
+        assertTrue(viewModel.reachedEnd.value)
+
+        viewModel.selectPeriod(TopPostPeriod.YEAR)
+        assertFalse(viewModel.reachedEnd.value)
+    }
 }

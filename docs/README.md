@@ -9,7 +9,8 @@ changes.
 
 - [Navigation and post actions](navigation-and-post-actions.md) — the bottom
   bar, user search, follower lists, the post options menu, who liked a post,
-  saved posts, and locking comments.
+  saved posts, locking comments, editing captions and comments, and the "You
+  finished!" banner at the end of a feed or profile.
 - [Text formatting](text-formatting.md) — caption fonts and background colors,
   the Text / Image composer, and inline comment formatting.
 - [Hashtags](hashtags.md) — `#tag` parsing and tag feeds.
@@ -43,8 +44,9 @@ changes.
   two-factor authentication, and new-device login emails.
 - [Google sign-in setup](google-sign-in-setup.md) — wiring the OAuth client
   IDs for each surface.
-- [Push notifications](push-notifications.md) — device tokens, per-type
-  preferences, APNs/FCM delivery, and the required secrets.
+- [Push notifications](push-notifications.md) — device tokens, the
+  preference tree, which activity (new posts, comments, likes) notifies whom,
+  APNs/FCM delivery, and the required secrets.
 
 ## Infrastructure and operations
 

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
 import { clearSession } from '../api/session'
 import type { CurrentUser, NotificationPreference } from '../api/types'
+import { visibleNotificationRows } from '../api/notificationPreferences'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
 import { TERMS_OF_SERVICE_LAST_UPDATED, TERMS_OF_SERVICE_SECTIONS } from '../termsOfService'
 import Modal from './Modal'
@@ -65,7 +66,8 @@ function SettingsTab() {
   }, [])
 
   // Load the push notification toggles (issues #342/#343). One row per type the
-  // backend reports, so a new type appears here with no client change.
+  // backend reports, so a new type appears here with no client change; rows
+  // nest under their parent and hide while it is off (issue #444).
   useEffect(() => {
     let cancelled = false
     apiClient
@@ -274,11 +276,12 @@ function SettingsTab() {
       {notifPrefs.length > 0 && (
         <div className="settings-group">
           <span className="settings-group__header">Notifications</span>
-          {notifPrefs.map(pref => (
+          {visibleNotificationRows(notifPrefs).map(({ pref, depth }) => (
             <button
               key={pref.type}
               type="button"
               className="settings-row settings-row--toggle"
+              data-depth={depth}
               aria-pressed={pref.enabled}
               disabled={savingTypes.includes(pref.type)}
               onClick={() => toggleNotification(pref)}
