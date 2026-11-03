@@ -14,6 +14,7 @@ import { profileShareUrl, shareLink } from '../utils/shareLink'
 import AnchoredMenu, { AnchoredMenuItem } from './AnchoredMenu'
 import { anchorFrom, type MenuAnchor } from './menuAnchor'
 import PostGrid from './PostGrid'
+import FeedEndBanner from './FeedEndBanner'
 import Avatar from './Avatar'
 import CharacterCounter from './CharacterCounter'
 
@@ -124,6 +125,9 @@ function ProfileView({
   const [posts, setPosts] = useState<FeedPost[]>([])
   const [page, setPage] = useState(0)
   const [canLoadMore, setCanLoadMore] = useState(true)
+  // Set only when a page comes back empty — every post is on screen — not when
+  // a load fails, which also stops paging (issue #528).
+  const [reachedEnd, setReachedEnd] = useState(false)
   // Start loading so the spinner shows on mount without a synchronous setState
   // inside the fetch effect.
   const [isLoadingPosts, setIsLoadingPosts] = useState(true)
@@ -216,31 +220,57 @@ function ProfileView({
     void Promise.resolve().then(() => loadProfile())
   }, [loadProfile])
 
+  // Bumped by every grid replacement (mount, refresh, the classification
+  // poll's reload): a page still in flight from before it would otherwise
+  // append onto the fresh first page, duplicating tiles and skewing `page`.
+  const postsGeneration = useRef(0)
+
   const loadPosts = useCallback(
     async (pageToLoad: number, replace: boolean) => {
       const generation = loadGeneration.current
+      if (replace) {
+        postsGeneration.current += 1
+        // Holds off automatic filling and Load more until the new first page
+        // lands, so no page is requested against the grid being replaced.
+        setIsLoadingPosts(true)
+        // Cleared as the replacement starts, not when it lands: a failed
+        // reload must not bring back the old banner — remounted, it would
+        // celebrate again without a new finish.
+        setReachedEnd(false)
+      }
+      const postsGen = postsGeneration.current
+      const isCurrent = () =>
+        isMounted.current &&
+        generation === loadGeneration.current &&
+        postsGen === postsGeneration.current
       try {
         const newPosts = await fetchPosts(pageToLoad)
-        if (!isMounted.current || generation !== loadGeneration.current) return
+        if (!isCurrent()) return
         if (replace) {
           setPosts(newPosts)
           setCanLoadMore(newPosts.length > 0)
           setPage(newPosts.length > 0 ? 1 : 0)
         } else if (newPosts.length === 0) {
           setCanLoadMore(false)
+          setReachedEnd(true)
         } else {
           setPosts(prev => [...prev, ...newPosts])
           setPage(prev => prev + 1)
         }
       } catch {
-        if (isMounted.current && generation === loadGeneration.current) setCanLoadMore(false)
+        if (isCurrent()) setCanLoadMore(false)
       } finally {
         // A superseded load leaves the spinner to the load that replaced it.
-        if (isMounted.current && generation === loadGeneration.current) setIsLoadingPosts(false)
+        if (isCurrent()) setIsLoadingPosts(false)
       }
     },
     [fetchPosts],
   )
+
+  const loadNextPosts = useCallback(() => {
+    setIsLoadingPosts(true)
+    void loadPosts(page, false)
+  }, [loadPosts, page])
 
   // Deferred to a microtask so the fetch's setState calls don't run
   // synchronously inside the effect (React flags that as cascading renders).
@@ -919,6 +949,7 @@ function ProfileView({
           onError={setErrorMessage}
           // No session, no in-place actions: the tiles still open each post.
           readOnly={!isSignedIn}
+          onFillRequest={canLoadMore && !isLoadingPosts ? loadNextPosts : undefined}
         />
       )}
 
@@ -931,13 +962,17 @@ function ProfileView({
         <button
           type="button"
           className="load-more"
-          onClick={() => {
-            setIsLoadingPosts(true)
-            void loadPosts(page, false)
-          }}
+          onClick={loadNextPosts}
         >
           Load more
         </button>
+      )}
+      {reachedEnd && !isLocked && !isLoadingPosts && posts.length > 0 && (
+        <FeedEndBanner
+          message={
+            isOwnProfile ? "That's every post you've shared." : `You've seen all of ${username}'s posts.`
+          }
+        />
       )}
 
       {menuAnchor && (

@@ -17,7 +17,13 @@ final class FeedViewModel: ObservableObject {
     private let keychainService = GVOAppConstants.keychainService
     @Published var feedPosts: [Post] = []
     @Published var isLoadingNextPage = false
-    private var canLoadMore = true
+    /// True once a page comes back empty: every post is loaded, so the view
+    /// shows the "you finished!" banner (issue #528). A failed load leaves it
+    /// alone, since that doesn't mean the feed ran out.
+    @Published private(set) var reachedEnd = false
+    private var canLoadMore = true {
+        didSet { reachedEnd = !canLoadMore }
+    }
     private var currentPage = 0
 
     // Listens for `.postDeleted` so a post deleted from the feed itself (#267)

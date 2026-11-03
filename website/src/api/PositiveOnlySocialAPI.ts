@@ -18,6 +18,8 @@ import type {
   CurrentUser,
   DisableTotpRequest,
   DisableTotpResponse,
+  EditCommentResponse,
+  EditPostResponse,
   FeedPost,
   FollowCategory,
   FollowRequestRow,
@@ -105,6 +107,9 @@ export interface PositiveOnlySocialAPI {
   createUploadUrl(): Promise<CreateUploadUrlResponse>
   createPost(body: CreatePostRequest): Promise<CreatePostResponse>
   deletePost(postIdentifier: string): Promise<MessageResponse>
+  /** Owner-only: replace a live post's caption (issue #462). The new caption is
+   * classified first; a rejection throws and leaves the original in place. */
+  editPost(postIdentifier: string, caption: string): Promise<EditPostResponse>
   /** Owner-only: stop new comments/replies on a post (issue #492). Existing
    * comments stay visible. */
   lockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse>
@@ -213,6 +218,15 @@ export interface PositiveOnlySocialAPI {
     commentThreadIdentifier: string,
     commentIdentifier: string,
   ): Promise<MessageResponse>
+  /** Author-only: replace a comment's text and formatting (issue #462). Like
+   * editPost, a rejected edit throws and leaves the original in place. */
+  editComment(
+    postIdentifier: string,
+    commentThreadIdentifier: string,
+    commentIdentifier: string,
+    commentText: string,
+    formatting?: CommentFormatSpan[],
+  ): Promise<EditCommentResponse>
   reportComment(
     postIdentifier: string,
     commentThreadIdentifier: string,

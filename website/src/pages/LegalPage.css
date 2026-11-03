@@ -1,11 +1,14 @@
 /* Shared shell for the unauthenticated legal pages — the privacy policy and
-   the terms of service. One stylesheet so the two can't drift apart. */
+   the terms of service. One stylesheet so the two can't drift apart. Light,
+   like the landing and auth pages; the colours match LandingPage.css. */
 
 .legal-page {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background-color: #000000;
+  background-color: #ffffff;
+  color: #16181d;
+  color-scheme: light;
 }
 
 .legal-page__nav {
@@ -29,7 +32,7 @@
   font-size: clamp(1.75rem, 5vw, 2.5rem);
   font-weight: 800;
   letter-spacing: -0.02em;
-  color: #ffffff;
+  color: #16181d;
 }
 
 .legal-page__body {
@@ -37,7 +40,7 @@
   margin: 0;
   font-size: 1rem;
   line-height: 1.6;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(22, 24, 29, 0.85);
 }
 
 .legal-page__aside {
@@ -45,7 +48,7 @@
 }
 
 .legal-page__link {
-  color: #5ba4dc;
+  color: #1b6ea4;
   text-decoration: underline;
 }
 
@@ -55,7 +58,7 @@
   max-width: 640px;
   margin: -0.75rem 0 2rem;
   font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(22, 24, 29, 0.62);
 }
 
 .legal-page__section {
@@ -71,5 +74,5 @@
   margin: 0 0 0.5rem;
   font-size: 1.1rem;
   font-weight: 700;
-  color: #ffffff;
+  color: #16181d;
 }

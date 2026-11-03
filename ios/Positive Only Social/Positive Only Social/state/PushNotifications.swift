@@ -83,11 +83,11 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
 
     // MARK: - UNUserNotificationCenterDelegate
 
-    /// A notification was tapped — route to the rejected post if it carries one.
+    /// A notification was tapped — route to the post it is about, if any.
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        routeIfPostRejection(userInfo: response.notification.request.content.userInfo)
+        routeToPost(userInfo: response.notification.request.content.userInfo)
         completionHandler()
     }
 
@@ -101,14 +101,15 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
 
     /// Pull `post_identifier` out of the payload's `data` map (the shape the
     /// backend sends under the APNs `data` key) and hand it to the router. Gated
-    /// on the `type` tag so only a post-rejection push routes to a post — any
+    /// on the `type` tag so only the kinds known to be about a post (a
+    /// rejection, a new post, a comment or a like — #342/#444) route to one; any
     /// future push kind is ignored here rather than mis-routed.
-    private func routeIfPostRejection(userInfo: [AnyHashable: Any]) {
+    private func routeToPost(userInfo: [AnyHashable: Any]) {
         // APNs bridges the nested JSON object as [AnyHashable: Any] (from
         // NSDictionary), so cast to that — [String: Any] can fail on a valid
         // payload and silently drop the tap.
         guard let data = userInfo["data"] as? [AnyHashable: Any],
-              data["type"] as? String == PUSH_TYPE_POST_REJECTED,
+              let type = data["type"] as? String, POST_PUSH_TYPES.contains(type),
               let postIdentifier = data["post_identifier"] as? String else {
             return
         }
@@ -118,6 +119,6 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
     }
 }
 
-// The machine-readable `type` on a rejection push's data map, mirroring the
-// backend's PUSH_TYPE_POST_REJECTED (user_system/constants.py).
-private let PUSH_TYPE_POST_REJECTED = "post_rejected"
+// The machine-readable `type`s on a push's data map that carry a post to open,
+// mirroring the backend's PUSH_TYPE_* kinds (user_system/constants.py).
+private let POST_PUSH_TYPES: Set<String> = ["post_rejected", "new_post", "new_comment", "new_like"]

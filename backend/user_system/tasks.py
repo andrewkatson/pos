@@ -40,7 +40,7 @@ from .constants import (
 )
 from .models import Post, PositiveOnlySocialUser, InterestCategory, ModerationReview, FollowRequest, UserFollow
 from .visibility import same_age_band_users
-from . import push
+from . import notifications, push
 from .s3 import delete_image
 
 # Module-level aliases so tests can patch the classifiers here, mirroring the
@@ -97,13 +97,13 @@ class ClassificationProviderError(Exception):
     """
 
 
-def _queue():
+def _queue(name=None):
     # Imported lazily so simply importing this module (e.g. from views) never
     # requires rq/redis to be importable in environments that run eagerly.
     from redis import Redis
     from rq import Queue
     return Queue(
-        settings.CLASSIFICATION_QUEUE_NAME,
+        name or settings.CLASSIFICATION_QUEUE_NAME,
         connection=Redis.from_url(os.environ['REDIS_URL']),
     )
 
@@ -349,7 +349,18 @@ def categorize_post(post_identifier):
     # priority rather than alphabetically.
     by_slug = {c.slug: c for c in InterestCategory.objects.filter(slug__in=slugs)}
     categories = [by_slug[s] for s in slugs if s in by_slug]
-    post.interest_categories.set(categories)
+    with transaction.atomic():
+        # The caption may have been edited while the categorizer ran (issue
+        # #462). These buckets describe the caption read above, and the edit
+        # queued its own run for the new one — so if this run finishes last it
+        # must not overwrite that one's result. edit_post writes the caption
+        # under this same row lock.
+        current = Post.objects.select_for_update(no_key=True).filter(pk=post.pk, caption=post.caption).first()
+        if current is None:
+            logger.info("categorize_post: post %s changed or vanished while categorizing; "
+                        "discarding the stale buckets.", post_identifier)
+            return
+        current.interest_categories.set(categories)
     logger.info("categorize_post: post %s tagged with interests %s",
                 post_identifier, [c.slug for c in categories])
 
@@ -583,6 +594,10 @@ def classify_post(post_identifier):
         # carries no retry budget, so a categorization hiccup never disturbs the
         # (already committed) approval.
         enqueue_post_categorization(post_identifier)
+        # Tell the author's followers (issue #444). Rides the same one-time
+        # pending -> visible transition, so each follower hears about a post
+        # once; best-effort and queued, so it never touches the approval.
+        notifications.notify_new_post(post_identifier)
         return
     logger.info("classify_post: post %s rejected (final=%s, reason=%s).",
                 post_identifier, final, reason_result.public_reason_code())
@@ -794,11 +809,15 @@ def review_reported_content(review_identifier):
     now = timezone.now()
 
     with transaction.atomic():
+        # Content row first, then the review row — the lock order every review
+        # transition and caption/comment edit shares (see
+        # moderation.lock_reviewed_content), so this cannot deadlock with them.
+        locked_target = type(target).objects.select_for_update(no_key=True).filter(pk=target.pk).first()
         # Re-claim the row under lock so a concurrent duplicate delivery cannot
         # apply the transition (and its side effects) twice.
         claimed = ModerationReview.objects.select_for_update().filter(
             pk=review.pk, status=REVIEW_STATUS_PENDING).first()
-        if claimed is None:
+        if claimed is None or locked_target is None:
             logger.info("review_reported_content: review %s was resolved concurrently; nothing to do.",
                         review_identifier)
             return
@@ -812,8 +831,7 @@ def review_reported_content(review_identifier):
         # terminal, image-deleted tombstone look appealable again. Locked, so
         # the model-chain fold below merges with — rather than overwrites —
         # anything a concurrent round of this content recorded meanwhile.
-        target = claimed.target
-        target = type(target).objects.select_for_update().get(pk=target.pk)
+        target = locked_target
         if target.hidden:
             claimed.status = REVIEW_STATUS_HIDDEN
             claimed.reviewed_time = now

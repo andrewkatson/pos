@@ -153,4 +153,7 @@ as systemd units (see [Deploying and restarting services](deployment.md)):
   [Post image cleanup](images.md#post-image-cleanup)).
 
 Comments are still classified inline in the request (text-only, much smaller
-worst case); moving them to the same async flow is a tracked follow-up.
+worst case); moving them to the same async flow is a tracked follow-up. Edits to
+a caption or a comment are classified inline the same way, and a rejected edit
+keeps the original rather than hiding anything (see
+[Editing captions and comments](navigation-and-post-actions.md#editing-captions-and-comments-issue-462)).

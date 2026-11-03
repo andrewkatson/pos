@@ -80,6 +80,7 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         #expect(sut.userPosts.count == 3, "Should load second page (1 more post)")
         #expect(stubAPI.getPostsForUserCallCount == 2)
         #expect(sut.canLoadMore == true) // The API returns an empty list *next* time
+        #expect(sut.reachedEnd == false)
 
         // --- 3. Fetch Third (Empty) Page ---
         sut.fetchUserPosts()
@@ -87,6 +88,8 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         #expect(sut.userPosts.count == 3, "Should load empty page, no change")
         #expect(stubAPI.getPostsForUserCallCount == 3)
         #expect(sut.canLoadMore == false, "Should set canLoadMore to false after empty response")
+        // Every post is loaded, so the grid ends with the banner (issue #528).
+        #expect(sut.reachedEnd == true)
         
         // --- 4. Fetch Again (Blocked by `canLoadMore`) ---
         sut.fetchUserPosts()

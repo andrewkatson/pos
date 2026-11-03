@@ -218,6 +218,10 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
 
+    func editPost(sessionManagementToken: String, postIdentifier: String, caption: String) async throws -> Data {
+        return try encode(EditPostResponse(caption: caption, editedTime: nil, tags: []))
+    }
+
     func lockComments(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         struct Fields: Codable { let comments_disabled: Bool }
         return try encode(Fields(comments_disabled: true))
@@ -348,6 +352,10 @@ struct MockedAPI: Networking {
 
     func deleteComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         return try encodeGenericSuccess()
+    }
+
+    func editComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?) async throws -> Data {
+        return try encode(EditCommentResponse(body: commentText, bodyFormatting: formatting, editedTime: nil))
     }
 
     func reportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, reason: String) async throws -> Data {
@@ -529,7 +537,10 @@ struct MockedAPI: Networking {
     }
 
     func getNotificationPreferences(sessionManagementToken: String) async throws -> Data {
-        let prefs = [NotificationPreference(type: "post_rejected", label: "Post moderation", enabled: true)]
+        let prefs = [NotificationPreference(type: "all", label: "Push notifications", enabled: true),
+                     NotificationPreference(type: "post_rejected", label: "Post moderation", enabled: true, parent: "all"),
+                     NotificationPreference(type: "new_like", label: "Likes", enabled: true, parent: "all"),
+                     NotificationPreference(type: "new_like_friend", label: "From friends", enabled: true, parent: "new_like")]
         return try encode(NotificationPreferencesResponse(preferences: prefs))
     }
 

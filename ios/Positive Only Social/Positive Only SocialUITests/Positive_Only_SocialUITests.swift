@@ -77,8 +77,13 @@ final class Positive_Only_SocialUITests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        // We want the test to teardown properly even if it fails midway through
-        app.terminate()
+        // We want the test to teardown properly even if it fails midway through.
+        // Optional-chained because setUp can be interrupted before `app` is
+        // assigned: an Accessibility IPC timeout while setting the orientation
+        // skips straight here, and force-unwrapping nil would kill the test
+        // runner - taking the in-process retry down with it and leaving
+        // xcodebuild hung until the CI step timeout.
+        app?.terminate()
         
         try super.tearDownWithError()
     }
