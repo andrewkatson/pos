@@ -3,7 +3,7 @@ import os
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, Client, override_settings
+from django.test import TestCase, TransactionTestCase, Client, override_settings
 from django.urls import reverse
 
 # Note: test_constants are no longer used for FAIL/SUCCESS
@@ -14,13 +14,11 @@ from ..constants import Fields
 from ..models import Post, CommentThread, Comment, Session
 
 
-# Pin the images bucket to 'test-bucket' so the `https://test-bucket.s3...`
-# URLs these tests build satisfy make_post's is_source_bucket_url check.
-@override_settings(RATELIMIT_ENABLE=False, AWS_STORAGE_BUCKET_NAME='test-bucket')
-class PositiveOnlySocialTestCase(TestCase):
+class PositiveOnlySocialTestMixin:
     """
-    A parent test case for the PositiveOnlySocial app that uses the
-    Django test client to make real API requests.
+    Setup and helpers for PositiveOnlySocial tests that use the Django test
+    client to make real API requests. Mixed into PositiveOnlySocialTestCase
+    and PositiveOnlySocialTransactionTestCase below.
     """
 
     def setUp(self):
@@ -389,3 +387,22 @@ class PositiveOnlySocialTestCase(TestCase):
         for i in range(num_posts):
             self._make_post(fields[Fields.session_management_token])
         return fields
+
+
+# Pin the images bucket to 'test-bucket' so the `https://test-bucket.s3...`
+# URLs these tests build satisfy make_post's is_source_bucket_url check.
+@override_settings(RATELIMIT_ENABLE=False, AWS_STORAGE_BUCKET_NAME='test-bucket')
+class PositiveOnlySocialTestCase(PositiveOnlySocialTestMixin, TestCase):
+    """
+    A parent test case for the PositiveOnlySocial app that uses the
+    Django test client to make real API requests.
+    """
+
+
+@override_settings(RATELIMIT_ENABLE=False, AWS_STORAGE_BUCKET_NAME='test-bucket')
+class PositiveOnlySocialTransactionTestCase(PositiveOnlySocialTestMixin, TransactionTestCase):
+    """
+    PositiveOnlySocialTestCase for tests that need real commits — e.g. several
+    threads, each on its own database connection, contending for row locks.
+    Slower: the database is flushed after every test instead of rolled back.
+    """

@@ -40,3 +40,52 @@ jobs:
       working-directory: ./backend
       run: |
         python manage.py test user_system.tests
+
+  # Production runs on PostgreSQL, where select_for_update takes real row locks;
+  # SQLite ignores them. This job runs the backend suite against Postgres so the
+  # lock-order tests in test_row_locks_postgres.py (skipped on SQLite) execute.
+  test-postgres:
+    name: Run backend tests (PostgreSQL)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pos
+          POSTGRES_PASSWORD: pos
+          POSTGRES_DB: pos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_NAME: pos
+      DATABASE_USER: pos
+      DATABASE_PASSWORD: pos
+      DATABASE_HOST: localhost
+      DATABASE_PORT: "5432"
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.14"
+        cache: 'pip'
+
+    - name: Install dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run backend tests
+      working-directory: ./backend
+      run: |
+        python manage.py test user_system.tests

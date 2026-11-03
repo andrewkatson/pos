@@ -17,6 +17,7 @@
 
 - See the workflows in `.github/workflows/` for how the project is built and tested. Relevant files: `website-tests.yml`, `backend-tests.yml`, `ios-tests.yml`, `android-tests.yml`, and `codeql.yml`.
 - Backend (Python 3.14, from `backend/`): run both `python -m pytest tests` and `python manage.py test user_system.tests` before finishing backend work.
+- CI also runs `user_system.tests` on PostgreSQL. SQLite ignores `select_for_update`, so the row-lock tests in `test_row_locks_postgres.py` run only there. To run them locally, point `DATABASE_NAME`/`USER`/`PASSWORD`/`HOST`/`PORT` at a Postgres the user can create databases on.
 - Website (from `website/`): CI runs `npm run lint`, `npx tsc -b --noEmit`, `npm test`, and `npm run build` — run all four before finishing website work.
 - CI is path-filtered: only workflows matching the touched directories run, so a change spanning multiple subprojects needs each affected suite run locally.
 
