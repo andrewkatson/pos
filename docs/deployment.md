@@ -2,7 +2,23 @@
 
 The Django API runs on an EC2 host provisioned by `backend/tools/setup-django.sh`
 (gunicorn behind nginx; the website is a separate S3 + CloudFront SPA published
-with `website/deploy-web.sh`). Beyond gunicorn, the backend relies on several
+with `website/deploy-web.sh`).
+
+| Path on the host | What lives there | Override |
+| --- | --- | --- |
+| `/var/www/smiling-social` | `APP_DIR`: everything below, plus `gunicorn.sock`, `staticfiles/` and `media/` | none |
+| `$APP_DIR/pos` | the git clone | none |
+| `$APP_DIR/pos/backend` | `BACKEND_DIR`: `manage.py`, the units' `WorkingDirectory` | none |
+| `$APP_DIR/venv` | the Python virtualenv | `--venv-dir` |
+| `$APP_DIR/.env` | secrets and config, mode 600 | `--env-file` |
+
+The venv and `.env` sit outside the git working tree, so a pull or checkout cannot
+touch them. This is the layout production runs (confirmed from
+`systemctl cat gunicorn`, November 2026), and `setup-django.sh` provisions fresh
+hosts the same way. When in doubt on a host, trust `systemctl cat gunicorn` over
+this table.
+
+Beyond gunicorn, the backend relies on several
 **async background services**, all installed as systemd units by that script:
 
 | Unit | Kind | What it does | Enabled when |
@@ -26,7 +42,7 @@ their next fire, so they self-heal, but the units are reloaded in case their
 definitions changed.)
 
 **Queue vs eager mode.** `REDIS_URL` (set via `--redis-url`, written to
-`backend/.env`) flips the app from eager in-process classification to queue mode.
+`$APP_DIR/.env`) flips the app from eager in-process classification to queue mode.
 Only in queue mode is a worker needed, so `setup-django.sh` installs
 `classification-worker.service` unconditionally but only **enables** it when
 `REDIS_URL` is present. To switch an existing eager host to queue mode: add
@@ -35,14 +51,37 @@ Only in queue mode is a worker needed, so `setup-django.sh` installs
 
 **`.env` and systemd.** `manage.py` loads `.env` via `python-dotenv`, but
 `wsgi.py` does not — so every systemd unit points at the `.env` with
-`EnvironmentFile=$BACKEND_DIR/.env` (i.e. `backend/.env`, the same file
-`setup-django.sh` generates), or the service would start without
-`REDIS_URL`/DB/AWS credentials.
+`EnvironmentFile=$APP_DIR/.env` (the same file `setup-django.sh` generates), or the
+service would start without `REDIS_URL`/DB/AWS credentials.
+
+`manage.py` calls `load_dotenv()` with no path, which searches upward from
+`manage.py` for a file named `.env`. That search is the only reason an `.env`
+outside `backend/` works, so `--env-file` must name a file called `.env` in
+`backend/` or one of its parents, and `setup-django.sh` refuses anything else.
+Elsewhere, systemd would load it while `manage.py` silently ran on dev defaults.
+
+**Updating the scripts on a live host.** A full `setup-django.sh` run is for fresh
+hosts only: it moves an existing `$APP_DIR` aside. To regenerate `~/update-app.sh`
+and `~/status_check.sh` on a live host, pull the code first, then run:
+
+```bash
+bash /var/www/smiling-social/pos/backend/tools/setup-django.sh --refresh-scripts
+```
+
+This needs no secrets and changes nothing else. It stops with an error if the venv
+or `.env` is missing, and takes `--venv-dir` and `--env-file` for a host that
+differs. It does not rewrite systemd units: `~/update-app.sh` reloads them but
+never regenerates them, so a change to a unit template has to be applied to an
+existing host by hand. After that, `~/update-app.sh` keeps `~/status_check.sh`
+current on every deploy.
 
 `backend/tools/status_check.sh` reports the health of all of the above — gunicorn,
 nginx, the classification worker (active/enabled, or "stranding!" if enabled but
-dead), the two timers (last/next run), and best-effort `classification` queue
-depth — so a silently dead worker is visible at a glance.
+dead), the two timers (last/next run), and best-effort depth for both queues the
+worker drains, `classification` and `notifications` — so a silently dead worker is
+visible at a glance, and so is a push backlog building behind moderation. It reads
+the venv and `.env` from the paths above; set `VENV_DIR` and `ENV_FILE` to override
+them.
 
 ## gunicorn tuning, and the keepalive that must beat the load balancer
 
