@@ -19,6 +19,27 @@ const handler = new Function(`${source}; return handler`)()
 
 const POST_ID = '3f1b9a2c-6d4e-4f8a-9b1c-2d3e4f5a6b7c'
 
+// CloudFront's compute budget can't be measured under Node, but a function over
+// it answers 503 for every path on the site, so the known causes are ruled out
+// here. Regexes are the expensive part: a version using them took production
+// down, while passing every behavior test below.
+describe('stays within CloudFront Function limits', () => {
+  const code = source
+    .split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .join('\n')
+
+  it('uses no regular expressions', () => {
+    expect(code).not.toMatch(/new RegExp|RegExp\(/)
+    expect(code).not.toMatch(/\.(test|exec|match|matchAll|replace|replaceAll|search|split)\(/)
+    expect(code).not.toMatch(/[=(,:]\s*\/[^/\s]/)
+  })
+
+  it('fits the 10 KB function size limit', () => {
+    expect(Buffer.byteLength(source, 'utf-8')).toBeLessThan(10 * 1024)
+  })
+})
+
 function request(uri, userAgent) {
   const headers = userAgent === undefined ? {} : { 'user-agent': { value: userAgent } }
   return handler({ request: { uri, headers } })
@@ -146,12 +167,13 @@ describe('everything else passes through untouched', () => {
       '/profile/%FF%FE%FD%FC%FB%FA%F9%F8%F7%F6',
       // Percent-encoded characters the backend's `\w` rejects, written out
       // literally (encodeURIComponent leaves `-` and `.` unescaped, and the
-      // raw forms never get past PROFILE_PATH): ASCII punctuation, a space,
-      // and a non-ASCII (ideographic) space.
+      // raw forms are rejected before decoding): ASCII punctuation, a space,
+      // and non-ASCII (ideographic and no-break) spaces.
       `/profile/${'a'.repeat(9)}%2D`,
       '/profile/sunny%2Eside%2Eup',
       '/profile/sunny%20side%20up',
       `/profile/${encodeURIComponent('日本日本日本　日本日本')}`,
+      `/profile/${encodeURIComponent('sunny side_up')}`,
       // Combining marks and non-underscore connector punctuation, which
       // Python's `\w` rejects (U+0301 COMBINING ACUTE, U+203F UNDERTIE).
       `/profile/${encodeURIComponent('é'.repeat(10))}`,
@@ -168,8 +190,20 @@ describe('everything else passes through untouched', () => {
   it('a post path whose id is not a uuid is not redirected', () => {
     // The id goes straight into the preview URL, so only a well-formed one is
     // ever forwarded.
-    for (const uri of ['/post/not-a-uuid', '/post/', `/post/${POST_ID}/extra`, '/post/../../etc']) {
+    for (const uri of [
+      '/post/not-a-uuid',
+      '/post/',
+      `/post/${POST_ID}/extra`,
+      `/post/${POST_ID}//`,
+      '/post/../../etc',
+      `/post/${POST_ID.replace('3', 'g')}`,
+      `/post/${POST_ID.replaceAll('-', '_')}`,
+    ]) {
       expect(request(uri, 'Twitterbot/1.0').uri).toBe(uri)
     }
+  })
+
+  it('an uppercase post id is still a uuid', () => {
+    expect(request(`/post/${POST_ID.toUpperCase()}`, 'Twitterbot/1.0').statusCode).toBe(302)
   })
 })

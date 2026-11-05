@@ -136,6 +136,21 @@ mapping 403/404 to `/index.html` with a 200, so a cold load of a client-side
 `/post/<id>` route resolves at all; and the published function association
 itself.
 
+The function runs on **every** request to the website, so a mistake in it is a
+site-wide outage, not a preview bug. When it exceeds CloudFront's compute budget,
+every path answers 503 with `X-Cache: FunctionThrottledError`, home page and
+assets included. The first version of the profile route did this, using regexes
+including a `{10,600}` repeat, and passed every test, because the tests run under
+Node and can't measure compute. So the function uses no regular expressions, and
+paths outside `/post/` and `/profile/` return before anything else happens;
+`link-preview.test.js` enforces the regex rule and the 10 KB size limit.
+
+To publish a change safely, save it to the Development stage and run the
+console's **Test** tab first. Check a normal path, a crawler on a profile path and
+a crawler on a long non-ASCII username, and publish only if compute utilization is
+well under 100. Keep a copy of the live code to roll back to, because saving and
+publishing again is the only way to undo it.
+
 ## Opening the app instead of the browser (issue #382)
 
 On a phone with the app installed, a shared link opens the **app**, not the
