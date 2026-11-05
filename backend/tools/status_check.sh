@@ -63,7 +63,7 @@ for t in sweep-classifications.timer cleanup-orphan-images.timer; do
   fi
 done
 
-echo -e "\n=== Classification queue depth (best-effort) ==="
+echo -e "\n=== Worker queue depth (best-effort) ==="
 # Reuse python-dotenv (a backend dependency, exactly how manage.py loads .env) to
 # read REDIS_URL and report how many jobs are waiting/failed. Skipped cleanly in
 # eager mode or if the venv/.env isn't where we expect.
@@ -79,11 +79,16 @@ if not url:
 try:
     from redis import Redis
     from rq import Queue
-    # Name matches settings.CLASSIFICATION_QUEUE_NAME.
-    q = Queue("classification", connection=Redis.from_url(url))
-    print(f"'classification' queue: {q.count} queued, "
-          f"{q.failed_job_registry.count} failed, "
-          f"{q.deferred_job_registry.count} deferred")
+    connection = Redis.from_url(url)
+    # Names match settings.CLASSIFICATION_QUEUE_NAME and settings.PUSH_QUEUE_NAME,
+    # the two queues classification_worker drains, in that priority order. A
+    # backlog on 'notifications' alongside an empty 'classification' queue means
+    # the worker is behind on pushes; moderation is unaffected.
+    for name in ("classification", "notifications"):
+        q = Queue(name, connection=connection)
+        print(f"'{name}' queue: {q.count} queued, "
+              f"{q.failed_job_registry.count} failed, "
+              f"{q.deferred_job_registry.count} deferred")
 except Exception as e:
     print(f"Could not reach Redis to read queue depth: {e}")
 PY
