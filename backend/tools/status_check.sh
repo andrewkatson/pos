@@ -8,9 +8,10 @@
 DOMAIN="${DOMAIN:-api.smiling.social}"
 FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-smiling.social}"
 SOCKET="${SOCKET:-/var/www/smiling-social/gunicorn.sock}"
-# Django project root (manage.py + venv + .env). Matches setup-django.sh's
-# nested layout; used to read REDIS_URL and inspect the classification queue.
-BACKEND_DIR="${BACKEND_DIR:-/var/www/smiling-social/pos/backend}"
+# Used to read REDIS_URL and inspect the worker queues. Both sit beside the clone,
+# outside the git working tree, matching setup-django.sh's defaults.
+VENV_DIR="${VENV_DIR:-/var/www/smiling-social/venv}"
+ENV_FILE="${ENV_FILE:-/var/www/smiling-social/.env}"
 
 echo "=== Checking Gunicorn ==="
 sudo systemctl status gunicorn --no-pager
@@ -67,8 +68,8 @@ echo -e "\n=== Worker queue depth (best-effort) ==="
 # Reuse python-dotenv (a backend dependency, exactly how manage.py loads .env) to
 # read REDIS_URL and report how many jobs are waiting/failed. Skipped cleanly in
 # eager mode or if the venv/.env isn't where we expect.
-if [ -x "$BACKEND_DIR/venv/bin/python" ] && [ -f "$BACKEND_DIR/.env" ]; then
-  "$BACKEND_DIR/venv/bin/python" - "$BACKEND_DIR/.env" <<'PY' || echo "Could not read queue depth."
+if [ -x "$VENV_DIR/bin/python" ] && [ -f "$ENV_FILE" ]; then
+  "$VENV_DIR/bin/python" - "$ENV_FILE" <<'PY' || echo "Could not read queue depth."
 import sys, os
 from dotenv import load_dotenv
 load_dotenv(sys.argv[1])
@@ -93,7 +94,7 @@ except Exception as e:
     print(f"Could not reach Redis to read queue depth: {e}")
 PY
 else
-  echo "Backend venv/.env not found under $BACKEND_DIR — skipping queue depth."
+  echo "No venv at $VENV_DIR or no .env at $ENV_FILE — skipping queue depth."
 fi
 
 echo -e "\n=== Testing API locally (gunicorn socket) ==="
