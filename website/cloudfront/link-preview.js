@@ -22,9 +22,10 @@
 // associated with the default cache behavior on *viewer request*. Update
 // PREVIEW_ORIGIN if the API's base URL changes.
 //
-// This runs on EVERY request to the website, and a function over CloudFront's
-// compute budget answers 503 for all of them, home page included. A regex-based
-// version did exactly that in production. So: no regular expressions, and any
+// This runs on EVERY request to the website, and a function that fails or goes
+// over CloudFront's compute budget answers 503 for all of them, home page
+// included. A regex-based version did that in production, so: no regular
+// expressions, and any
 // path that cannot have a preview returns before anything else happens. Before
 // publishing, check compute utilization on the Test tab (Development stage),
 // including with a long non-ASCII username, because the Node tests here cannot

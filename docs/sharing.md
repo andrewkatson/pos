@@ -137,11 +137,12 @@ mapping 403/404 to `/index.html` with a 200, so a cold load of a client-side
 itself.
 
 The function runs on **every** request to the website, so a mistake in it is a
-site-wide outage, not a preview bug. When it exceeds CloudFront's compute budget,
-every path answers 503 with `X-Cache: FunctionThrottledError`, home page and
-assets included. The first version of the profile route did this, using regexes
+site-wide outage, not a preview bug. The first version of the profile route
+answered 503 on every path, home page and assets included, with `X-Cache` showing
+both `FunctionThrottledError` and `FunctionExecutionError`. It used regexes,
 including a `{10,600}` repeat, and passed every test, because the tests run under
-Node and can't measure compute. So the function uses no regular expressions, and
+Node rather than CloudFront's runtime and can't measure compute. So the function
+uses no regular expressions, and
 paths outside `/post/` and `/profile/` return before anything else happens;
 `link-preview.test.js` enforces the regex rule and the 10 KB size limit.
 
