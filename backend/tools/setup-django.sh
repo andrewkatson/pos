@@ -258,8 +258,11 @@ validate_paths() {
 # the services. Kept apart from validate_paths because that runs before a full
 # provision moves any old tree aside, and only the tree after that step matters.
 reject_shadowing_env() {
-    local dir="$BACKEND_DIR"
-    while [ "$dir/.env" != "$ENV_FILE" ]; do
+    local dir="$BACKEND_DIR" env_dir
+    env_dir="$(dirname "$ENV_FILE")"
+    # Compare directories, not "$dir/.env": dirname normalizes a path like
+    # /a//.env, so the file path itself might never match and the walk never stop.
+    while [ "$dir" != "$env_dir" ] && [ "$dir" != "/" ]; do
         # -ef, not a string compare: a link to $ENV_FILE is the same config.
         if [ -e "$dir/.env" ] && [ ! "$dir/.env" -ef "$ENV_FILE" ]; then
             print_error "$dir/.env shadows $ENV_FILE: manage.py would load it, but systemd loads $ENV_FILE."
