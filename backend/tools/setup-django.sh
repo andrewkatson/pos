@@ -260,7 +260,8 @@ validate_paths() {
 reject_shadowing_env() {
     local dir="$BACKEND_DIR"
     while [ "$dir/.env" != "$ENV_FILE" ]; do
-        if [ -e "$dir/.env" ]; then
+        # -ef, not a string compare: a link to $ENV_FILE is the same config.
+        if [ -e "$dir/.env" ] && [ ! "$dir/.env" -ef "$ENV_FILE" ]; then
             print_error "$dir/.env shadows $ENV_FILE: manage.py would load it, but systemd loads $ENV_FILE."
             print_error "Move it aside, or pass --env-file $dir/.env if that is the live config."
             exit 1
