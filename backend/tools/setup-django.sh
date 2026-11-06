@@ -150,7 +150,7 @@ Optional:
                                 enables queue mode: async classification runs in the
                                 classification-worker service instead of eagerly in-process.
   --admin-email EMAIL           Admin email for Let's Encrypt (standalone TLS only)
-  --venv-dir PATH               Python venv location (default: $APP_DIR/venv)
+  --venv-dir PATH               Absolute path of the Python venv (default: $APP_DIR/venv)
   --env-file PATH               .env location (default: $APP_DIR/.env). Must be named .env
                                 and sit in the backend directory or one of its parents,
                                 because manage.py finds it by searching upward.
@@ -240,6 +240,29 @@ validate_paths() {
         print_error "--env-file must be a file named .env in $BACKEND_DIR or one of its parents, got: $ENV_FILE"
         exit 1
     fi
+
+    # The update script changes into $BACKEND_DIR before activating this venv, and
+    # systemd needs an absolute ExecStart, so a relative path breaks both.
+    if [[ "$VENV_DIR" != /* ]]; then
+        print_error "--venv-dir must be an absolute path, got: $VENV_DIR"
+        exit 1
+    fi
+}
+
+# load_dotenv() stops at the first .env it finds, so one nearer to manage.py than
+# $ENV_FILE wins: manage.py would run (and migrate) against different config from
+# the services. Kept apart from validate_paths because that runs before a full
+# provision moves any old tree aside, and only the tree after that step matters.
+reject_shadowing_env() {
+    local dir="$BACKEND_DIR"
+    while [ "$dir/.env" != "$ENV_FILE" ]; do
+        if [ -e "$dir/.env" ]; then
+            print_error "$dir/.env shadows $ENV_FILE: manage.py would load it, but systemd loads $ENV_FILE."
+            print_error "Move it aside, or pass --env-file $dir/.env if that is the live config."
+            exit 1
+        fi
+        dir="$(dirname "$dir")"
+    done
 }
 
 # Quote a value for a KEY="value" line in the generated .env. Secrets/passwords
@@ -425,6 +448,7 @@ test_database_connection() {
 
 run_django_setup() {
     print_status "Running Django migrations and collecting static files..."
+    reject_shadowing_env
     cd "$BACKEND_DIR"
     source "$VENV_DIR/bin/activate"
 
@@ -916,6 +940,7 @@ refresh_scripts() {
         print_error "Pass --venv-dir / --env-file to match 'systemctl cat gunicorn'."
         exit 1
     fi
+    reject_shadowing_env
 
     install_health_check_script
     create_update_script

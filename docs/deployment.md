@@ -60,6 +60,13 @@ outside `backend/` works, so `--env-file` must name a file called `.env` in
 `backend/` or one of its parents, and `setup-django.sh` refuses anything else.
 Elsewhere, systemd would load it while `manage.py` silently ran on dev defaults.
 
+The search also stops at the first `.env` it finds, so a leftover `backend/.env`
+overrides `$APP_DIR/.env` for `manage.py` while systemd keeps using the file it
+was told about, and a migration could run against a different database. The
+script stops with an error if it finds one. It checks this before running
+`manage.py` and before `--refresh-scripts` writes anything, but not on each deploy,
+so do not create a second `.env` on a live host afterwards.
+
 **Updating the scripts on a live host.** A full `setup-django.sh` run is for fresh
 hosts only: it moves an existing `$APP_DIR` aside. To regenerate `~/update-app.sh`
 and `~/status_check.sh` on a live host, pull the code first, then run:
@@ -69,7 +76,7 @@ bash /var/www/smiling-social/pos/backend/tools/setup-django.sh --refresh-scripts
 ```
 
 This needs no secrets and changes nothing else. It stops with an error if the venv
-or `.env` is missing, and takes `--venv-dir` and `--env-file` for a host that
+or `.env` is missing or a nearer `.env` would shadow it, and takes `--venv-dir` and `--env-file` for a host that
 differs. It does not rewrite systemd units: `~/update-app.sh` reloads them but
 never regenerates them, so a change to a unit template has to be applied to an
 existing host by hand. After that, `~/update-app.sh` keeps `~/status_check.sh`
