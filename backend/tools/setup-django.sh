@@ -150,7 +150,8 @@ Optional:
                                 enables queue mode: async classification runs in the
                                 classification-worker service instead of eagerly in-process.
   --admin-email EMAIL           Admin email for Let's Encrypt (standalone TLS only)
-  --venv-dir PATH               Absolute path of the Python venv (default: $APP_DIR/venv)
+  --venv-dir PATH               Absolute path of the Python venv, with no whitespace
+                                (default: $APP_DIR/venv)
   --env-file PATH               .env location (default: $APP_DIR/.env). Must be named .env
                                 and sit in the backend directory or one of its parents,
                                 because manage.py finds it by searching upward.
@@ -242,9 +243,11 @@ validate_paths() {
     fi
 
     # The update script changes into $BACKEND_DIR before activating this venv, and
-    # systemd needs an absolute ExecStart, so a relative path breaks both.
-    if [[ "$VENV_DIR" != /* ]]; then
-        print_error "--venv-dir must be an absolute path, got: $VENV_DIR"
+    # systemd needs an absolute ExecStart, so a relative path breaks both. Both also
+    # carry the path unquoted, and PATH= and ExecStart have no single quoting that
+    # fits every use, so refuse whitespace rather than try to escape it.
+    if [[ "$VENV_DIR" != /* || "$VENV_DIR" =~ [[:space:]] ]]; then
+        print_error "--venv-dir must be an absolute path with no whitespace, got: $VENV_DIR"
         exit 1
     fi
 }
