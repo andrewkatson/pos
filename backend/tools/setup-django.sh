@@ -150,8 +150,8 @@ Optional:
                                 enables queue mode: async classification runs in the
                                 classification-worker service instead of eagerly in-process.
   --admin-email EMAIL           Admin email for Let's Encrypt (standalone TLS only)
-  --venv-dir PATH               Absolute path of the Python venv, with no whitespace
-                                (default: $APP_DIR/venv)
+  --venv-dir PATH               Absolute path of the Python venv, using only letters,
+                                digits and . _ - / (default: $APP_DIR/venv)
   --env-file PATH               .env location (default: $APP_DIR/.env). Must be named .env
                                 and sit in the backend directory or one of its parents,
                                 because manage.py finds it by searching upward.
@@ -243,11 +243,12 @@ validate_paths() {
     fi
 
     # The update script changes into $BACKEND_DIR before activating this venv, and
-    # systemd needs an absolute ExecStart, so a relative path breaks both. Both also
-    # carry the path unquoted, and PATH= and ExecStart have no single quoting that
-    # fits every use, so refuse whitespace rather than try to escape it.
-    if [[ "$VENV_DIR" != /* || "$VENV_DIR" =~ [[:space:]] ]]; then
-        print_error "--venv-dir must be an absolute path with no whitespace, got: $VENV_DIR"
+    # systemd needs an absolute ExecStart, so a relative path breaks both. The path
+    # also lands unquoted in shell and in unit files, which disagree on what is
+    # special ('(' and '$' in shell, '%' in systemd, spaces in both). An allowlist
+    # is simpler and safer than escaping it correctly for each of them.
+    if [[ ! "$VENV_DIR" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+        print_error "--venv-dir must be an absolute path using only letters, digits and . _ - /, got: $VENV_DIR"
         exit 1
     fi
 }
