@@ -523,8 +523,11 @@ struct TopProfilesListView: View {
                                 blurHash: profile.authorProfileImageBlurHash,
                                 size: 32
                             )
+                            // Truncates rather than squeezing out the follower total.
                             Text(profile.username)
                                 .font(.headline)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                             if profile.identityIsVerified {
                                 Image(systemName: "checkmark.seal.fill")
                                     .foregroundColor(.blue)
@@ -534,6 +537,8 @@ struct TopProfilesListView: View {
                             Text(profile.followerCountLabel)
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .fixedSize()
                         }
                         .padding(.horizontal)
                         .padding(.vertical, 10)

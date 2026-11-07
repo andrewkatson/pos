@@ -120,6 +120,21 @@ struct Positive_Only_SocialTests_TopProfilesViewModel {
         #expect(sut.topProfiles.map(\.username) == ["alpha"])
     }
 
+    @Test func testFetchTopProfiles_IgnoresDeletedFollowers() async throws {
+        let sut = TopProfilesViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "topProfilesDeleted")
+        _ = try await registerUserAndGetToken(username: "popular")
+        let fan = try await registerUserAndGetToken(username: "fan")
+        try await follow("popular", as: fan)
+        _ = try await stubAPI.deleteUser(sessionManagementToken: fan)
+        let viewer = try await registerUserAndGetToken(username: "viewer")
+        try signIn(viewer, username: "viewer", account: "topProfilesDeleted")
+
+        sut.fetchTopProfiles()
+        await yield()
+
+        #expect(sut.topProfiles.isEmpty)
+    }
+
     @Test func testFollowerCountLabel_Pluralizes() {
         #expect(TopProfile(username: "a", identityIsVerified: false, followerCount: 1).followerCountLabel == "1 follower")
         #expect(TopProfile(username: "a", identityIsVerified: false, followerCount: 0).followerCountLabel == "0 followers")

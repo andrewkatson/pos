@@ -1268,6 +1268,17 @@ test('top profiles leave out private and blocked accounts', async () => {
   expect(await api.getTopProfiles(0)).toEqual([])
 })
 
+test('a deleted follower no longer counts toward top profiles', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'popular')
+  await register(api, 'fan')
+  await api.followUser('popular')
+  await api.deleteAccount()
+
+  await register(api, 'viewer')
+  expect(await api.getTopProfiles(0)).toEqual([])
+})
+
 // --- Private accounts (issue #96) -------------------------------------------
 
 async function privateAuthorWithPost(api: StatefulStubbedAPI) {

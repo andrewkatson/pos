@@ -64,6 +64,18 @@ class StatefulStubbedApiTopProfilesTest {
     }
 
     @Test
+    fun `a deleted follower no longer counts`() = runTest {
+        val api = StatefulStubbedAPI()
+        register(api, "popular")
+        val fan = register(api, "fan")
+        api.followUser(fan, "popular")
+        api.deleteUser(fan)
+
+        val viewer = register(api, "viewer")
+        assertEquals(emptyList<String>(), api.getTopProfiles(viewer, 0).body()!!.map { it.username })
+    }
+
+    @Test
     fun `top profiles page in batches`() = runTest {
         val api = StatefulStubbedAPI()
         api.topProfilesPageSize = 1

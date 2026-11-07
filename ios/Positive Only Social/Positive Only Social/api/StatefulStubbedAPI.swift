@@ -1571,7 +1571,12 @@ final class StatefulStubbedAPI: Networking {
             .map { user -> (MockUser, Int) in
                 let followerCount = userFollows
                     .filter { $0.userToId == user.id }
-                    .filter { follow in isVerifiedMinor(users.first { $0.id == follow.userFromId }) == viewerIsMinor }
+                    // A deleted account leaves its follow edges behind; only
+                    // live followers count, as on the backend.
+                    .filter { follow in
+                        guard let follower = users.first(where: { $0.id == follow.userFromId }) else { return false }
+                        return isVerifiedMinor(follower) == viewerIsMinor
+                    }
                     .count
                 return (user, followerCount)
             }

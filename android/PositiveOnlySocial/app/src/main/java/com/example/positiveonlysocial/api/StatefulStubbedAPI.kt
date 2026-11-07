@@ -1183,8 +1183,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 isVerifiedMinor(it) == viewerIsMinor
             }
             .map { candidate ->
+                // A deleted account leaves its id behind in `followers`; only
+                // live followers count, as on the backend.
                 candidate to candidate.followers.count { id ->
-                    isVerifiedMinor(users.find { u -> u.id == id }) == viewerIsMinor
+                    val follower = users.find { u -> u.id == id }
+                    follower != null && isVerifiedMinor(follower) == viewerIsMinor
                 }
             }
             .filter { (_, followerCount) -> followerCount > 0 }
