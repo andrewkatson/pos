@@ -14,6 +14,9 @@ final class TopProfilesViewModel: ObservableObject {
     // State the view observes.
     @Published var topProfiles: [TopProfile] = []
     @Published var isLoadingNextPage = false
+    /// Why the board is empty when a load failed, so the view doesn't claim
+    /// nobody qualifies. Cleared by the next page that loads.
+    @Published private(set) var loadError: String?
 
     // Dependencies.
     private let api: Networking
@@ -64,6 +67,7 @@ final class TopProfilesViewModel: ObservableObject {
         do {
             guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
                 NSLog("%@", "No active session — cannot fetch top profiles")
+                loadError = Self.loadFailedMessage
                 isLoadingNextPage = false
                 return
             }
@@ -73,6 +77,7 @@ final class TopProfilesViewModel: ObservableObject {
                 let responseData = try await api.getTopProfiles(
                     sessionManagementToken: userSession.sessionToken, batch: page)
                 let newProfiles = try JSONDecoder().decode([TopProfile].self, from: responseData)
+                loadError = nil
 
                 if replacingExisting {
                     topProfiles = newProfiles
@@ -100,7 +105,10 @@ final class TopProfilesViewModel: ObservableObject {
             }
         } catch {
             NSLog("%@", "Failed to fetch top profiles: \(error)")
+            loadError = Self.loadFailedMessage
         }
         isLoadingNextPage = false
     }
+
+    static let loadFailedMessage = "We couldn't load this board. Pull down to try again."
 }

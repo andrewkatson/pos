@@ -33,6 +33,9 @@ function TopProfilesList() {
   const [canLoadMore, setCanLoadMore] = useState(true)
   const [reachedEnd, setReachedEnd] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  // Set when the latest load failed, so an empty board says so rather than
+  // claiming nobody qualifies.
+  const [loadFailed, setLoadFailed] = useState(false)
 
   // Bumped on every refresh, so a Load more still in flight can't append the
   // old board's page to the refreshed one.
@@ -53,6 +56,7 @@ function TopProfilesList() {
       for (;;) {
         const batch = await apiClient.getTopProfiles(nextPage)
         if (!isCurrent()) return
+        setLoadFailed(false)
         if (replace) {
           listed.current = new Set(batch.map(profile => profile.username))
           setProfiles(batch)
@@ -76,7 +80,10 @@ function TopProfilesList() {
         // A page of nothing but repeats: keep going so Load more isn't a no-op.
       }
     } catch {
-      if (isCurrent()) setCanLoadMore(false)
+      if (isCurrent()) {
+        setCanLoadMore(false)
+        setLoadFailed(true)
+      }
     } finally {
       if (isCurrent()) setIsLoading(false)
     }
@@ -104,7 +111,13 @@ function TopProfilesList() {
       </button>
 
       {profiles.length === 0 && !isLoading ? (
-        <p className="muted">No profiles here yet.</p>
+        loadFailed ? (
+          <p className="muted" role="alert">
+            We couldn't load this board. Try refreshing.
+          </p>
+        ) : (
+          <p className="muted">No profiles here yet.</p>
+        )
       ) : (
         <div className="user-list">
           {profiles.map((profile, index) => (
