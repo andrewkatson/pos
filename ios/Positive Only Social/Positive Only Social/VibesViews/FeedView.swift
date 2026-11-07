@@ -18,6 +18,7 @@ struct FeedView: View {
     @StateObject private var forYouViewModel: FeedViewModel
     @StateObject private var followingViewModel: FollowingFeedViewModel
     @StateObject private var topViewModel: TopPostsViewModel
+    @StateObject private var topProfilesViewModel: TopProfilesViewModel
     // Powers the like / report / delete controls on each feed row (issue #267).
     @StateObject private var postActions: PostActionsViewModel
 
@@ -27,11 +28,15 @@ struct FeedView: View {
 
     // State to track the selected top tab
     @State private var selectedFeed: FeedType = .forYou
+    // Which board the Top segment shows (issue #588). Held here rather than in
+    // TopFeedView so it survives switching to another feed and back.
+    @State private var topBoard: TopBoard = .posts
 
     init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         _forYouViewModel = StateObject(wrappedValue: FeedViewModel(api: api, keychainHelper: keychainHelper))
         _followingViewModel = StateObject(wrappedValue: FollowingFeedViewModel(api: api, keychainHelper: keychainHelper))
         _topViewModel = StateObject(wrappedValue: TopPostsViewModel(api: api, keychainHelper: keychainHelper))
+        _topProfilesViewModel = StateObject(wrappedValue: TopProfilesViewModel(api: api, keychainHelper: keychainHelper))
         _postActions = StateObject(wrappedValue: PostActionsViewModel(api: api, keychainHelper: keychainHelper))
 
         self.api = api
@@ -58,7 +63,8 @@ struct FeedView: View {
                 case .following:
                     FollowingFeedView(viewModel: followingViewModel, postActions: postActions)
                 case .top:
-                    TopFeedView(viewModel: topViewModel, postActions: postActions)
+                    TopFeedView(viewModel: topViewModel, profilesViewModel: topProfilesViewModel,
+                                board: $topBoard, postActions: postActions)
                 }
             }
             .navigationTitle("Feed")
@@ -81,7 +87,10 @@ struct FeedView: View {
                  case .following:
                      Task { await followingViewModel.refreshFeed() }
                  case .top:
-                     Task { await topViewModel.refreshFeed() }
+                     switch topBoard {
+                     case .posts: Task { await topViewModel.refreshFeed() }
+                     case .profiles: Task { await topProfilesViewModel.refresh() }
+                     }
                  }
              }
         }
@@ -337,14 +346,39 @@ struct FollowingFeedView: View {
 }
 
 
-/// The "Top" feed (issue #558): the most-liked public posts across the app over
-/// a chosen period, numbered by rank.
+/// The "Top" feed: a Posts board of the most-liked public posts across the app
+/// over a chosen period (issue #558), and a Profiles board of the accounts with
+/// the most followers (issue #588), each numbered by rank.
 struct TopFeedView: View {
     @ObservedObject var viewModel: TopPostsViewModel
+    @ObservedObject var profilesViewModel: TopProfilesViewModel
+    @Binding var board: TopBoard
     @ObservedObject var postActions: PostActionsViewModel
     @StateObject private var celebration = EndOfListCelebration()
 
     var body: some View {
+        VStack(spacing: 0) {
+            Picker("Top board", selection: $board) {
+                ForEach(TopBoard.allCases) { board in
+                    Text(board.displayName).tag(board).accessibilityIdentifier(board.displayName)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .accessibilityIdentifier("TopBoardPicker")
+
+            switch board {
+            case .posts:
+                postsBoard
+            case .profiles:
+                TopProfilesListView(viewModel: profilesViewModel,
+                                    currentUsername: postActions.currentUsername)
+            }
+        }
+    }
+
+    private var postsBoard: some View {
         VStack(spacing: 0) {
             Picker("Period", selection: Binding(
                 get: { viewModel.selectedPeriod },
@@ -451,6 +485,87 @@ struct TopFeedView: View {
         .onAppear {
             if viewModel.topPosts.isEmpty {
                 viewModel.fetchTopPosts()
+            }
+        }
+    }
+}
+
+
+/// The Profiles board of the Top feed (issue #588): public accounts ranked by
+/// followers, all-time, each row opening that profile.
+struct TopProfilesListView: View {
+    @ObservedObject var viewModel: TopProfilesViewModel
+    let currentUsername: String?
+    @StateObject private var celebration = EndOfListCelebration()
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                if viewModel.topProfiles.isEmpty && !viewModel.isLoadingNextPage {
+                    Text("No profiles here yet.")
+                        .foregroundColor(.gray)
+                        .padding()
+                }
+                ForEach(Array(viewModel.topProfiles.enumerated()), id: \.element.id) { index, profile in
+                    AuthorNameLink(username: profile.username,
+                                   isCurrentUser: profile.username == currentUsername) {
+                        HStack(spacing: 10) {
+                            Text("#\(index + 1)")
+                                .font(.headline)
+                                .monospacedDigit()
+                                .foregroundStyle(Color.accentColor)
+                                .frame(minWidth: 36, alignment: .leading)
+                                .accessibilityLabel("Rank \(index + 1)")
+                                .accessibilityIdentifier("TopProfileRank")
+                            ProfileAvatarView(
+                                imageUrl: profile.authorProfileImageUrl,
+                                originalImageUrl: profile.authorProfileImageOriginalUrl,
+                                blurHash: profile.authorProfileImageBlurHash,
+                                size: 32
+                            )
+                            Text(profile.username)
+                                .font(.headline)
+                            if profile.identityIsVerified {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .foregroundColor(.blue)
+                                    .accessibilityLabel("Verified")
+                            }
+                            Spacer()
+                            Text(profile.followerCountLabel)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityIdentifier(profile.username)
+                    .onAppear {
+                        // Trigger for infinite scrolling
+                        if profile.id == viewModel.topProfiles.last?.id {
+                            viewModel.fetchTopProfiles()
+                        }
+                    }
+                    Divider()
+                }
+
+                if viewModel.isLoadingNextPage {
+                    ProgressView().padding()
+                }
+
+                if viewModel.reachedEnd && !viewModel.topProfiles.isEmpty {
+                    FeedEndBanner(message: FeedEndMessage.topProfiles, celebration: celebration)
+                }
+            }
+            .padding(.top)
+        }
+        .celebratesEndOfList(celebration, reachedEnd: viewModel.reachedEnd)
+        .refreshable {
+            await Task { await viewModel.refresh() }.value
+        }
+        .onAppear {
+            if viewModel.topProfiles.isEmpty {
+                viewModel.fetchTopProfiles()
             }
         }
     }

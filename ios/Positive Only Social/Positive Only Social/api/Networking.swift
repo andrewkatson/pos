@@ -168,6 +168,10 @@ protocol Networking {
     /// the app created within `period`, in batches, capped at the top 100.
     func getTopPosts(sessionManagementToken: String, batch: Int, period: String) async throws -> Data
 
+    /// Gets a batch of the Top profiles scoreboard (issue #588): public accounts
+    /// with the most followers, all-time, capped at the top 100.
+    func getTopProfiles(sessionManagementToken: String, batch: Int) async throws -> Data
+
     /// Gets a batch of posts for another user.
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data
 

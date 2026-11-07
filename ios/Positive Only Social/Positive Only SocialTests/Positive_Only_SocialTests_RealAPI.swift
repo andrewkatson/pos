@@ -157,6 +157,17 @@ struct Positive_Only_SocialTests_RealAPI {
         #expect(CapturingURLProtocol.lastRequestURL?.query == "period=month")
     }
 
+    @Test func testGetTopProfilesBuildsTopProfilesPath() async throws {
+        // The Top profiles board hits feed/top/profiles/<batch>/ (issue #588).
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().getTopProfiles(sessionManagementToken: "token", batch: 2)
+
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/feed/top/profiles/2")
+    }
+
     /// GET /me/ backs the Settings "Contact Information" section (#194/#197).
     @Test func testGetCurrentUserUsesMePath() async throws {
         CapturingURLProtocol.lastRequestURL = nil
