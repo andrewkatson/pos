@@ -95,6 +95,29 @@ class TopProfilesViewModelTest {
     }
 
     @Test
+    fun `refreshing an identical page restarts pagination`() = runTest {
+        val board = listOf(TopProfile("ada", followerCount = 1))
+        whenever(api.getTopProfiles("token123", 0)).thenReturn(Response.success(board))
+        whenever(api.getTopProfiles("token123", 1)).thenReturn(Response.success(emptyList()))
+
+        viewModel.fetchTopProfiles()
+        viewModel.fetchTopProfiles()
+        assertTrue(viewModel.reachedEnd.value)
+        val before = viewModel.refreshRevision.value
+
+        viewModel.refreshTopProfiles()
+
+        // Same rows, so the screen's last-row effect only restarts because the
+        // revision moved; the cursor is back at page 1 and the end must be found again.
+        assertEquals(board, viewModel.topProfiles.value)
+        assertEquals(before + 1, viewModel.refreshRevision.value)
+        assertFalse(viewModel.reachedEnd.value)
+
+        viewModel.fetchTopProfiles()
+        assertTrue(viewModel.reachedEnd.value)
+    }
+
+    @Test
     fun `follower count label pluralizes`() {
         assertEquals("1 follower", TopProfile("a", followerCount = 1).followerCountLabel)
         assertEquals("0 followers", TopProfile("a").followerCountLabel)

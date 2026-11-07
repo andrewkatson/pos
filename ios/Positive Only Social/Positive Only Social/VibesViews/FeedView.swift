@@ -545,11 +545,11 @@ struct TopProfilesListView: View {
                         .contentShape(Rectangle())
                     }
                     .accessibilityIdentifier(profile.username)
-                    // Trigger for infinite scrolling. Keyed to the list's end as
-                    // well as appearance: a refresh that cuts several pages back
-                    // to one can make an already-visible row the last one, and
-                    // onAppear alone would never fire for it.
-                    .task(id: "\(viewModel.topProfiles.count)|\(viewModel.topProfiles.last?.id ?? "")") {
+                    // Trigger for infinite scrolling. Keyed to the list's end and
+                    // to each refresh as well as appearance: a refresh can make an
+                    // already-visible row the last one, or return the identical
+                    // page, and onAppear alone would never fire again for it.
+                    .task(id: "\(viewModel.topProfiles.count)|\(viewModel.topProfiles.last?.id ?? "")|\(viewModel.refreshRevision)") {
                         if profile.id == viewModel.topProfiles.last?.id {
                             viewModel.fetchTopProfiles()
                         }

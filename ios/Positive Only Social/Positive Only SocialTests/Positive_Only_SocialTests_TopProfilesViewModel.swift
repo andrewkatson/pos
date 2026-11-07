@@ -135,6 +135,34 @@ struct Positive_Only_SocialTests_TopProfilesViewModel {
         #expect(sut.topProfiles.isEmpty)
     }
 
+    @Test func testRefresh_IdenticalPage_BumpsRevisionAndReopensPagination() async throws {
+        let sut = TopProfilesViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "topProfilesSameRefresh")
+        _ = try await registerUserAndGetToken(username: "alpha")
+        let viewer = try await registerUserAndGetToken(username: "viewer")
+        try await follow("alpha", as: viewer)
+        try signIn(viewer, username: "viewer", account: "topProfilesSameRefresh")
+
+        sut.fetchTopProfiles()
+        await yield()
+        sut.fetchTopProfiles()
+        await yield()
+        #expect(sut.reachedEnd)
+        let before = sut.refreshRevision
+
+        // When: A refresh returns the very same page
+        await sut.refresh()
+
+        // Then: The revision moves (the view's pagination task keys on it, since
+        // the rows are unchanged) and the end has to be found again
+        #expect(sut.topProfiles.map(\.username) == ["alpha"])
+        #expect(sut.refreshRevision == before + 1)
+        #expect(!sut.reachedEnd)
+
+        sut.fetchTopProfiles()
+        await yield()
+        #expect(sut.reachedEnd)
+    }
+
     @Test func testFollowerCountLabel_Pluralizes() {
         #expect(TopProfile(username: "a", identityIsVerified: false, followerCount: 1).followerCountLabel == "1 follower")
         #expect(TopProfile(username: "a", identityIsVerified: false, followerCount: 0).followerCountLabel == "0 followers")

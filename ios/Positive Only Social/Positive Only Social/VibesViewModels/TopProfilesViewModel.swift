@@ -29,6 +29,11 @@ final class TopProfilesViewModel: ObservableObject {
         didSet { reachedEnd = !canLoadMore }
     }
     private var currentPage = 0
+    /// Bumped by every successful refresh. A refresh that returns the same
+    /// first page leaves the last row's id and the count unchanged, so the view
+    /// keys its pagination check on this too, or it would never ask for page 1
+    /// again (and a short board would lose its end banner).
+    @Published private(set) var refreshRevision = 0
 
     convenience init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         self.init(api: api, keychainHelper: keychainHelper, account: "userSessionToken")
@@ -73,6 +78,7 @@ final class TopProfilesViewModel: ObservableObject {
                     topProfiles = newProfiles
                     canLoadMore = !newProfiles.isEmpty
                     currentPage = newProfiles.isEmpty ? 0 : 1
+                    refreshRevision += 1
                     break
                 }
                 if newProfiles.isEmpty {
