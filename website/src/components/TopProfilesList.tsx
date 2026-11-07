@@ -124,7 +124,7 @@ function TopProfilesList() {
                 username={profile.username}
                 size="sm"
               />
-              <span className="user-list__name">{profile.username}</span>
+              <span className="user-list__name top-profile__name">{profile.username}</span>
               {profile.identity_is_verified && (
                 <span className="verified-badge" aria-label="Verified">
                   ✓

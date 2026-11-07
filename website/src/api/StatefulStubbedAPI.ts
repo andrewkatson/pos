@@ -1398,7 +1398,11 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       )
       .map((u) => ({
         user: u,
-        followerCount: [...u.followers].filter((id) => this.isVerifiedMinor(id) === viewerIsMinor).length,
+        // A deleted account leaves its id behind in `followers`; only live
+        // accounts count, as the backend's join to the user table enforces.
+        followerCount: [...u.followers].filter(
+          (id) => this.users.some((f) => f.id === id) && this.isVerifiedMinor(id) === viewerIsMinor,
+        ).length,
       }))
       .filter(({ followerCount }) => followerCount > 0)
       .sort((a, b) => b.followerCount - a.followerCount || a.user.username.localeCompare(b.user.username))

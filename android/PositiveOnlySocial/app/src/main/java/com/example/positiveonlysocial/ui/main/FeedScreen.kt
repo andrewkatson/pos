@@ -19,6 +19,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -586,11 +589,29 @@ fun TopProfileRow(
             size = 32.dp,
             blurHash = profile.authorProfileImageBlurHash
         )
-        Text(text = profile.username, fontWeight = FontWeight.Bold)
-        if (profile.identityIsVerified == true) {
-            Text(text = "✓", color = MaterialTheme.colorScheme.primary)
+        // Name + badge take the row's slack and the name ellipsizes, so a long
+        // username can't squeeze the follower total out of the row.
+        Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = profile.username,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            if (profile.identityIsVerified == true) {
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = "Verified",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
-        Spacer(modifier = Modifier.weight(1f))
         Text(
             text = profile.followerCountLabel,
             style = MaterialTheme.typography.bodyMedium,

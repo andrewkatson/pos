@@ -427,9 +427,24 @@
   font-weight: 600;
 }
 
+/* A long username on a Top profiles row ellipsizes rather than pushing the
+   follower total off the row (usernames run up to 150 characters). */
+.top-profile__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top-profile__name + .verified-badge {
+  flex-shrink: 0;
+}
+
 /* Follower total on a Top profiles row (issue #588), pushed to the right edge. */
 .top-profile__followers {
   margin-left: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
   font-size: 0.9rem;
 }
 
