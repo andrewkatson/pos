@@ -545,8 +545,11 @@ struct TopProfilesListView: View {
                         .contentShape(Rectangle())
                     }
                     .accessibilityIdentifier(profile.username)
-                    .onAppear {
-                        // Trigger for infinite scrolling
+                    // Trigger for infinite scrolling. Keyed to the list's end as
+                    // well as appearance: a refresh that cuts several pages back
+                    // to one can make an already-visible row the last one, and
+                    // onAppear alone would never fire for it.
+                    .task(id: "\(viewModel.topProfiles.count)|\(viewModel.topProfiles.last?.id ?? "")") {
                         if profile.id == viewModel.topProfiles.last?.id {
                             viewModel.fetchTopProfiles()
                         }
