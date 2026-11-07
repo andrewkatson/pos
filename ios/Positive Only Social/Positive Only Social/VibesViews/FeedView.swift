@@ -502,8 +502,8 @@ struct TopProfilesListView: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 if viewModel.topProfiles.isEmpty && !viewModel.isLoadingNextPage {
-                    Text("No profiles here yet.")
-                        .foregroundColor(.gray)
+                    Text(viewModel.loadError ?? "No profiles here yet.")
+                        .foregroundColor(viewModel.loadError == nil ? .gray : .red)
                         .padding()
                 }
                 ForEach(Array(viewModel.topProfiles.enumerated()), id: \.element.id) { index, profile in

@@ -163,6 +163,16 @@ struct Positive_Only_SocialTests_TopProfilesViewModel {
         #expect(sut.reachedEnd)
     }
 
+    @Test func testFetchTopProfiles_WithoutSession_ReportsLoadError() async throws {
+        let sut = TopProfilesViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "topProfilesNoSession")
+
+        sut.fetchTopProfiles()
+        await yield()
+
+        #expect(sut.topProfiles.isEmpty)
+        #expect(sut.loadError == TopProfilesViewModel.loadFailedMessage)
+    }
+
     @Test func testFollowerCountLabel_Pluralizes() {
         #expect(TopProfile(username: "a", identityIsVerified: false, followerCount: 1).followerCountLabel == "1 follower")
         #expect(TopProfile(username: "a", identityIsVerified: false, followerCount: 0).followerCountLabel == "0 followers")

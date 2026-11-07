@@ -394,6 +394,19 @@ test('Load more appends the next Profiles page and celebrates the end (#588)', a
   expect(await screen.findByText("That's the whole Top profiles board.")).toBeInTheDocument()
 })
 
+test('a failed Profiles load says so instead of showing an empty board (#588)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([])
+  mockGetTopProfiles.mockRejectedValue(new Error('offline'))
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await userEvent.click(screen.getByRole('tab', { name: 'Profiles' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent("We couldn't load this board.")
+  expect(screen.queryByText('No profiles here yet.')).not.toBeInTheDocument()
+})
+
 test('switching back to Posts reloads the posts board (#588)', async () => {
   mockGetFeed.mockResolvedValue([])
   mockGetTop.mockResolvedValue([
