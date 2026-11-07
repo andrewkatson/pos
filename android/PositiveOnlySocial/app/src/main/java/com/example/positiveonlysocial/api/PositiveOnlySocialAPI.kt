@@ -130,6 +130,14 @@ interface PositiveOnlySocialAPI {
         @Query("period") period: String
     ): Response<List<Post>>
 
+    /** The Top profiles scoreboard (issue #588): public accounts with the most
+     * followers, all-time, capped at the top 100. */
+    @GET("feed/top/profiles/{batch}/")
+    suspend fun getTopProfiles(
+        @Header("Authorization") token: String,
+        @Path("batch") batch: Int
+    ): Response<List<TopProfile>>
+
     @GET("users/{username}/posts/{batch}/")
     suspend fun getPostsForUser(
         @Header("Authorization") token: String,

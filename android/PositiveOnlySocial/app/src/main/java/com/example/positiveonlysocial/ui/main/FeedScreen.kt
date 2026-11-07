@@ -26,6 +26,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.FollowCategory
+import com.example.positiveonlysocial.data.model.TopBoard
 import com.example.positiveonlysocial.data.model.TopPostPeriod
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.models.viewmodels.FeedViewModel
@@ -35,6 +36,9 @@ import com.example.positiveonlysocial.models.viewmodels.FollowingFeedViewModelFa
 import com.example.positiveonlysocial.models.viewmodels.PostListActions
 import com.example.positiveonlysocial.models.viewmodels.TopPostsViewModel
 import com.example.positiveonlysocial.models.viewmodels.TopPostsViewModelFactory
+import com.example.positiveonlysocial.models.viewmodels.TopProfilesViewModel
+import com.example.positiveonlysocial.models.viewmodels.TopProfilesViewModelFactory
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.rememberNavController
 import com.example.positiveonlysocial.ui.preview.PreviewHelpers
@@ -57,6 +61,9 @@ fun FeedScreen(
 ) {
     PositiveOnlySocialTheme {
         var selectedTab by remember { mutableIntStateOf(0) }
+        // Which board the Top tab shows (issue #588). Held here so it survives
+        // switching to another feed tab and back.
+        var topBoard by rememberSaveable { mutableStateOf(TopBoard.POSTS) }
         val tabs = listOf("For You", "Following", "Top")
 
         Column(modifier = Modifier.fillMaxSize()) {
@@ -73,7 +80,7 @@ fun FeedScreen(
             when (selectedTab) {
                 0 -> ForYouFeed(navController, api, keychainHelper)
                 1 -> FollowingFeed(navController, api, keychainHelper)
-                2 -> TopFeed(navController, api, keychainHelper)
+                2 -> TopFeed(navController, api, keychainHelper, topBoard) { topBoard = it }
             }
         }
     }
@@ -301,12 +308,49 @@ fun FollowingFeed(
 }
 
 /**
- * The "Top" feed (issue #558): the most-liked public posts across the app over a
- * chosen period, numbered by rank.
+ * The "Top" feed: a Posts board of the most-liked public posts across the app
+ * over a chosen period (issue #558), and a Profiles board of the accounts with
+ * the most followers (issue #588), each numbered by rank.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TopFeed(
+    navController: NavController,
+    api: PositiveOnlySocialAPI,
+    keychainHelper: KeychainHelperProtocol,
+    board: TopBoard = TopBoard.POSTS,
+    onBoardChange: (TopBoard) -> Unit = {}
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        SingleChoiceSegmentedButtonRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp)
+                .padding(top = 8.dp)
+                .testTag("TopBoardPicker")
+        ) {
+            TopBoard.entries.forEachIndexed { index, option ->
+                SegmentedButton(
+                    selected = board == option,
+                    onClick = { onBoardChange(option) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = TopBoard.entries.size),
+                    modifier = Modifier.testTag("TopBoard_${option.name}"),
+                    label = { Text(option.displayName) }
+                )
+            }
+        }
+
+        when (board) {
+            TopBoard.POSTS -> TopPostsBoard(navController, api, keychainHelper)
+            TopBoard.PROFILES -> TopProfilesBoard(navController, api, keychainHelper)
+        }
+    }
+}
+
+/** The Posts board of the Top feed (issue #558). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TopPostsBoard(
     navController: NavController,
     api: PositiveOnlySocialAPI,
     keychainHelper: KeychainHelperProtocol
@@ -407,6 +451,151 @@ fun TopFeed(
 
             PostActionDialogs(postActions, navController)
         }
+    }
+}
+
+/**
+ * The Profiles board of the Top feed (issue #588): public accounts ranked by
+ * followers, all-time, each row opening that profile.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TopProfilesBoard(
+    navController: NavController,
+    api: PositiveOnlySocialAPI,
+    keychainHelper: KeychainHelperProtocol
+) {
+    val viewModel: TopProfilesViewModel = viewModel(
+        factory = TopProfilesViewModelFactory(api, keychainHelper)
+    )
+    // The Posts board's view model already reads the signed-in username; reuse
+    // it so tapping your own row opens the Profile tab like a post's author line.
+    val postsViewModel: TopPostsViewModel = viewModel(
+        factory = TopPostsViewModelFactory(api, keychainHelper)
+    )
+    val currentUsername by postsViewModel.postActions.currentUsername.collectAsState()
+    val profiles by viewModel.topProfiles.collectAsState()
+    val isLoadingNextPage by viewModel.isLoadingNextPage.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val loadError by viewModel.loadError.collectAsState()
+    val reachedEnd by viewModel.reachedEnd.collectAsState()
+    val listState = rememberLazyListState()
+    val celebration = rememberEndOfListCelebration(reachedEnd, listState)
+
+    LaunchedEffect(Unit) {
+        if (profiles.isEmpty()) {
+            viewModel.fetchTopProfiles()
+        }
+    }
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refreshTopProfiles() },
+        modifier = Modifier.fillMaxSize()
+    ) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = 8.dp)
+        ) {
+            itemsIndexed(profiles, key = { _, profile -> profile.username }) { index, profile ->
+                TopProfileRow(
+                    profile = profile,
+                    rank = index + 1,
+                    onClick = { navController.openProfileFor(profile.username, currentUsername) }
+                )
+                HorizontalDivider()
+
+                if (profile == profiles.lastOrNull()) {
+                    LaunchedEffect(profile.username, profiles.size) {
+                        viewModel.fetchTopProfiles()
+                    }
+                }
+            }
+
+            if (isLoadingNextPage) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+            }
+
+            if (profiles.isEmpty() && !isLoadingNextPage && !isRefreshing) {
+                item {
+                    Box(
+                        modifier = Modifier.fillParentMaxSize(),
+                        contentAlignment = androidx.compose.ui.Alignment.Center
+                    ) {
+                        Text(
+                            text = loadError ?: "No profiles here yet. Pull down to refresh.",
+                            textAlign = TextAlign.Center,
+                            color = if (loadError != null) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier
+                                .padding(24.dp)
+                                .testTag("TopProfilesPlaceholder")
+                        )
+                    }
+                }
+            }
+
+            if (reachedEnd && profiles.isNotEmpty()) {
+                item(key = FEED_END_BANNER_KEY) {
+                    FeedEndBanner(FeedEndMessage.TOP_PROFILES)
+                }
+            }
+        }
+
+        ConfettiOverlay(celebration)
+    }
+}
+
+/** One ranked account on the Top profiles board (issue #588). */
+@Composable
+fun TopProfileRow(
+    profile: com.example.positiveonlysocial.data.model.TopProfile,
+    rank: Int,
+    onClick: () -> Unit
+) {
+    Row(
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .testTag("TopProfileRow_${profile.username}")
+    ) {
+        Text(
+            text = "#$rank",
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .widthIn(min = 36.dp)
+                .testTag("TopProfileRank")
+        )
+        ProfileAvatar(
+            imageUrl = profile.authorProfileImageUrl,
+            originalImageUrl = profile.authorProfileImageOriginalUrl,
+            // Decorative — the username is rendered right next to it.
+            contentDescription = null,
+            size = 32.dp,
+            blurHash = profile.authorProfileImageBlurHash
+        )
+        Text(text = profile.username, fontWeight = FontWeight.Bold)
+        if (profile.identityIsVerified == true) {
+            Text(text = "✓", color = MaterialTheme.colorScheme.primary)
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        Text(
+            text = profile.followerCountLabel,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

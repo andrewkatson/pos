@@ -60,6 +60,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     // The Top posts windows and depth, matching backend/user_system/constants.py.
     private val TOP_POST_PERIOD_DAYS = mapOf("day" to 1, "week" to 7, "month" to 30, "year" to 365)
     private val TOP_POSTS_LIMIT = 100
+    // The Top profiles page size and depth (issue #588), matching the backend.
+    var topProfilesPageSize = 20
+    private val TOP_PROFILES_LIMIT = 100
     // Hidden reasons meaning the classifier hasn't approved a post.
     private val TOP_POST_UNAPPROVED_REASONS = setOf("pending_classification", "classifier", "classifier_final")
 
@@ -1159,6 +1162,45 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val dtos = getBatch(ranked, batch, POST_BATCH_SIZE).map { post ->
             val author = users.find { it.id == post.authorId }!!
             listingDto(post, author.username, user.id)
+        }
+        return Response.success(dtos)
+    }
+
+    /**
+     * Mirrors get_top_profiles (issue #588): public, same-age-band accounts not
+     * blocked either way, ranked by followers in the viewer's age band, then
+     * username, leaving out accounts with none, capped at the top 100. The stub
+     * has no shadow bans, so that exclusion has no counterpart here.
+     */
+    override suspend fun getTopProfiles(token: String, batch: Int): Response<List<TopProfile>> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Unauthorized")
+        val viewerIsMinor = isVerifiedMinor(user)
+        val ranked = users
+            .filter {
+                !it.isPrivate &&
+                !user.blocked.contains(it.id) &&
+                !user.blockedBy.contains(it.id) &&
+                isVerifiedMinor(it) == viewerIsMinor
+            }
+            .map { candidate ->
+                candidate to candidate.followers.count { id ->
+                    isVerifiedMinor(users.find { u -> u.id == id }) == viewerIsMinor
+                }
+            }
+            .filter { (_, followerCount) -> followerCount > 0 }
+            .sortedWith(
+                compareByDescending<Pair<UserMock, Int>> { it.second }.thenBy { it.first.username }
+            )
+            .take(TOP_PROFILES_LIMIT)
+
+        val dtos = getBatch(ranked, batch, topProfilesPageSize).map { (candidate, followerCount) ->
+            TopProfile(
+                username = candidate.username,
+                identityIsVerified = candidate.isVerified,
+                authorProfileImageUrl = approvedAvatarFor(candidate.id),
+                authorProfileImageOriginalUrl = approvedAvatarFor(candidate.id),
+                followerCount = followerCount
+            )
         }
         return Response.success(dtos)
     }
