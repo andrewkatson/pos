@@ -245,6 +245,17 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun getTopProfiles(token: String, batch: Int): Response<List<TopProfile>> {
+        // One page only, for the same reason as getTopPosts below.
+        if (batch > 0) return Response.success(emptyList())
+        return Response.success(
+            listOf(
+                TopProfile("popular_pal", identityIsVerified = true, followerCount = 1200),
+                TopProfile("coffee_addict", identityIsVerified = false, followerCount = 87)
+            )
+        )
+    }
+
     override suspend fun getTopPosts(token: String, batch: Int, period: String): Response<List<Post>> {
         // One page only: TopPostsViewModel pages past repeat-only pages, so the
         // same rows on every batch would make a preview request forever.
