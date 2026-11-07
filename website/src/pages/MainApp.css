@@ -427,6 +427,12 @@
   font-weight: 600;
 }
 
+/* Follower total on a Top profiles row (issue #588), pushed to the right edge. */
+.top-profile__followers {
+  margin-left: auto;
+  font-size: 0.9rem;
+}
+
 .verified-badge {
   color: #5ba4dc;
 }
@@ -600,6 +606,16 @@
   border-radius: 8px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
+}
+
+/* The Posts / Profiles toggle under the Top segment (issue #588). */
+.segmented--sub {
+  margin-top: -0.25rem;
+}
+
+.segmented--sub .segmented__option {
+  font-size: 0.85rem;
+  padding: 0.35rem;
 }
 
 .segmented__option--active {
