@@ -51,6 +51,15 @@ class TopProfilesViewModel(
             _reachedEnd.value = !value
         }
     private var currentPage = 0
+
+    private val _refreshRevision = MutableStateFlow(0)
+    /**
+     * Bumped by every successful refresh. A refresh that returns the same first
+     * page leaves the last row and the list size unchanged, so the screen keys
+     * its pagination effect on this too, or it would never ask for page 1 again
+     * (and a short board would lose its end banner).
+     */
+    val refreshRevision: StateFlow<Int> = _refreshRevision.asStateFlow()
     private val service = "positive-only-social.Positive-Only-Social"
 
     /** Pull-to-refresh: reloads the board from the first page. */
@@ -72,6 +81,7 @@ class TopProfilesViewModel(
                     _topProfiles.value = newProfiles
                     canLoadMore = newProfiles.isNotEmpty()
                     currentPage = if (newProfiles.isEmpty()) 0 else 1
+                    _refreshRevision.value += 1
                     _loadError.value = null
                 } else {
                     // Resolve the message before logging: the error body is a

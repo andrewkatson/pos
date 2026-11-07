@@ -482,6 +482,7 @@ private fun TopProfilesBoard(
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val loadError by viewModel.loadError.collectAsState()
     val reachedEnd by viewModel.reachedEnd.collectAsState()
+    val refreshRevision by viewModel.refreshRevision.collectAsState()
     val listState = rememberLazyListState()
     val celebration = rememberEndOfListCelebration(reachedEnd, listState)
 
@@ -510,7 +511,10 @@ private fun TopProfilesBoard(
                 HorizontalDivider()
 
                 if (profile == profiles.lastOrNull()) {
-                    LaunchedEffect(profile.username, profiles.size) {
+                    // Also keyed to refreshes: one that returns the identical
+                    // page leaves the row and size unchanged, and the effect
+                    // must still restart to ask for the next page.
+                    LaunchedEffect(profile.username, profiles.size, refreshRevision) {
                         viewModel.fetchTopProfiles()
                     }
                 }
