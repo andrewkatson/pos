@@ -8,6 +8,7 @@
 import PhotosUI
 import SwiftUI
 
+
 // A helper view for displaying stats
 struct StatItem: View {
     let count: Int
@@ -68,29 +69,29 @@ struct ProfileView: View {
 /// navigation destination — the container owns those, since the two containers
 /// title the screen differently and register different destinations.
 struct ProfileBodyView: View {
-
+    
     @ObservedObject var viewModel: ProfileViewModel
     @ObservedObject var postActions: PostActionsViewModel
-
+    
     /// The photo the owner picked from their library, uploaded and set as their
     /// profile photo when it changes (issue #7).
     @State private var selectedPhotoItem: PhotosPickerItem?
-
+    
     /// Whether the owner's bio editor sheet is open (issue #380).
     @State private var isEditingBio = false
-
+    
     /// Whether the profile's options popover (Share Profile, issue #510) is open.
     @State private var showProfileMenu = false
-
+    
     /// The accessibility identifier for each grid tile. The Profile tab keeps
     /// "MyPostImage" so your own grid stays distinguishable from someone else's.
     var postAccessibilityIdentifier: String = "ProfilePostImage"
-
+    
     // Grid layout: 3 columns with a 1pt gap. The gap (and any empty slots in a
     // partial last row) show the grid's background, which is the theme background
     // so it blends in both light and dark mode rather than painting black (#415).
     private let columns: [GridItem] = Array(repeating: GridItem(.flexible(), spacing: 1), count: 3)
-
+    
     var body: some View {
         ScrollView {
             profileHeader.padding(.horizontal)
@@ -127,7 +128,7 @@ struct ProfileBodyView: View {
             if viewModel.userPosts.isEmpty {
                 viewModel.fetchUserPosts()
             }
-
+            
             if viewModel.profileDetails == nil {
                 viewModel.fetchProfileDetails()
             }
@@ -138,7 +139,7 @@ struct ProfileBodyView: View {
             ShareActivityView(url: item.url)
         }
     }
-
+    
     /// A new sub-view for the profile header and follow button
     @ViewBuilder
     private var profileHeader: some View {
@@ -163,13 +164,13 @@ struct ProfileBodyView: View {
                 // Anchored to the button, like the post menus (issue #477).
                 .popover(isPresented: $showProfileMenu, attachmentAnchor: .rect(.bounds)) {
                     profileMenu
-                        // Without this a popover becomes a sheet in a compact
-                        // size class — i.e. everywhere on iPhone.
+                    // Without this a popover becomes a sheet in a compact
+                    // size class — i.e. everywhere on iPhone.
                         .presentationCompactAdaptation(.popover)
                 }
             }
             .padding(.top, 4)
-
+            
             // The large header avatar (issue #7). The owner previews a
             // not-yet-approved upload immediately; everyone else sees the live
             // approved photo (or the placeholder).
@@ -180,12 +181,12 @@ struct ProfileBodyView: View {
                 size: 96
             )
             .accessibilityIdentifier("ProfileHeaderAvatar")
-
+            
             // The owner's own set / remove controls.
             if viewModel.isOwnProfile {
                 ownPhotoControls
             }
-
+            
             // Placeholder for profile stats (you can build this out)
             HStack {
                 Spacer()
@@ -217,7 +218,7 @@ struct ProfileBodyView: View {
                 Spacer()
             }
             .padding(.top)
-
+            
             // The user's join number (issue #198), shown on every profile —
             // your own and everyone else's.
             if let membershipNumber = viewModel.profileDetails?.membershipNumber {
@@ -227,11 +228,11 @@ struct ProfileBodyView: View {
                     .padding(.top, 4)
                     .accessibilityIdentifier("MembershipNumberLabel")
             }
-
+            
             // The user's bio (issue #380), shown to everyone when set; the owner
             // gets an edit affordance below it.
             bioSection
-
+            
             if !viewModel.isOwnProfile {
                 Button(action: viewModel.toggleFollow) {
                     Text(viewModel.isFollowing ? "Following" : "Follow")
@@ -249,7 +250,7 @@ struct ProfileBodyView: View {
                 .disabled(viewModel.isLoadingProfile || viewModel.isBusy)
                 .padding(.vertical)
                 .accessibilityIdentifier("FollowButton")
-
+                
                 // Relationship category, shown once you follow (issue #392).
                 if viewModel.isFollowing {
                     Picker("Relationship", selection: Binding(
@@ -265,7 +266,7 @@ struct ProfileBodyView: View {
                     .padding(.bottom, 8)
                     .accessibilityIdentifier("RelationshipCategoryPicker")
                 }
-
+                
                 Button(action: viewModel.toggleBlock) {
                     Text(viewModel.isBlocked ? "Unblock" : "Block")
                         .fontWeight(.medium)
@@ -309,52 +310,59 @@ struct ProfileBodyView: View {
         .padding(.vertical, 6)
         .frame(minWidth: 200, alignment: .leading)
     }
-
+    
     /// The owner's profile-photo controls (issue #7): pick a photo to upload and
     /// set, remove the current one, plus the async review status. Only shown on
     /// your own profile.
     @ViewBuilder
+    @State private var showPhotoOptions = false
+    @State private var showPhotosPicker = false
     private var ownPhotoControls: some View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
-                let pickerLabel = Label(
-                    viewModel.hasProfilePhoto ? "Change Photo" : "Add Photo",
-                    systemImage: "photo.on.rectangle.angled"
-                )
-                if isUITesting() {
-                    // UI-test mode: a plain button that loads a bundled system
-                    // image, since the PhotosPicker can't be driven by XCUITest.
+                Button {
+                    showPhotoOptions = true
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .foregroundColor(.secondary)
+                        .padding(8)
+                        .contentShape(Rectangle())
+                }
+                .disabled(viewModel.isUpdatingPhoto)
+                .font(.subheadline)
+                .accessibilityIdentifier("ProfilePhotoMenuButton")
+                .confirmationDialog("Profile Photo", isPresented: $showPhotoOptions, titleVisibility: .hidden) {
+                    let pickerLabel = Label(
+                        viewModel.hasProfilePhoto ? "Change Photo" : "Add Photo",
+                        systemImage: "photo.on.rectangle.angled"
+                    )
+
                     Button {
-                        if let testImage = UIImage(systemName: "person.fill"),
-                           let data = testImage.jpegData(compressionQuality: 0.8) {
-                            Task { await viewModel.updateProfilePhoto(imageData: data) }
+                        if isUITesting() {
+                            if let testImage = UIImage(systemName: "person.fill"),
+                               let data = testImage.jpegData(compressionQuality: 0.8) {
+                                Task { await viewModel.updateProfilePhoto(imageData: data) }
+                            }
+                        } else {
+                            showPhotosPicker = true
                         }
                     } label: {
                         pickerLabel
                     }
                     .accessibilityIdentifier("ProfilePhotoPicker")
-                } else {
-                    PhotosPicker(
-                        selection: $selectedPhotoItem,
-                        matching: .images,
-                        photoLibrary: .shared()
-                    ) {
-                        pickerLabel
-                    }
-                    .accessibilityIdentifier("ProfilePhotoPicker")
-                }
 
-                if viewModel.hasProfilePhoto {
-                    Button(role: .destructive) {
-                        Task { await viewModel.removeProfilePhoto() }
-                    } label: {
-                        Text("Remove")
+                    if viewModel.hasProfilePhoto {
+                        Button(role: .destructive) {
+                            Task { await viewModel.removeProfilePhoto() }
+                        } label: {
+                            Label("Remove", systemImage: "trash")
+                        }
+                        .accessibilityIdentifier("RemoveProfilePhotoButton")
                     }
-                    .accessibilityIdentifier("RemoveProfilePhotoButton")
+
+                    Button("Cancel", role: .cancel) { }
                 }
             }
-            .disabled(viewModel.isUpdatingPhoto)
-            .font(.subheadline)
 
             if viewModel.isUpdatingPhoto {
                 ProgressView()
@@ -377,22 +385,29 @@ struct ProfileBodyView: View {
                     .accessibilityIdentifier("ProfilePhotoError")
             }
         }
-        .padding(.top, 4)
-        // Upload and set the picked photo. The picked item is captured and the
-        // selection cleared *synchronously* (on the main actor, before the async
-        // work) so an in-flight upload can never nil out a newer selection — and
-        // clearing lets re-picking the same photo fire onChange again. The
-        // guard makes the resulting change-to-nil a no-op.
-        .onChange(of: selectedPhotoItem) {
-            guard let item = selectedPhotoItem else { return }
-            selectedPhotoItem = nil
+        .photosPicker(
+            isPresented: $showPhotosPicker,
+            selection: $selectedPhotoItem,
+            matching: .images,
+            photoLibrary: .shared()
+        )
+        .onChange(of: selectedPhotoItem) { _, newItem in
+            guard let newItem else { return }
             Task {
-                if let data = try? await item.loadTransferable(type: Data.self) {
-                    await viewModel.updateProfilePhoto(imageData: data)
+                defer { selectedPhotoItem = nil }
+                do {
+                    if let rawData = try await newItem.loadTransferable(type: Data.self),
+                       let uiImage = UIImage(data: rawData),
+                       let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
+                        await viewModel.updateProfilePhoto(imageData: jpegData)
+                    }
+                } catch {
+                    viewModel.photoErrorMessage = "Failed to load selected photo."
                 }
             }
         }
     }
+
 
     /// The bio (issue #380): the text when set, plus an owner-only Edit/Add
     /// button that opens the composer sheet. Editing is only ever offered on
