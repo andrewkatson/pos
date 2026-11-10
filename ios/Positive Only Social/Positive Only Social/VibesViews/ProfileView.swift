@@ -391,12 +391,13 @@ struct ProfileBodyView: View {
             matching: .images,
             photoLibrary: .shared()
         )
-        .onChange(of: selectedPhotoItem) { _, newItem in
-            guard let newItem else { return }
+        .onChange(of: selectedPhotoItem) { _, profilePicture in
+          
+            guard let profilePicture else { return }
             Task {
                 defer { selectedPhotoItem = nil }
                 do {
-                    if let rawData = try await newItem.loadTransferable(type: Data.self),
+                    if let rawData = try await profilePicture.loadTransferable(type: Data.self),
                        let uiImage = UIImage(data: rawData),
                        let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
                         await viewModel.updateProfilePhoto(imageData: jpegData)
