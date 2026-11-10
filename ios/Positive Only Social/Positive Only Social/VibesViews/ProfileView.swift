@@ -317,6 +317,7 @@ struct ProfileBodyView: View {
     @ViewBuilder
     @State private var showPhotoOptions = false
     @State private var showPhotosPicker = false
+    
     private var ownPhotoControls: some View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
