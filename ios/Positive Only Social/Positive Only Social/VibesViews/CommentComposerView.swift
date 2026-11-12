@@ -22,10 +22,31 @@ final class CommentFormatController: ObservableObject {
 
     fileprivate weak var textView: UITextView?
     private var styles: [CharStyle] = []
+    /// The character limit the counter and Post button enforce — a comment's
+    /// by default, a caption's when editing one (issue #462).
+    let maxLength: Int
+
+    /// Starts empty for a new comment, or from an existing comment's text and
+    /// formatting when editing it (issue #462).
+    init(text: String = "", spans: [CommentFormatSpan]? = nil, maxLength: Int = GVOAppConstants.maxCommentLength) {
+        self.text = text
+        self.maxLength = maxLength
+        var styles = Array(repeating: CharStyle(), count: (text as NSString).length)
+        for span in spans ?? [] {
+            let lo = max(0, span.start), hi = min(styles.count, span.end)
+            guard lo < hi else { continue }
+            for i in lo..<hi {
+                if span.bold { styles[i].bold = true }
+                if span.italic { styles[i].italic = true }
+                styles[i].size = span.size
+            }
+        }
+        self.styles = styles
+    }
 
     var isSubmittable: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && isWithinLength(text, max: GVOAppConstants.maxCommentLength)
+            && isWithinLength(text, max: maxLength)
     }
 
     /// The inline formatting spans to submit, or nil when the comment is plain.
@@ -188,24 +209,55 @@ private struct FormattedTextEditor: UIViewRepresentable {
     }
 }
 
-/// The shared composer sheet for writing a comment — used both for a brand new
-/// comment on the post and for replying to a thread (issues #266, #289, #290).
-/// It always shows the character counter, and submitting dismisses the sheet
-/// (and thus the keyboard) immediately, so tapping the confirm button repeatedly
-/// can't post the same comment twice (issue #291). A formatting toolbar styles
-/// the current selection with bold/italic/size (issue #318).
+/// The shared composer sheet for writing a comment — used for a brand new
+/// comment on the post, for replying to a thread (issues #266, #289, #290), and,
+/// prefilled, for editing a comment or a caption (issue #462). It always shows
+/// the character counter, and submitting dismisses the sheet (and thus the
+/// keyboard) immediately, so tapping the confirm button repeatedly can't post
+/// the same comment twice (issue #291). A formatting toolbar styles the current
+/// selection with bold/italic/size (issue #318).
 struct CommentComposerView: View {
       @Environment(\.dismiss) var dismiss
 
       /// The sheet's title — e.g. "Add Comment" or "Post Reply".
       let title: String
 
+      /// The confirm button's label — "Post", or "Save" for an edit.
+      let confirmTitle: String
+
+      /// The bold/italic/size toolbar (issue #318). Off when editing a caption,
+      /// which is styled as a whole rather than inline.
+      let showsFormatting: Bool
+
+      /// The audience picker (issue #445). Off for an edit, which keeps the
+      /// audience the comment was shared with.
+      let showsAudience: Bool
+
       /// The action to perform when the confirm button is tapped, carrying the
       /// text, any inline formatting spans (issue #318), and the chosen audience
       /// (issue #445).
       let onSubmit: (String, [CommentFormatSpan]?, PostAudience) -> Void
 
-      @StateObject private var controller = CommentFormatController()
+      @StateObject private var controller: CommentFormatController
+
+      init(
+          title: String,
+          confirmTitle: String = "Post",
+          initialText: String = "",
+          initialFormatting: [CommentFormatSpan]? = nil,
+          showsFormatting: Bool = true,
+          showsAudience: Bool = true,
+          maxLength: Int = GVOAppConstants.maxCommentLength,
+          onSubmit: @escaping (String, [CommentFormatSpan]?, PostAudience) -> Void
+      ) {
+          self.title = title
+          self.confirmTitle = confirmTitle
+          self.showsFormatting = showsFormatting
+          self.showsAudience = showsAudience
+          self.onSubmit = onSubmit
+          _controller = StateObject(wrappedValue: CommentFormatController(
+              text: initialText, spans: initialFormatting, maxLength: maxLength))
+      }
 
       /// Who may see the comment being written (issue #445); defaults to public.
       @State private var selectedAudience: PostAudience = .public
@@ -221,43 +273,47 @@ struct CommentComposerView: View {
                       // system's text-selection callout (Cut/Copy/Paste), which
                       // pops up above the highlighted text, doesn't cover the
                       // Bold/Italic/Size controls (issue #425).
-                      HStack(spacing: 20) {
-                          Button { controller.toggleBold() } label: {
-                              Image(systemName: "bold")
-                          }
-                          .accessibilityLabel("Bold selection")
-                          Button { controller.toggleItalic() } label: {
-                              Image(systemName: "italic")
-                          }
-                          .accessibilityLabel("Italic selection")
-                          Menu {
-                              ForEach(["small", "normal", "large", "xlarge"], id: \.self) { size in
-                                  Button(size.capitalized) { controller.setSize(size) }
+                      if showsFormatting {
+                          HStack(spacing: 20) {
+                              Button { controller.toggleBold() } label: {
+                                  Image(systemName: "bold")
                               }
-                          } label: {
-                              Label("Size", systemImage: "textformat.size")
+                              .accessibilityLabel("Bold selection")
+                              Button { controller.toggleItalic() } label: {
+                                  Image(systemName: "italic")
+                              }
+                              .accessibilityLabel("Italic selection")
+                              Menu {
+                                  ForEach(["small", "normal", "large", "xlarge"], id: \.self) { size in
+                                      Button(size.capitalized) { controller.setSize(size) }
+                                  }
+                              } label: {
+                                  Label("Size", systemImage: "textformat.size")
+                              }
+                              .accessibilityLabel("Text size for selection")
+                              Spacer()
                           }
-                          .accessibilityLabel("Text size for selection")
-                          Spacer()
-                      }
-                      .buttonStyle(.borderless)
-                      .font(.headline)
+                          .buttonStyle(.borderless)
+                          .font(.headline)
 
-                      Text("Select text, then tap Bold, Italic, or Size to format it.")
-                          .font(.caption)
-                          .foregroundColor(.secondary)
-                      CharacterCounter(text: controller.text, max: GVOAppConstants.maxCommentLength)
+                          Text("Select text, then tap Bold, Italic, or Size to format it.")
+                              .font(.caption)
+                              .foregroundColor(.secondary)
+                      }
+                      CharacterCounter(text: controller.text, max: controller.maxLength)
                   }
 
                   // Who may see this comment (issue #445), mirroring the post
                   // audience picker in NewPostView.
-                  Section {
-                      Picker("Who can see this?", selection: $selectedAudience) {
-                          ForEach(PostAudience.allCases) { audience in
-                              Text(audience.displayName).tag(audience)
+                  if showsAudience {
+                      Section {
+                          Picker("Who can see this?", selection: $selectedAudience) {
+                              ForEach(PostAudience.allCases) { audience in
+                                  Text(audience.displayName).tag(audience)
+                              }
                           }
+                          .accessibilityIdentifier("CommentAudiencePicker")
                       }
-                      .accessibilityIdentifier("CommentAudiencePicker")
                   }
               }
               .navigationTitle(title)
@@ -270,8 +326,8 @@ struct CommentComposerView: View {
                       }
                   }
                   ToolbarItem(placement: .confirmationAction) {
-                      Button("Post") {
-                          onSubmit(controller.text, controller.spans, selectedAudience)
+                      Button(confirmTitle) {
+                          onSubmit(controller.text, showsFormatting ? controller.spans : nil, selectedAudience)
                           dismiss()
                       }
                       .disabled(!controller.isSubmittable)
@@ -281,3 +337,21 @@ struct CommentComposerView: View {
           }
       }
   }
+
+extension CommentComposerView {
+    /// The composer set up for editing a post's caption (issue #462): prefilled,
+    /// with the caption's length limit, and without the inline formatting
+    /// toolbar (a caption is styled whole) or the audience picker.
+    static func captionEditor(caption: String, onSave: @escaping (String) -> Void) -> CommentComposerView {
+        CommentComposerView(
+            title: "Edit Caption",
+            confirmTitle: "Save",
+            initialText: caption,
+            showsFormatting: false,
+            showsAudience: false,
+            maxLength: GVOAppConstants.maxCaptionLength
+        ) { text, _, _ in
+            onSave(text)
+        }
+    }
+}

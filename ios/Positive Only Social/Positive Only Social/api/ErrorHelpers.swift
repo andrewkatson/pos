@@ -30,10 +30,23 @@ extension Notification.Name {
     /// keep offering the stale action after a toggle on the detail screen.
     static let postCommentsDisabledChanged = Notification.Name("postCommentsDisabledChanged")
 
+    /// Posted after the author saves a caption edit (issue #462), with the
+    /// post's identifier as the `object`, the saved caption under
+    /// `userInfo["caption"]` and its edit time under `userInfo["editedTime"]`. Every list's PostActionsViewModel listens, so a
+    /// row already on screen shows the new caption without a reload.
+    static let postCaptionEdited = Notification.Name("postCaptionEdited")
+
     /// Posted after a new post is successfully created. The signed-in user's own
     /// profile grid listens for this so the new post shows up there immediately,
     /// without waiting for a manual pull-to-refresh (issue #347).
     static let postCreated = Notification.Name("postCreated")
+
+    /// Posted after the signed-in user approves or denies a follow request, or
+    /// changes their private account setting (going public approves every
+    /// pending request) — issue #96. Their own profile listens so its lock
+    /// badge, "Follow Requests (n)" badge and follower count refresh when they
+    /// come back to it.
+    static let followRequestsChanged = Notification.Name("followRequestsChanged")
 }
 
 extension Error {

@@ -132,6 +132,10 @@ struct CommentRowView: View {
     let isOwn: Bool
     /// Whether the thread below this comment is currently collapsed.
     let isCollapsed: Bool
+    /// Whether any later comment in the thread sits below this one. Without
+    /// one there is nothing to fold, so the chevron is hidden and tapping the
+    /// header does nothing (issue #537).
+    let hasReplies: Bool
     /// Toggles the collapsed state of the thread below this comment.
     let onToggleCollapse: () -> Void
     /// Actions passed from the parent
@@ -158,7 +162,8 @@ struct CommentRowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 // Username + time header. Tap the author's name to open their
                 // profile; tapping the space next to it collapses the thread
-                // below this comment (issue #243). A plain tap gesture (not a
+                // below this comment (issue #243), when it has replies to fold
+                // (issue #537). A plain tap gesture (not a
                 // NavigationLink) so the row's long-press (report/delete) and
                 // double-tap (like) gestures aren't swallowed by a nested Button.
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -173,7 +178,8 @@ struct CommentRowView: View {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityHint("Opens \(comment.authorUsername)'s profile")
                         .accessibilityIdentifier("CommentAuthor")
-                    Text(RelativeTime.string(from: comment.createdDate))
+                    // Marks a comment changed after it was posted (issue #462).
+                    Text(RelativeTime.string(from: comment.createdDate) + (comment.isEdited ? " · edited" : ""))
                         .font(.caption)
                         .foregroundColor(.secondary)
                     // Who can see this comment, on your own comments only
@@ -215,12 +221,15 @@ struct CommentRowView: View {
                             .presentationCompactAdaptation(.popover)
                     }
                     Spacer()
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                    if hasReplies {
+                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .accessibilityIdentifier("CommentCollapseChevron")
+                    }
                 }
                 .contentShape(Rectangle())
-                .onTapGesture { onToggleCollapse() }
+                .onTapGesture { if hasReplies { onToggleCollapse() } }
                 .accessibilityIdentifier("CommentCollapseHeader")
 
                 // The comment body sits below the username/time header line,
@@ -305,6 +314,12 @@ struct CommentRowView: View {
             // Share is offered for any comment — yours and others' (issue #34).
             menuRow("Share Comment", identifier: "ShareCommentActionButton") {
                 viewModel.shareComment(comment)
+            }
+            // Edit your own comment (issue #462) in the composer you wrote it in.
+            if viewModel.canEditComment(comment) {
+                menuRow("Edit Comment", identifier: "EditCommentActionButton") {
+                    viewModel.commentToEdit = comment
+                }
             }
             if viewModel.isOwnComment(comment) {
                 menuRow("Delete Comment", identifier: "DeleteCommentActionButton", isDestructive: true) {

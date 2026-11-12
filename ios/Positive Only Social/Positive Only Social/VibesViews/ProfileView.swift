@@ -82,7 +82,9 @@ struct ProfileBodyView: View {
     
     /// Whether the profile's options popover (Share Profile, issue #510) is open.
     @State private var showProfileMenu = false
-    
+    // Confetti when the viewer scrolls to the end of the grid (issue #528).
+    @StateObject private var celebration = EndOfListCelebration()
+
     /// The accessibility identifier for each grid tile. The Profile tab keeps
     /// "MyPostImage" so your own grid stays distinguishable from someone else's.
     var postAccessibilityIdentifier: String = "ProfilePostImage"
@@ -98,6 +100,7 @@ struct ProfileBodyView: View {
             Divider()
             postGrid
         }
+        .celebratesEndOfList(celebration, reachedEnd: viewModel.reachedEnd)
         // Surfaces the outcome when one of your posts' async review (#282)
         // resolves to a rejection while this grid is visible. Only your own
         // posts carry a status, so this never fires on someone else's profile.
@@ -181,13 +184,38 @@ struct ProfileBodyView: View {
                 size: 96
             )
             .accessibilityIdentifier("ProfileHeaderAvatar")
-            
+
+            // A lock under the avatar marks a private account (issue #96).
+            if viewModel.profileDetails?.isPrivate == true {
+                Label("Private account", systemImage: "lock.fill")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .accessibilityIdentifier("PrivateAccountBadge")
+            }
+
             // The owner's own set / remove controls.
             if viewModel.isOwnProfile {
                 ownPhotoControls
             }
-            
-            // Placeholder for profile stats (you can build this out)
+
+            // The owner's incoming follow requests (issue #96), offered while
+            // the account is private or anyone is still waiting. The container
+            // registers the destination, like the follow lists.
+            if viewModel.isOwnProfile
+                && (viewModel.profileDetails?.isPrivate == true || viewModel.followRequestCount > 0) {
+                NavigationLink(value: FollowRequestsDestination()) {
+                    Text(viewModel.followRequestCount > 0
+                         ? "Follow Requests (\(viewModel.followRequestCount))"
+                         : "Follow Requests")
+                        .font(.subheadline)
+                }
+                .padding(.top, 4)
+                .accessibilityIdentifier("FollowRequestsLink")
+            }
+
+            // A private account the viewer doesn't follow shows no counts
+            // (issue #96); the backend zeroes them, so hide rather than show 0s.
+            if !viewModel.hidesStats {
             HStack {
                 Spacer()
                 // The backend's authoritative post_count, not the loaded-grid
@@ -218,7 +246,8 @@ struct ProfileBodyView: View {
                 Spacer()
             }
             .padding(.top)
-            
+            }
+
             // The user's join number (issue #198), shown on every profile —
             // your own and everyone else's.
             if let membershipNumber = viewModel.profileDetails?.membershipNumber {
@@ -234,17 +263,20 @@ struct ProfileBodyView: View {
             bioSection
             
             if !viewModel.isOwnProfile {
+                // "Requested" while a follow request to a private account is
+                // pending (issue #96); tapping it cancels the request.
+                let followOutlined = viewModel.isFollowing || viewModel.followRequestPending
                 Button(action: viewModel.toggleFollow) {
-                    Text(viewModel.isFollowing ? "Following" : "Follow")
+                    Text(viewModel.isFollowing ? "Following" : viewModel.followRequestPending ? "Requested" : "Follow")
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
-                        .background(viewModel.isFollowing ? Color.clear : Color.blue)
-                        .foregroundColor(viewModel.isFollowing ? .primary : .white)
+                        .background(followOutlined ? Color.clear : Color.blue)
+                        .foregroundColor(followOutlined ? .primary : .white)
                         .cornerRadius(8)
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
-                                .stroke(viewModel.isFollowing ? Color.gray : Color.blue, lineWidth: 1)
+                                .stroke(followOutlined ? Color.gray : Color.blue, lineWidth: 1)
                         )
                 }
                 .disabled(viewModel.isLoadingProfile || viewModel.isBusy)
@@ -447,8 +479,23 @@ struct ProfileBodyView: View {
     /// The view for displaying the user's posts
     @ViewBuilder
     private var postGrid: some View {
+        // A private account the viewer doesn't follow (issue #96).
+        if viewModel.isLocked && !viewModel.isLoading {
+            VStack(spacing: 6) {
+                Label("This account is private", systemImage: "lock.fill")
+                    .font(.headline)
+                Text(viewModel.followRequestPending
+                     ? "Once \(viewModel.user.username) approves your request, you'll see their posts."
+                     : "Follow \(viewModel.user.username) to see their posts.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top, 50)
+            .padding(.horizontal)
+            .accessibilityIdentifier("PrivateAccountNotice")
         // Show a loading indicator while fetching initial posts
-        if viewModel.userPosts.isEmpty && viewModel.isLoading {
+        } else if viewModel.userPosts.isEmpty && viewModel.isLoading {
             ProgressView()
                 .padding(.top, 50)
             // Show a message if the user has no posts
@@ -477,7 +524,7 @@ struct ProfileBodyView: View {
                                         imageUrl: post.imageUrl,
                                         originalImageUrl: post.originalImageUrl,
                                         blurHash: post.blurHash,
-                                        caption: post.caption,
+                                        caption: postActions.caption(for: post),
                                         captionFont: post.captionFont,
                                         backgroundColor: post.backgroundColor
                                     )
@@ -520,6 +567,15 @@ struct ProfileBodyView: View {
             // in a partial last row, so it blends with the screen in both light and
             // dark mode instead of painting black boxes next to posts (#415).
             .background(Color(.systemBackground))
+
+            if viewModel.reachedEnd {
+                FeedEndBanner(
+                    message: viewModel.isOwnProfile
+                        ? FeedEndMessage.ownProfile
+                        : FeedEndMessage.profile(of: viewModel.user.username),
+                    celebration: celebration
+                )
+            }
         }
     }
 }

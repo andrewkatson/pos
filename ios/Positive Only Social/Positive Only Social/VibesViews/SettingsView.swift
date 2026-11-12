@@ -14,6 +14,10 @@ import UniformTypeIdentifiers
 private let _recoveryCodeClipboardTTL: TimeInterval = 120
 
 struct SettingsView: View {
+    /// Footer under the Private Account toggle (issue #96).
+    private static let privateAccountFooter =
+        "Only people you approve can see your posts. Your comments keep the audience you pick for each one."
+
     // The AuthenticationManager is still needed to trigger the final UI change.
     @EnvironmentObject private var authManager: AuthenticationManager
 
@@ -129,6 +133,25 @@ struct SettingsView: View {
                     }.accessibilityIdentifier("AppealsButton")
                 }
 
+                // MARK: - Privacy Section (issue #96)
+                Section(
+                    header: Text("Privacy"),
+                    footer: Text(Self.privateAccountFooter)
+                ) {
+                    Toggle("Private Account", isOn: Binding(
+                        get: { viewModel.isPrivate ?? false },
+                        set: { viewModel.setAccountPrivacy($0) }
+                    ))
+                    .disabled(viewModel.isPrivate == nil || viewModel.isSavingPrivacy)
+                    .accessibilityIdentifier("PrivateAccountToggle")
+
+                    NavigationLink {
+                        FollowRequestsView(api: api, keychainHelper: keychainHelper)
+                    } label: {
+                        Text("Follow Requests")
+                    }.accessibilityIdentifier("FollowRequestsButton")
+                }
+
                 // MARK: - Blocked Users Section
                 Section {
                     NavigationLink {
@@ -150,9 +173,11 @@ struct SettingsView: View {
                 }
 
                 // MARK: - Notifications Section (issues #342/#343)
+                // Rows nest under their parent and hide while it is off (#444).
                 if !viewModel.notificationPreferences.isEmpty {
                     Section(header: Text("Notifications")) {
-                        ForEach(viewModel.notificationPreferences) { pref in
+                        ForEach(NotificationPreference.visibleRows(viewModel.notificationPreferences), id: \.pref.type) { row in
+                            let pref = row.pref
                             Toggle(pref.label, isOn: Binding(
                                 get: { pref.enabled },
                                 set: { viewModel.updateNotificationPreference(pref, enabled: $0) }
@@ -160,6 +185,7 @@ struct SettingsView: View {
                             // Disabled while its save is in flight, so a rapid
                             // re-toggle can't race (#342/#343).
                             .disabled(viewModel.savingPreferences.contains(pref.type))
+                            .padding(.leading, CGFloat(row.depth) * 16)
                             .accessibilityIdentifier("NotificationToggle_\(pref.type)")
                         }
                     }

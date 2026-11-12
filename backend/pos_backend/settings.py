@@ -215,6 +215,11 @@ else:
 # services. Production must set REDIS_URL: eager mode puts the LLM latency
 # back on the request path, which is exactly what this feature removes.
 CLASSIFICATION_QUEUE_NAME = 'classification'
+# Activity push notifications (issue #444) get their own queue on the same
+# Redis, drained by the same worker after the classification queue: RQ always
+# takes from the first queue that has work, so a burst of notification jobs can
+# never hold moderation back by more than the one (bounded) job in progress.
+PUSH_QUEUE_NAME = 'notifications'
 CLASSIFICATION_EAGER = not bool(os.environ.get('REDIS_URL'))
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'

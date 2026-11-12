@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from ..constants import HIDDEN_REASON_NONE
 from ..models import Post, InterestCategory
@@ -21,10 +22,16 @@ class FeedInterestWeightingTests(TestCase):
         self.viewer = User.objects.create_user(username='viewer', email='v@t.com')
         self.author = User.objects.create_user(username='author', email='a@t.com')
         self.nature = InterestCategory.objects.get(slug='nature')
+        # Every post in a test shares one creation time. The hot score decays
+        # with age, so posts created a few ms apart differ in the 6th decimal
+        # on a slow runner, which broke "same age" comparisons (issue #563 CI).
+        self.created_at = timezone.now()
 
     def _post(self, caption, categories=()):
         post = Post.objects.create(author=self.author, caption=caption,
                                    hidden=False, hidden_reason=HIDDEN_REASON_NONE)
+        # creation_time is auto_now_add, so pin it with an update.
+        Post.objects.filter(pk=post.pk).update(creation_time=self.created_at)
         for slug in categories:
             post.interest_categories.add(InterestCategory.objects.get(slug=slug))
         return post

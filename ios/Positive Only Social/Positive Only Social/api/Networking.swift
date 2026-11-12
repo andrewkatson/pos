@@ -119,6 +119,11 @@ protocol Networking {
     /// Deletes a post.
     func deletePost(sessionManagementToken: String, postIdentifier: String) async throws -> Data
 
+    /// Owner-only: replaces a live post's caption (issue #462). The backend
+    /// classifies the new caption first; a rejection throws and leaves the
+    /// original in place.
+    func editPost(sessionManagementToken: String, postIdentifier: String, caption: String) async throws -> Data
+
     /// Owner-only: stops new comments/replies on a post (issue #492). Existing
     /// comments stay visible.
     func lockComments(sessionManagementToken: String, postIdentifier: String) async throws -> Data
@@ -159,6 +164,10 @@ protocol Networking {
     /// `category` returns the whole following feed.
     func getPostsForFollowedUsers(sessionManagementToken: String, batch: Int, category: String?) async throws -> Data
 
+    /// The Top posts scoreboard (issue #558): the most-liked public posts across
+    /// the app created within `period`, in batches, capped at the top 100.
+    func getTopPosts(sessionManagementToken: String, batch: Int, period: String) async throws -> Data
+
     /// Gets a batch of posts for another user.
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data
 
@@ -194,6 +203,10 @@ protocol Networking {
 
     /// Deletes a comment.
     func deleteComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data
+
+    /// Author-only: replaces a comment's text and formatting (issue #462). Like
+    /// `editPost`, a rejected edit throws and leaves the original in place.
+    func editComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?) async throws -> Data
 
     /// Reports a comment for a specific reason.
     func reportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, reason: String) async throws -> Data
@@ -234,6 +247,27 @@ protocol Networking {
 
     /// Gets the details of a profile
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data
+
+    // MARK: - Private accounts & follow requests (issue #96)
+
+    /// Gets one page of the signed-in user's incoming follow requests, newest
+    /// first. Pass the last row's `requestId` as `after` for the next (older)
+    /// page; an empty page is the end. Like the follower list there is no
+    /// username parameter.
+    func getFollowRequests(sessionManagementToken: String, after: Int?) async throws -> Data
+
+    /// Approves the follow request `username` sent the signed-in user.
+    func approveFollowRequest(sessionManagementToken: String, username: String) async throws -> Data
+
+    /// Denies the follow request `username` sent the signed-in user.
+    func denyFollowRequest(sessionManagementToken: String, username: String) async throws -> Data
+
+    /// Withdraws the signed-in user's own pending request to follow `username`.
+    func cancelFollowRequest(sessionManagementToken: String, username: String) async throws -> Data
+
+    /// Turns the signed-in user's private account setting on or off. Going
+    /// public approves every pending request.
+    func setAccountPrivacy(sessionManagementToken: String, isPrivate: Bool) async throws -> Data
 
     // MARK: - Profile Photo (issue #7)
 

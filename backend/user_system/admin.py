@@ -297,7 +297,7 @@ class ModerationReviewAdmin(admin.ModelAdmin):
             return
 
         # An already-decided review is deliberately NOT skipped: the immunity a
-        # terminal status confers is against *reports* (record_report will not
+        # terminal status confers is against *reports* (advance_review will not
         # reopen it), not against moderators. A moderator correcting their own
         # hide — or overruling a colleague — is a legitimate, fully audited
         # operation (resolved_by/resolved_time/resolution_note record who

@@ -97,6 +97,25 @@ export function toggleRange(
   return applyStyleToRange(attrs, start, end, change)
 }
 
+/** Expand stored formatting spans back into a per-character attribute array
+ * for `text`, so an edit (issue #462) opens with the comment's existing
+ * styling. The inverse of attrsToSpans; spans past the end of the text are
+ * clipped rather than trusted. */
+export function attrsFromSpans(
+  text: string,
+  spans: CommentFormatSpan[] | null | undefined,
+): CharAttrs {
+  let attrs = emptyAttrs(text.length)
+  for (const span of spans ?? []) {
+    const change: Partial<CharAttr> = {}
+    if (span.bold) change.bold = true
+    if (span.italic) change.italic = true
+    if (span.size) change.size = span.size
+    attrs = applyStyleToRange(attrs, Math.max(0, span.start), Math.min(text.length, span.end), change)
+  }
+  return attrs
+}
+
 /** Compress the attribute array into sorted, non-overlapping formatting spans,
  * dropping unstyled runs. Suitable to send straight to the API. */
 export function attrsToSpans(attrs: CharAttrs): CommentFormatSpan[] {

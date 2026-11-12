@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
@@ -23,6 +25,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.example.positiveonlysocial.data.model.TotpSetupResponse
+import com.example.positiveonlysocial.data.model.visibleNotificationRows
 import com.example.positiveonlysocial.data.model.InterestOption
 import com.example.positiveonlysocial.data.model.RejectedInterest
 import com.example.positiveonlysocial.ui.components.InterestPicker
@@ -121,6 +124,7 @@ fun SettingsScreen(
         val currentUser by viewModel.currentUser.collectAsState()
         val notificationPreferences by viewModel.notificationPreferences.collectAsState()
         val savingPreferences by viewModel.savingPreferences.collectAsState()
+        val isSavingPrivacy by viewModel.isSavingPrivacy.collectAsState()
 
         // Interests dialog (issues #446/#35).
         var showingInterests by remember { mutableStateOf(false) }
@@ -555,19 +559,62 @@ fun SettingsScreen(
 
             HorizontalDivider()
 
+            // Privacy section (issue #96): the private account switch and the
+            // incoming follow requests it produces.
+            Text(
+                text = "Privacy",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(16.dp)
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Private Account")
+                    Text(
+                        "Only people you approve can see your posts. Your comments keep the audience you pick for each one.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = currentUser?.isPrivate == true,
+                    // Disabled until the setting loads, and while a save is in flight.
+                    enabled = currentUser?.isPrivate != null && !isSavingPrivacy,
+                    onCheckedChange = { viewModel.setAccountPrivacy(it) },
+                    modifier = Modifier
+                        .testTag("PrivateAccountSwitch")
+                        // The label is a separate Text node; name the switch itself.
+                        .semantics { contentDescription = "Private Account" }
+                )
+            }
+
+            HorizontalDivider()
+
+            ListListItem(text = "Follow Requests") {
+                navController.navigate(Screen.FollowRequests.route)
+            }
+
+            HorizontalDivider()
+
             // Notifications section (#342/#343): one toggle per push type. Renders
-            // only once the backend has reported at least one type.
+            // only once the backend has reported at least one type. Rows nest
+            // under their parent and hide while it is off (#444).
             if (notificationPreferences.isNotEmpty()) {
                 Text(
                     text = "Notifications",
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(16.dp)
                 )
-                notificationPreferences.forEach { pref ->
+                visibleNotificationRows(notificationPreferences).forEach { (pref, depth) ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(start = 16.dp + 16.dp * depth, end = 16.dp, top = 8.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {

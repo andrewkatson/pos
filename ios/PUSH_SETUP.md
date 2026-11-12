@@ -31,7 +31,7 @@ the user still learns async outcomes via in-app reconciliation (#282).
 2. In the Apple Developer portal, create an **APNs Auth Key** (`.p8`) and note
    its Key ID and your Team ID. Give these to the backend (`APNS_AUTH_KEY*`,
    `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC` = the app bundle id
-   `com.katsonsoftware.goodvibesonly`; see the root README "Push notifications").
+   `com.katsonsoftware.goodvibesonly`; see [docs/push-notifications.md](../docs/push-notifications.md)).
 3. Development builds register **sandbox** tokens — set `APNS_USE_SANDBOX=true`
    on the backend for those.
 

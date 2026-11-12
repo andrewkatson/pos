@@ -18,8 +18,11 @@ import type {
   CurrentUser,
   DisableTotpRequest,
   DisableTotpResponse,
+  EditCommentResponse,
+  EditPostResponse,
   FeedPost,
   FollowCategory,
+  FollowRequestRow,
   GoogleLoginRequest,
   HiddenComment,
   HiddenPost,
@@ -55,6 +58,7 @@ import type {
   SetInterestsResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
+  TopPostPeriod,
   TwoFactorSetupResponse,
   UserSearchResult,
   VerifyEmailRequest,
@@ -103,6 +107,9 @@ export interface PositiveOnlySocialAPI {
   createUploadUrl(): Promise<CreateUploadUrlResponse>
   createPost(body: CreatePostRequest): Promise<CreatePostResponse>
   deletePost(postIdentifier: string): Promise<MessageResponse>
+  /** Owner-only: replace a live post's caption (issue #462). The new caption is
+   * classified first; a rejection throws and leaves the original in place. */
+  editPost(postIdentifier: string, caption: string): Promise<EditPostResponse>
   /** Owner-only: stop new comments/replies on a post (issue #492). Existing
    * comments stay visible. */
   lockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse>
@@ -125,6 +132,9 @@ export interface PositiveOnlySocialAPI {
   /** The following feed, optionally narrowed to one relationship category
    * (issue #392). Omitting `category` returns the whole following feed. */
   getFollowedFeed(batch: number, category?: FollowCategory): Promise<FeedPost[]>
+  /** The Top posts scoreboard (issue #558): the most-liked public posts across
+   * the app created within `period`, batched and capped at the top 100. */
+  getTopPosts(batch: number, period: TopPostPeriod): Promise<FeedPost[]>
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]>
   /** Posts carrying a given #hashtag, newest first, batched (issue #379). */
   getPostsByTag(tag: string, batch: number): Promise<FeedPost[]>
@@ -208,6 +218,15 @@ export interface PositiveOnlySocialAPI {
     commentThreadIdentifier: string,
     commentIdentifier: string,
   ): Promise<MessageResponse>
+  /** Author-only: replace a comment's text and formatting (issue #462). Like
+   * editPost, a rejected edit throws and leaves the original in place. */
+  editComment(
+    postIdentifier: string,
+    commentThreadIdentifier: string,
+    commentIdentifier: string,
+    commentText: string,
+    formatting?: CommentFormatSpan[],
+  ): Promise<EditCommentResponse>
   reportComment(
     postIdentifier: string,
     commentThreadIdentifier: string,
@@ -232,6 +251,18 @@ export interface PositiveOnlySocialAPI {
   getBlockedUsers(): Promise<UserSearchResult[]>
   getFollowers(): Promise<UserSearchResult[]>
   getFollowing(): Promise<UserSearchResult[]>
+  /** Private accounts (issue #96). Following a private account files a
+   * request (see followUser's follow_request_pending); its owner lists, approves
+   * and denies them, and the requester can cancel. */
+  /** One page of incoming requests, newest first. Pass the last row's
+   * `request_id` as `after` for the next (older) page; an empty page is the end. */
+  getFollowRequests(after?: number): Promise<FollowRequestRow[]>
+  approveFollowRequest(username: string): Promise<MessageResponse>
+  denyFollowRequest(username: string): Promise<MessageResponse>
+  cancelFollowRequest(username: string): Promise<MessageResponse>
+  /** Turn the signed-in account's private setting on or off. Going public
+   * approves every pending request. */
+  setAccountPrivacy(isPrivate: boolean): Promise<{ is_private: boolean }>
   getProfile(username: string): Promise<ProfileDetails>
   /** Set the signed-in user's profile photo to an already-uploaded image
    * (issue #7). The photo is classified asynchronously and shown to others only

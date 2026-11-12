@@ -22,6 +22,9 @@ struct CommentThreadView: View {
        }
 
        var body: some View {
+           // Computed over the whole thread, not just the visible part, so a
+           // collapsed comment keeps its control to expand again.
+           let commentIdsWithReplies = thread.commentIdsWithReplies
            VStack(alignment: .leading, spacing: 0) {
                if let rootComment = visibleComments.first {
                    // Show the root comment
@@ -29,6 +32,7 @@ struct CommentThreadView: View {
                                   isReported: viewModel.isCommentReported(rootComment),
                                   isOwn: viewModel.isOwnComment(rootComment),
                                   isCollapsed: viewModel.collapsedCommentIds.contains(rootComment.id),
+                                  hasReplies: commentIdsWithReplies.contains(rootComment.id),
                                   onToggleCollapse: {
                                       viewModel.toggleCommentCollapsed(rootComment.id)
                                   },
@@ -71,6 +75,7 @@ struct CommentThreadView: View {
                                           isReported: viewModel.isCommentReported(reply),
                                           isOwn: viewModel.isOwnComment(reply),
                                           isCollapsed: viewModel.collapsedCommentIds.contains(reply.id),
+                                          hasReplies: commentIdsWithReplies.contains(reply.id),
                                           onToggleCollapse: {
                                               viewModel.toggleCommentCollapsed(reply.id)
                                           },

@@ -202,6 +202,31 @@ fun PostDetailScreen(
             )
         }
 
+        // ...and, prefilled, for editing the caption or one of your own
+        // comments (issue #462). An edit keeps the comment's audience, so the
+        // picker is hidden.
+        val showEditCaptionDialog by viewModel.showEditCaptionDialog.collectAsState()
+        if (showEditCaptionDialog) {
+            CaptionEditorDialog(
+                caption = postDetail?.caption ?: "",
+                onDismiss = { viewModel.setShowEditCaptionDialog(false) },
+                onSave = { caption -> viewModel.editCaption(caption) }
+            )
+        }
+
+        val commentToEdit by viewModel.commentToEdit.collectAsState()
+        commentToEdit?.let { comment ->
+            CommentComposerDialog(
+                title = "Edit comment",
+                onDismiss = { viewModel.setCommentToEdit(null) },
+                confirmLabel = "Save",
+                initialText = comment.body,
+                initialFormatting = comment.formatting,
+                showAudience = false,
+                onSubmit = { text, formatting, _ -> viewModel.editComment(comment, text, formatting) }
+            )
+        }
+
         // Top bar with a back button, since this screen is always pushed onto
         // the root nav stack with no other way back (issue #260). Title matches
         // iOS's PostDetailView navigationTitle.
@@ -343,7 +368,11 @@ fun PostDetailScreen(
                                         onToggleCommentsLock = {
                                             if (post.commentsDisabled == true) viewModel.unlockComments()
                                             else viewModel.lockComments()
-                                        }
+                                        },
+                                        // Edit the caption (issue #462), once
+                                        // the post is live.
+                                        editLabel = "Edit Caption",
+                                        onEdit = if (viewModel.canEditPost()) ({ viewModel.setShowEditCaptionDialog(true) }) else null
                                     )
                                 }
                             }
@@ -396,10 +425,19 @@ fun PostDetailScreen(
                             // When the post was made, at the same coarse
                             // granularity as comment times (issue #174). Older
                             // backend responses omit creation_time.
-                            post.creationTime?.let { parseBackendDate(it) }?.let { created ->
+                            //
+                            // "edited" whenever the caption changed after
+                            // posting (issue #462), so it never passes for what
+                            // people originally liked.
+                            val created = post.creationTime?.let { parseBackendDate(it) }
+                            val timeLabel = listOfNotNull(
+                                created?.let { RelativeTime.format(it) },
+                                if (post.editedTime != null) "edited" else null
+                            ).joinToString(" · ")
+                            if (timeLabel.isNotEmpty()) {
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = RelativeTime.format(created),
+                                    text = timeLabel,
                                     fontSize = 12.sp,
                                     color = Color.Gray
                                 )
@@ -526,7 +564,9 @@ fun CommentThreadView(
             },
             onReport = { viewModel.setCommentToReport(comment) },
             onRetract = { viewModel.setCommentToRetract(comment) },
-            onDelete = { viewModel.deleteComment(comment, comment.threadId) }
+            onDelete = { viewModel.deleteComment(comment, comment.threadId) },
+            // Edit your own comment (issue #462) while the post accepts comments.
+            onEdit = if (viewModel.canEditComment(comment)) ({ viewModel.setCommentToEdit(comment) }) else null
         )
     }
 
@@ -535,6 +575,9 @@ fun CommentThreadView(
     val collapseIndex = thread.comments.indexOfFirst { collapsedCommentIds.contains(it.id) }
     val visibleComments =
         if (collapseIndex == -1) thread.comments else thread.comments.take(collapseIndex + 1)
+    // Computed over the whole thread, not just the visible part, so a collapsed
+    // comment keeps its control to expand again.
+    val commentIdsWithReplies = thread.commentIdsWithReplies
 
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         visibleComments.firstOrNull()?.let { rootComment ->
@@ -543,6 +586,7 @@ fun CommentThreadView(
                 isOwn = rootComment.authorUsername == currentUsername,
                 isReported = rootComment.isReported || reportedCommentIds.contains(rootComment.id),
                 isCollapsed = collapsedCommentIds.contains(rootComment.id),
+                hasReplies = commentIdsWithReplies.contains(rootComment.id),
                 onToggleCollapse = { viewModel.toggleCommentCollapsed(rootComment.id) },
                 onLike = { viewModel.likeComment(rootComment, rootComment.threadId) },
                 onUnlike = { viewModel.unlikeComment(rootComment, rootComment.threadId) },
@@ -571,6 +615,7 @@ fun CommentThreadView(
                         isOwn = reply.authorUsername == currentUsername,
                         isReported = reply.isReported || reportedCommentIds.contains(reply.id),
                         isCollapsed = collapsedCommentIds.contains(reply.id),
+                        hasReplies = commentIdsWithReplies.contains(reply.id),
                         onToggleCollapse = { viewModel.toggleCommentCollapsed(reply.id) },
                         onLike = { viewModel.likeComment(reply, reply.threadId) },
                         onUnlike = { viewModel.unlikeComment(reply, reply.threadId) },
@@ -592,6 +637,10 @@ fun CommentRow(
     isOwn: Boolean,
     isReported: Boolean,
     isCollapsed: Boolean,
+    /** Whether any later comment in the thread sits below this one. Without one
+     * there is nothing to fold, so the chevron is hidden and a tap does nothing
+     * (issue #537). */
+    hasReplies: Boolean,
     onToggleCollapse: () -> Unit,
     onLike: () -> Unit,
     onUnlike: () -> Unit,
@@ -624,8 +673,9 @@ fun CommentRow(
                 // profile — that inner handler wins over this one. This lives on
                 // the row's own combinedClickable (rather than a nested
                 // clickable) so it can't swallow the long-press that opens the
-                // action menu.
-                onClick = { onToggleCollapse() }
+                // action menu. A comment with no replies has nothing to fold,
+                // so a tap on it does nothing (issue #537).
+                onClick = { if (hasReplies) onToggleCollapse() }
             ),
         verticalAlignment = Alignment.Top
     ) {
@@ -670,7 +720,12 @@ fun CommentRow(
                     )
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(RelativeTime.format(comment.createdDate), fontSize = 12.sp, color = Color.Gray)
+                // Marks a comment changed after it was posted (issue #462).
+                Text(
+                    RelativeTime.format(comment.createdDate) + if (comment.isEdited) " · edited" else "",
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                )
                 // Who can see this comment, on your own comments only (issue
                 // #518): who a commenter chose to share with is their
                 // information, so other readers see no badge.
@@ -698,8 +753,11 @@ fun CommentRow(
                     menu()
                 }
                 Spacer(modifier = Modifier.weight(1f))
-                // Chevron hint for the collapse state of the thread below.
-                Text(if (isCollapsed) "▸" else "▾", fontSize = 12.sp, color = Color.Gray)
+                // Chevron hint for the collapse state of the thread below, shown
+                // only when there is a thread below to collapse.
+                if (hasReplies) {
+                    Text(if (isCollapsed) "▸" else "▾", fontSize = 12.sp, color = Color.Gray)
+                }
             }
             // The comment body sits below the username/time header line, with
             // any inline bold/italic/size formatting applied (issue #318).
@@ -777,7 +835,11 @@ fun ActionMenu(
     // only picks the label. A null `onToggleCommentsLock` hides the row entirely —
     // how comments (which have no comment section of their own) opt out.
     commentsDisabled: Boolean = false,
-    onToggleCommentsLock: (() -> Unit)? = null
+    onToggleCommentsLock: (() -> Unit)? = null,
+    // Edit your own caption or comment (issue #462). A null `onEdit` hides the
+    // row — someone else's content, or content that can't be edited right now.
+    editLabel: String = "Edit $itemLabel",
+    onEdit: (() -> Unit)? = null
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         // Share is offered for any post or comment, own or not (issue #34);
@@ -790,6 +852,12 @@ fun ActionMenu(
             DropdownMenuItem(
                 text = { Text(if (isSaved) "Unsave $itemLabel" else "Save $itemLabel") },
                 onClick = { onToggleSave(); onDismiss() }
+            )
+        }
+        if (isOwn && onEdit != null) {
+            DropdownMenuItem(
+                text = { Text(editLabel) },
+                onClick = { onEdit(); onDismiss() }
             )
         }
         if (isOwn && onToggleCommentsLock != null) {
@@ -891,23 +959,43 @@ fun ReportDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
 }
 
 /**
- * The shared composer dialog for writing a comment — used both for a brand new
- * comment on the post and for replying to a thread (issues #266, #289, #290).
- * It always shows the character counter, and submitting dismisses the dialog
- * (and thus the keyboard) immediately while clearing the text, so tapping the
- * confirm button repeatedly can't post the same comment twice (issue #291).
+ * The shared composer dialog for writing a comment — used for a brand new
+ * comment on the post, for replying to a thread (issues #266, #289, #290), and,
+ * prefilled, for editing a comment or a caption (issue #462). It always shows
+ * the character counter, and submitting dismisses the dialog (and thus the
+ * keyboard) immediately while clearing the text, so tapping the confirm button
+ * repeatedly can't post the same comment twice (issue #291).
+ *
+ * @param showFormatting the B / I / Size toolbar (issue #318); off for a
+ * caption, which is styled as a whole rather than inline.
+ * @param showAudience the audience picker (issue #445); off for an edit, which
+ * keeps the audience the comment was shared with.
  */
 @Composable
 fun CommentComposerDialog(
     title: String,
     onDismiss: () -> Unit,
+    confirmLabel: String = "Post",
+    initialText: String = "",
+    initialFormatting: List<com.example.positiveonlysocial.data.model.CommentFormatSpan>? = null,
+    showFormatting: Boolean = true,
+    showAudience: Boolean = true,
+    maxLength: Int = Constants.MAX_COMMENT_LENGTH,
     onSubmit: (String, List<com.example.positiveonlysocial.data.model.CommentFormatSpan>?, PostAudience) -> Unit
 ) {
     // TextFieldValue exposes the selection, so the toolbar can style the
     // selected range (issue #318). `styles` is the per-character attribute
     // model, kept in sync with the text and compressed into spans on submit.
-    var value by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
-    var styles by remember { mutableStateOf(emptyList<CharStyle>()) }
+    // An edit starts from the existing text (caret at the end) and formatting.
+    var value by remember {
+        mutableStateOf(
+            androidx.compose.ui.text.input.TextFieldValue(
+                initialText,
+                selection = androidx.compose.ui.text.TextRange(initialText.length)
+            )
+        )
+    }
+    var styles by remember { mutableStateOf(CommentFormatting.fromSpans(initialText, initialFormatting)) }
     var sizeMenuExpanded by remember { mutableStateOf(false) }
     // Who may see the comment being written (issue #445); defaults to public.
     var selectedAudience by remember { mutableStateOf(PostAudience.PUBLIC) }
@@ -939,55 +1027,59 @@ fun CommentComposerDialog(
                 // Cut/Copy/Paste selection popup — which appears above the
                 // highlighted text — no longer covers the B / I / Size controls
                 // (issue #425).
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = {
-                        selectionRange()?.let { (s, e) -> styles = CommentFormatting.toggleBold(styles, s, e) }
-                    }) { Text("B", fontWeight = FontWeight.Bold) }
-                    TextButton(onClick = {
-                        selectionRange()?.let { (s, e) -> styles = CommentFormatting.toggleItalic(styles, s, e) }
-                    }) { Text("I", fontStyle = FontStyle.Italic) }
-                    Box {
-                        TextButton(onClick = { sizeMenuExpanded = true }) { Text("Size") }
-                        DropdownMenu(expanded = sizeMenuExpanded, onDismissRequest = { sizeMenuExpanded = false }) {
-                            TextFormatting.sizeOptions.forEach { size ->
-                                DropdownMenuItem(
-                                    text = { Text(size.replaceFirstChar { it.uppercase() }) },
-                                    onClick = {
-                                        selectionRange()?.let { (s, e) -> styles = CommentFormatting.setSize(styles, s, e, size) }
-                                        sizeMenuExpanded = false
-                                    }
-                                )
+                if (showFormatting) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = {
+                            selectionRange()?.let { (s, e) -> styles = CommentFormatting.toggleBold(styles, s, e) }
+                        }) { Text("B", fontWeight = FontWeight.Bold) }
+                        TextButton(onClick = {
+                            selectionRange()?.let { (s, e) -> styles = CommentFormatting.toggleItalic(styles, s, e) }
+                        }) { Text("I", fontStyle = FontStyle.Italic) }
+                        Box {
+                            TextButton(onClick = { sizeMenuExpanded = true }) { Text("Size") }
+                            DropdownMenu(expanded = sizeMenuExpanded, onDismissRequest = { sizeMenuExpanded = false }) {
+                                TextFormatting.sizeOptions.forEach { size ->
+                                    DropdownMenuItem(
+                                        text = { Text(size.replaceFirstChar { it.uppercase() }) },
+                                        onClick = {
+                                            selectionRange()?.let { (s, e) -> styles = CommentFormatting.setSize(styles, s, e, size) }
+                                            sizeMenuExpanded = false
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
+                    Text(
+                        "Select text, then tap B, I, or Size to format it.",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    if (value.text.isNotBlank()) {
+                        Text(TextFormatting.annotatedComment(value.text, CommentFormatting.toSpans(styles)))
+                    }
                 }
-                Text(
-                    "Select text, then tap B, I, or Size to format it.",
-                    style = MaterialTheme.typography.labelSmall
-                )
-                if (value.text.isNotBlank()) {
-                    Text(TextFormatting.annotatedComment(value.text, CommentFormatting.toSpans(styles)))
-                }
-                CharacterCounter(text = value.text, max = Constants.MAX_COMMENT_LENGTH)
+                CharacterCounter(text = value.text, max = maxLength)
 
                 // Who may see this comment (issue #445), mirroring the post
                 // audience picker in NewPostScreen.
-                Box {
-                    OutlinedButton(onClick = { audienceMenuExpanded = true }) {
-                        Text("Who can see this? ${selectedAudience.displayName}")
-                    }
-                    DropdownMenu(
-                        expanded = audienceMenuExpanded,
-                        onDismissRequest = { audienceMenuExpanded = false }
-                    ) {
-                        PostAudience.entries.forEach { audience ->
-                            DropdownMenuItem(
-                                text = { Text("${audience.displayName} — ${audience.hint}") },
-                                onClick = {
-                                    selectedAudience = audience
-                                    audienceMenuExpanded = false
-                                }
-                            )
+                if (showAudience) {
+                    Box {
+                        OutlinedButton(onClick = { audienceMenuExpanded = true }) {
+                            Text("Who can see this? ${selectedAudience.displayName}")
+                        }
+                        DropdownMenu(
+                            expanded = audienceMenuExpanded,
+                            onDismissRequest = { audienceMenuExpanded = false }
+                        ) {
+                            PostAudience.entries.forEach { audience ->
+                                DropdownMenuItem(
+                                    text = { Text("${audience.displayName} — ${audience.hint}") },
+                                    onClick = {
+                                        selectedAudience = audience
+                                        audienceMenuExpanded = false
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -997,13 +1089,17 @@ fun CommentComposerDialog(
             Button(
                 onClick = {
                     if (value.text.isNotEmpty()) {
-                        onSubmit(value.text, CommentFormatting.toSpans(styles), selectedAudience)
+                        onSubmit(
+                            value.text,
+                            if (showFormatting) CommentFormatting.toSpans(styles) else null,
+                            selectedAudience
+                        )
                         onDismiss()
                     }
                 },
-                enabled = value.text.isNotEmpty() && isWithinLength(value.text, Constants.MAX_COMMENT_LENGTH)
+                enabled = value.text.isNotEmpty() && isWithinLength(value.text, maxLength)
             ) {
-                Text("Post")
+                Text(confirmLabel)
             }
         },
         dismissButton = {
@@ -1011,6 +1107,25 @@ fun CommentComposerDialog(
                 Text("Cancel")
             }
         }
+    )
+}
+
+/**
+ * The comment composer set up for editing a post's caption (issue #462):
+ * prefilled, held to the caption's length limit, and without the inline
+ * formatting toolbar or the audience picker.
+ */
+@Composable
+fun CaptionEditorDialog(caption: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    CommentComposerDialog(
+        title = "Edit caption",
+        onDismiss = onDismiss,
+        confirmLabel = "Save",
+        initialText = caption,
+        showFormatting = false,
+        showAudience = false,
+        maxLength = Constants.MAX_CAPTION_LENGTH,
+        onSubmit = { text, _, _ -> onSave(text) }
     )
 }
 

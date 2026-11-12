@@ -207,7 +207,10 @@ fun PostActionMenu(actions: PostListActions, post: Post, expanded: Boolean, isOw
         // Lock/unlock commenting (issue #492) is owner-only, offered alongside
         // Delete rather than replacing it.
         commentsDisabled = post.commentsDisabled == true,
-        onToggleCommentsLock = { actions.toggleCommentsLock(post) }
+        onToggleCommentsLock = { actions.toggleCommentsLock(post) },
+        // Edit the caption (issue #462), on your own live posts.
+        editLabel = "Edit Caption",
+        onEdit = if (actions.canEdit(post)) ({ actions.setPostToEdit(post) }) else null
     )
 }
 
@@ -227,7 +230,18 @@ fun PostActionDialogs(actions: PostListActions, navController: NavController) {
     val postForLikes by actions.postForLikes.collectAsState()
     val postToReport by actions.postToReport.collectAsState()
     val postToRetract by actions.postToRetract.collectAsState()
+    val postToEdit by actions.postToEdit.collectAsState()
     val alertMessage by actions.alertMessage.collectAsState()
+
+    // The comment composer, prefilled, for editing your own caption (issue
+    // #462) — the same dialog the post detail screen uses.
+    postToEdit?.let { post ->
+        CaptionEditorDialog(
+            caption = post.caption,
+            onDismiss = { actions.setPostToEdit(null) },
+            onSave = { caption -> actions.editCaption(post, caption) }
+        )
+    }
 
     // "Who liked this" for one of your own posts (issue #478).
     postForLikes?.let { post ->

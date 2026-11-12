@@ -245,6 +245,23 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun getTopPosts(token: String, batch: Int, period: String): Response<List<Post>> {
+        // One page only: TopPostsViewModel pages past repeat-only pages, so the
+        // same rows on every batch would make a preview request forever.
+        if (batch > 0) return Response.success(emptyList())
+        return Response.success(
+            listOf(
+                Post(
+                    postIdentifier = "7",
+                    imageUrl = "https://example.com/image7.jpg",
+                    caption = "Crowd favorite",
+                    authorUsername = "popular_pal",
+                    likeCount = 120
+                )
+            )
+        )
+    }
+
     override suspend fun getPostsForUser(
         token: String,
         username: String,
@@ -332,6 +349,10 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
                 error = null
             )
         )
+    }
+
+    override suspend fun editPost(token: String, postId: String, request: EditPostRequest): Response<EditPostResponse> {
+        return Response.success(EditPostResponse(request.caption, null, emptyList()))
     }
 
     override suspend fun lockComments(token: String, postId: String): Response<SetCommentsDisabledResponse> {
@@ -472,6 +493,16 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
                 error = null
             )
         )
+    }
+
+    override suspend fun editComment(
+        token: String,
+        postId: String,
+        threadId: String,
+        commentId: String,
+        request: EditCommentRequest
+    ): Response<EditCommentResponse> {
+        return Response.success(EditCommentResponse(request.commentText, request.bodyFormatting, null))
     }
 
     override suspend fun deleteComment(
@@ -656,6 +687,37 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun getFollowRequests(token: String, after: Long?): Response<List<User>> {
+        if (after != null) return Response.success(emptyList())
+        // Newest first, with request ids so the view model gets a cursor and
+        // "Load more" reaches the empty page above.
+        return Response.success(
+            listOf(
+                User(username = "requester_1", identityIsVerified = true, requestId = 2),
+                User(username = "requester_2", identityIsVerified = false, requestId = 1)
+            )
+        )
+    }
+
+    override suspend fun approveFollowRequest(token: String, username: String): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "Follow request approved", error = null))
+    }
+
+    override suspend fun denyFollowRequest(token: String, username: String): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "Follow request denied", error = null))
+    }
+
+    override suspend fun cancelFollowRequest(token: String, username: String): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "Follow request cancelled", error = null))
+    }
+
+    override suspend fun setAccountPrivacy(
+        token: String,
+        request: SetAccountPrivacyRequest
+    ): Response<SetAccountPrivacyResponse> {
+        return Response.success(SetAccountPrivacyResponse(isPrivate = request.isPrivate))
+    }
+
     override suspend fun getProfileDetails(
         token: String,
         username: String
@@ -725,7 +787,10 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         return Response.success(
             NotificationPreferencesResponse(
                 preferences = listOf(
-                    NotificationPreference(type = "post_rejected", label = "Post moderation", enabled = true)
+                    NotificationPreference(type = "all", label = "Push notifications", enabled = true),
+                    NotificationPreference(type = "post_rejected", label = "Post moderation", enabled = true, parent = "all"),
+                    NotificationPreference(type = "new_like", label = "Likes", enabled = true, parent = "all"),
+                    NotificationPreference(type = "new_like_friend", label = "From friends", enabled = true, parent = "new_like")
                 )
             )
         )
