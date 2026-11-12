@@ -119,7 +119,7 @@ def test_handler_follows_the_file_after_an_external_rotate(tmp_path, recreate_af
     and a record can arrive between them:
 
     - `create` — rename, then the new file exists. This is the steady state the
-      installed config produces, and what the README documents.
+      installed config produces, and what docs/deployment.md documents.
     - `mid-rotate` — rename, and a record arrives before the new file is created.
       The handler must create it rather than fall back to the rotated inode.
 
@@ -141,7 +141,7 @@ def test_handler_follows_the_file_after_an_external_rotate(tmp_path, recreate_af
         # Stand in for logrotate: rename the live file, leaving the handler's
         # descriptor on the rotated one, then `create` the replacement. Note it
         # is `create` and not `copytruncate` — truncating keeps the inode, so the
-        # handler's check would never fire, which is why the README forbids it.
+        # handler's check would never fire, which is why docs/deployment.md forbids it.
         os.rename(log_path, rotated_path)
         if recreate_after_rename:
             log_path.touch()

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
 import { clearSession } from '../api/session'
 import type { CurrentUser, NotificationPreference } from '../api/types'
+import { visibleNotificationRows } from '../api/notificationPreferences'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
 import { TERMS_OF_SERVICE_LAST_UPDATED, TERMS_OF_SERVICE_SECTIONS } from '../termsOfService'
 import Modal from './Modal'
@@ -44,6 +45,8 @@ function SettingsTab() {
   // Types with a save in flight (#342/#343): their row is disabled and a
   // re-click is ignored, so concurrent saves for one type can't race.
   const [savingTypes, setSavingTypes] = useState<string[]>([])
+  // The private account setting (issue #96), saved as soon as it is toggled.
+  const [savingPrivacy, setSavingPrivacy] = useState(false)
 
   // Load the signed-in account's own username + email for the Contact
   // Information section (load-on-mount, matching the rest of the app).
@@ -63,7 +66,8 @@ function SettingsTab() {
   }, [])
 
   // Load the push notification toggles (issues #342/#343). One row per type the
-  // backend reports, so a new type appears here with no client change.
+  // backend reports, so a new type appears here with no client change; rows
+  // nest under their parent and hide while it is off (issue #444).
   useEffect(() => {
     let cancelled = false
     apiClient
@@ -98,6 +102,23 @@ function SettingsTab() {
       setErrorMessage('Could not update notification settings. Please try again.')
     } finally {
       setSavingTypes(prev => prev.filter(t => t !== pref.type))
+    }
+  }
+
+  async function togglePrivacy() {
+    if (currentUser?.is_private === undefined || savingPrivacy) return
+    const next = !(currentUser.is_private ?? false)
+    setErrorMessage(null)
+    // Optimistic: flip immediately, revert on failure (like the notification rows).
+    setCurrentUser({ ...currentUser, is_private: next })
+    setSavingPrivacy(true)
+    try {
+      await apiClient.setAccountPrivacy(next)
+    } catch {
+      setCurrentUser(user => (user ? { ...user, is_private: !next } : user))
+      setErrorMessage('Could not update your privacy setting. Please try again.')
+    } finally {
+      setSavingPrivacy(false)
     }
   }
 
@@ -167,6 +188,33 @@ function SettingsTab() {
       </div>
 
       <div className="settings-group">
+        <span className="settings-group__header">Privacy</span>
+        <button
+          type="button"
+          className="settings-row settings-row--toggle"
+          aria-pressed={currentUser?.is_private ?? false}
+          // Disabled until the backend reports the setting: an older backend omits
+          // is_private and may not have the endpoint (iOS and Android do the same).
+          disabled={currentUser?.is_private === undefined || savingPrivacy}
+          onClick={() => void togglePrivacy()}
+        >
+          <span>Private account</span>
+          <span className="settings-row__value">{currentUser?.is_private ? 'On' : 'Off'}</span>
+        </button>
+        <p className="settings-row__hint muted">
+          Only people you approve can see your posts. Your comments keep the audience you pick for
+          each one.
+        </p>
+        <button
+          type="button"
+          className="settings-row"
+          onClick={() => navigate('/follow-requests')}
+        >
+          Follow Requests
+        </button>
+      </div>
+
+      <div className="settings-group">
         <span className="settings-group__header">Contact Us</span>
         <a className="settings-row settings-row--static" href={`mailto:${SUPPORT_EMAIL}`}>
           {SUPPORT_EMAIL}
@@ -228,11 +276,12 @@ function SettingsTab() {
       {notifPrefs.length > 0 && (
         <div className="settings-group">
           <span className="settings-group__header">Notifications</span>
-          {notifPrefs.map(pref => (
+          {visibleNotificationRows(notifPrefs).map(({ pref, depth }) => (
             <button
               key={pref.type}
               type="button"
               className="settings-row settings-row--toggle"
+              data-depth={depth}
               aria-pressed={pref.enabled}
               disabled={savingTypes.includes(pref.type)}
               onClick={() => toggleNotification(pref)}

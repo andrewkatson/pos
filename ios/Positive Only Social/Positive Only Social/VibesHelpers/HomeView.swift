@@ -220,6 +220,10 @@ struct MyProfileTabView: View {
             .navigationDestination(for: FollowListMode.self) { mode in
                 FollowListView(mode: mode, api: api, keychainHelper: keychainHelper)
             }
+            // The owner's incoming follow requests (issue #96).
+            .navigationDestination(for: FollowRequestsDestination.self) { _ in
+                FollowRequestsView(api: api, keychainHelper: keychainHelper)
+            }
             .postActionDialogs(postActions)
         }
     }
@@ -360,6 +364,12 @@ struct PostActionBar: View {
                 ) {
                     postActions.toggleCommentsLock(post)
                 }
+                // Edit the caption (issue #462), in the comment composer.
+                if postActions.canEdit(post) {
+                    menuRow("Edit Caption", identifier: "EditCaptionListActionButton") {
+                        postActions.postToEdit = post
+                    }
+                }
                 menuRow("Delete Post", identifier: "DeletePostListActionButton", isDestructive: true) {
                     postActions.delete(post)
                 }
@@ -438,6 +448,13 @@ struct PostActionDialogs: ViewModifier {
             .sheet(item: $postActions.postToReport) { post in
                 ReportView { reason in
                     postActions.report(post, reason: reason)
+                }
+            }
+            // The comment composer, prefilled, for editing your own caption
+            // (issue #462) — the same sheet the post detail screen uses.
+            .sheet(item: $postActions.postToEdit) { post in
+                CommentComposerView.captionEditor(caption: postActions.caption(for: post)) { caption in
+                    postActions.editCaption(post, caption: caption)
                 }
             }
             // Native share sheet for a post in a list (issue #34), driven by the

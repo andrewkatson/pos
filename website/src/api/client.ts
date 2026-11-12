@@ -24,8 +24,11 @@ import type {
   CreateUploadUrlResponse,
   DisableTotpRequest,
   DisableTotpResponse,
+  EditCommentResponse,
+  EditPostResponse,
   FeedPost,
   FollowCategory,
+  FollowRequestRow,
   GoogleLoginRequest,
   HiddenComment,
   HiddenPost,
@@ -62,6 +65,7 @@ import type {
   SetInterestsResponse,
   SubmitAppealRequest,
   SubmitAppealResponse,
+  TopPostPeriod,
   TwoFactorSetupResponse,
   UserSearchResult,
   VerifyEmailRequest,
@@ -529,6 +533,13 @@ export class ApiClient implements PositiveOnlySocialAPI {
     })
   }
 
+  editPost(postIdentifier: string, caption: string): Promise<EditPostResponse> {
+    return this.request<EditPostResponse>('POST', `/posts/${postIdentifier}/edit/`, {
+      auth: true,
+      body: { caption },
+    })
+  }
+
   lockComments(postIdentifier: string): Promise<SetCommentsDisabledResponse> {
     return this.request<SetCommentsDisabledResponse>(
       'POST',
@@ -595,6 +606,14 @@ export class ApiClient implements PositiveOnlySocialAPI {
   getFollowedFeed(batch: number, category?: FollowCategory): Promise<FeedPost[]> {
     const query = category ? `?category=${encodeURIComponent(category)}` : ''
     return this.request<FeedPost[]>('GET', `/feed/followed/${batch}/${query}`, { auth: true })
+  }
+
+  getTopPosts(batch: number, period: TopPostPeriod): Promise<FeedPost[]> {
+    return this.request<FeedPost[]>(
+      'GET',
+      `/feed/top/${batch}/?period=${encodeURIComponent(period)}`,
+      { auth: true },
+    )
   }
 
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]> {
@@ -778,6 +797,20 @@ export class ApiClient implements PositiveOnlySocialAPI {
     )
   }
 
+  editComment(
+    postIdentifier: string,
+    commentThreadIdentifier: string,
+    commentIdentifier: string,
+    commentText: string,
+    formatting?: CommentFormatSpan[],
+  ): Promise<EditCommentResponse> {
+    return this.request<EditCommentResponse>(
+      'POST',
+      `/posts/${postIdentifier}/threads/${commentThreadIdentifier}/comments/${commentIdentifier}/edit/`,
+      { auth: true, body: { comment_text: commentText, ...formattingBody(formatting) } },
+    )
+  }
+
   reportComment(
     postIdentifier: string,
     commentThreadIdentifier: string,
@@ -851,6 +884,38 @@ export class ApiClient implements PositiveOnlySocialAPI {
 
   getFollowing(): Promise<UserSearchResult[]> {
     return this.request<UserSearchResult[]>('GET', '/users/following/', { auth: true })
+  }
+
+  getFollowRequests(after?: number): Promise<FollowRequestRow[]> {
+    const query = after === undefined ? '' : `?after=${after}`
+    return this.request<FollowRequestRow[]>('GET', `/users/follow-requests/${query}`, {
+      auth: true,
+    })
+  }
+
+  approveFollowRequest(username: string): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/users/${username}/follow-request/approve/`, {
+      auth: true,
+    })
+  }
+
+  denyFollowRequest(username: string): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/users/${username}/follow-request/deny/`, {
+      auth: true,
+    })
+  }
+
+  cancelFollowRequest(username: string): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/users/${username}/follow-request/cancel/`, {
+      auth: true,
+    })
+  }
+
+  setAccountPrivacy(isPrivate: boolean): Promise<{ is_private: boolean }> {
+    return this.request<{ is_private: boolean }>('POST', '/profile/private/', {
+      auth: true,
+      body: { is_private: isPrivate },
+    })
   }
 
   getProfile(username: string): Promise<ProfileDetails> {

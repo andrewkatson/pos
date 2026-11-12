@@ -13,7 +13,21 @@ import Combine
 
 @MainActor
 final class PostDetailViewModel: ObservableObject {
-    
+
+    /// Comments per thread-comments page, matching the backend's
+    /// COMMENT_BATCH_SIZE. A page shorter than this is the thread's last.
+    nonisolated static let commentBatchSize = 30
+
+    /// `loaded` followed by the comments of `page` it does not already hold.
+    /// Thread pages come from a live like-weighted ranking, so a comment can
+    /// reappear on the next page if the ranking shifts between requests.
+    nonisolated static func appendingNewComments<Comment>(
+        _ page: [Comment], to loaded: [Comment], id: (Comment) -> String
+    ) -> [Comment] {
+        var seen = Set(loaded.map(id))
+        return loaded + page.filter { seen.insert(id($0)).inserted }
+    }
+
     // MARK: - Published State
     @Published var postDetail: PostDisplayData?
     @Published var commentThreads: [CommentThreadViewData] = []
@@ -60,6 +74,23 @@ final class PostDetailViewModel: ObservableObject {
 
     /// When a user taps "Reply", this is set, which triggers the reply sheet
     @Published var threadToReplyTo: CommentThreadViewData?
+
+    /// Drive the same composer sheet, prefilled, for editing the caption or one
+    /// of the user's own comments (issue #462).
+    @Published var showEditCaptionSheet = false
+    @Published var commentToEdit: CommentViewData?
+
+    /// Edit is offered on the user's own post once it's live — a pending,
+    /// rejected or hidden post isn't theirs to rewrite (issue #462).
+    var canEditPost: Bool {
+        isOwnPost && postDetail?.isHidden == false
+    }
+
+    /// Edit is offered on the user's own comments while the post accepts
+    /// comments: turning commenting off (issue #492) freezes existing ones too.
+    func canEditComment(_ comment: CommentViewData) -> Bool {
+        isOwnComment(comment) && postDetail?.commentsDisabled == false
+    }
 
     /// The active comment-list filter — the followed-feed toggle applied to
     /// comments (issue #445). `nil` means no filter (all visible comments).
@@ -112,6 +143,36 @@ final class PostDetailViewModel: ObservableObject {
         comment.isReported || reportedCommentIds.contains(comment.id)
     }
     
+    // Edits saved on this screen (issue #462). A load whose request went out
+    // before a save can land after it with the old text, so every load
+    // re-applies these over anything older (see SavedEdit.isNewer).
+    private var savedCaptionEdit: EditPostResponse?
+    private var savedCommentEdits: [String: EditCommentResponse] = [:]
+
+    /// `post` as fetched, with this screen's saved caption edit laid over it
+    /// when the fetch predates that edit.
+    func applyingSavedEdit(to post: PostDisplayData, fetchedEditedTime: String?) -> PostDisplayData {
+        guard let saved = savedCaptionEdit,
+              SavedEdit.isNewer(saved: saved.editedTime, fetched: fetchedEditedTime) else { return post }
+        var reconciled = post
+        reconciled.caption = saved.caption
+        reconciled.isEdited = true
+        reconciled.editedTime = saved.editedTime
+        return reconciled
+    }
+
+    /// The comment-side counterpart of `applyingSavedEdit(to:fetchedEditedTime:)`.
+    func applyingSavedEdit(to comment: CommentViewData) -> CommentViewData {
+        guard let saved = savedCommentEdits[comment.id],
+              SavedEdit.isNewer(saved: saved.editedTime, fetched: comment.editedTime) else { return comment }
+        var reconciled = comment
+        reconciled.body = saved.body
+        reconciled.formatting = saved.bodyFormatting
+        reconciled.isEdited = true
+        reconciled.editedTime = saved.editedTime
+        return reconciled
+    }
+
     // MARK: - Private Properties
     private let postIdentifier: String
     private let api: Networking
@@ -175,7 +236,7 @@ final class PostDetailViewModel: ObservableObject {
                 let postData = try await api.getPostDetails(sessionManagementToken: token, postIdentifier: postIdentifier)
                 let postFields = try self.decodeSingle(from: postData, type: PostDetailsFields.self)
 
-                self.postDetail = PostDisplayData(
+                self.postDetail = self.applyingSavedEdit(to: PostDisplayData(
                     id: postFields.post_identifier,
                     imageURL: postFields.image_url,
                     originalImageURL: postFields.original_image_url,
@@ -192,8 +253,11 @@ final class PostDetailViewModel: ObservableObject {
                     isReported: postFields.is_reported ?? false,
                     reportReason: postFields.report_reason,
                     audience: postFields.audience,
-                    commentsDisabled: postFields.comments_disabled ?? false
-                )
+                    commentsDisabled: postFields.comments_disabled ?? false,
+                    isEdited: postFields.edited_time != nil,
+                    isHidden: postFields.hidden ?? false,
+                    editedTime: postFields.edited_time
+                ), fetchedEditedTime: postFields.edited_time)
                 // Server truth for the reported flag, so it survives reloads.
                 self.isPostReported = postFields.is_reported ?? false
 
@@ -211,18 +275,38 @@ final class PostDetailViewModel: ObservableObject {
                 try await withThrowingTaskGroup(of: [CommentViewData].self) { group in
                     for threadId in threadIdentifiers {
                         group.addTask {
-                            let commentsData = try await self.api.getCommentsForThread(sessionManagementToken: token, commentThreadIdentifier: threadId, batch: 0, category: categoryFilter)
+                            // Keep fetching while a page is full, so the whole
+                            // thread is loaded and a comment at a page boundary
+                            // still knows it has replies (issue #537).
+                            var commentFields: [CommentFields] = []
+                            for commentBatch in 0... {
+                                let page: [CommentFields]
+                                do {
+                                    let commentsData = try await self.api.getCommentsForThread(sessionManagementToken: token, commentThreadIdentifier: threadId, batch: commentBatch, category: categoryFilter)
 
-                            // `await` is required even though decodeList is
-                            // synchronous: this ViewModel is @MainActor-isolated
-                            // and decodeList inherits that isolation, but we are
-                            // inside a detached withThrowingTaskGroup task, so the
-                            // call hops back to the main actor (an actor hop is an
-                            // async operation — it does NOT warn "no async
-                            // operations occur"). Dropping the await fails the
-                            // build with "main actor-isolated ... cannot be called
-                            // from outside of the actor".
-                            let commentFields = try await self.decodeList(from: commentsData, type: CommentFields.self)
+                                    // `await` is required even though decodeList is
+                                    // synchronous: this ViewModel is @MainActor-isolated
+                                    // and decodeList inherits that isolation, but we are
+                                    // inside a detached withThrowingTaskGroup task, so the
+                                    // call hops back to the main actor (an actor hop is an
+                                    // async operation — it does NOT warn "no async
+                                    // operations occur"). Dropping the await fails the
+                                    // build with "main actor-isolated ... cannot be called
+                                    // from outside of the actor".
+                                    page = try await self.decodeList(from: commentsData, type: CommentFields.self)
+                                } catch let error where commentBatch > 0 && !error.isCancellation {
+                                    // A later page failing (e.g. rate limited) keeps the
+                                    // pages already loaded rather than failing the whole
+                                    // post; pull-to-refresh retries the rest.
+                                    NSLog("%@", "Comment page \(commentBatch) of thread \(threadId) failed to load: \(error)")
+                                    break
+                                }
+                                // The thread is paged by a live ranking, so a comment can
+                                // shift onto the next page between requests; keep the
+                                // first copy. The full-page check uses the raw page.
+                                commentFields = Self.appendingNewComments(page, to: commentFields, id: \.comment_identifier)
+                                if page.count < Self.commentBatchSize { break }
+                            }
 
                             // 4. Convert network models to View Models
                             return commentFields.map { field in
@@ -240,7 +324,9 @@ final class PostDetailViewModel: ObservableObject {
                                     isLiked: field.is_liked,
                                     createdDate: Self.parseDate(field.creation_time),
                                     isReported: field.is_reported ?? false,
-                                    reportReason: field.report_reason
+                                    reportReason: field.report_reason,
+                                    isEdited: field.edited_time != nil,
+                                    editedTime: field.edited_time
                                 )
                             }
                         }
@@ -256,8 +342,15 @@ final class PostDetailViewModel: ObservableObject {
                     }
                 }
                 
+                // Saved edits are laid over the fetched comments only now, at
+                // the moment of publishing: a thread that finished early was
+                // buffered while the others loaded, and an edit saved meanwhile
+                // (issue #462) must not be undone by that buffered copy.
+                let reconciledThreads = loadedThreads.map { thread in
+                    CommentThreadViewData(comments: thread.comments.map { self.applyingSavedEdit(to: $0) })
+                }
                 // Sort threads by their first comment's date
-                self.commentThreads = loadedThreads.sorted {
+                self.commentThreads = reconciledThreads.sorted {
                     ($0.comments.first?.createdDate ?? Date()) < ($1.comments.first?.createdDate ?? Date())
                 }
                 
@@ -301,7 +394,10 @@ final class PostDetailViewModel: ObservableObject {
                 isReported: post.isReported,
                 reportReason: post.reportReason,
                 audience: post.audience,
-                commentsDisabled: post.commentsDisabled
+                commentsDisabled: post.commentsDisabled,
+                isEdited: post.isEdited,
+                isHidden: post.isHidden,
+                editedTime: post.editedTime
             )
             self.postDetail = post
         }
@@ -345,7 +441,10 @@ final class PostDetailViewModel: ObservableObject {
                 isReported: post.isReported,
                 reportReason: post.reportReason,
                 audience: post.audience,
-                commentsDisabled: post.commentsDisabled
+                commentsDisabled: post.commentsDisabled,
+                isEdited: post.isEdited,
+                isHidden: post.isHidden,
+                editedTime: post.editedTime
             )
             self.postDetail = post
         }
@@ -573,7 +672,9 @@ final class PostDetailViewModel: ObservableObject {
             isLiked: true,
             createdDate: oldComment.createdDate,
             isReported: oldComment.isReported,
-            reportReason: oldComment.reportReason
+            reportReason: oldComment.reportReason,
+            isEdited: oldComment.isEdited,
+            editedTime: oldComment.editedTime
         )
         
         // Replace the old comment with the new one in the published array
@@ -628,7 +729,9 @@ final class PostDetailViewModel: ObservableObject {
             isLiked: false,
             createdDate: oldComment.createdDate,
             isReported: oldComment.isReported,
-            reportReason: oldComment.reportReason
+            reportReason: oldComment.reportReason,
+            isEdited: oldComment.isEdited,
+            editedTime: oldComment.editedTime
         )
         
         commentThreads[threadIndex].comments[commentIndex] = newComment
@@ -771,6 +874,97 @@ final class PostDetailViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Editing (issue #462)
+
+    /// Saves an edited caption. The backend judges the new caption before it
+    /// replaces anything, and a rejection keeps the original — so the post on
+    /// screen only changes once the save succeeds.
+    func editCaption(_ caption: String) {
+        guard !caption.isEmpty, caption != postDetail?.caption else { return }
+        NSLog("%@", "ACTION: Edit caption of post \(postIdentifier)")
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let userSession = try self.keychainHelper.load(UserSession.self, from: self.keychainService, account: self.account) else {
+                    self.alertMessage = "Session not found."
+                    return
+                }
+                let data = try await self.api.editPost(sessionManagementToken: userSession.sessionToken, postIdentifier: self.postIdentifier, caption: caption)
+                let saved = try self.decodeSingle(from: data, type: EditPostResponse.self)
+                self.applySavedCaption(saved)
+            } catch {
+                NSLog("%@", "Failed to edit caption: \(error)")
+                self.alertMessage = "Failed to edit caption: \(error.userFacingMessage)"
+            }
+        }
+    }
+
+    /// Shows a caption the server saved, unless the response is stale: a slow
+    /// one can arrive after a refresh already showed a later edit (made on
+    /// another device, or a newer save from here), and then it changes nothing
+    /// — not the screen, the saved-edit cache, or the lists.
+    func applySavedCaption(_ saved: EditPostResponse) {
+        if SavedEdit.isNewer(saved: savedCaptionEdit?.editedTime, fetched: saved.editedTime)
+            || SavedEdit.isNewer(saved: postDetail?.editedTime, fetched: saved.editedTime) {
+            return
+        }
+        savedCaptionEdit = saved
+        if var post = postDetail {
+            post.caption = saved.caption
+            post.isEdited = saved.editedTime != nil
+            post.editedTime = saved.editedTime
+            postDetail = post
+        }
+        // Lists that already show this post pick up the new caption.
+        var userInfo: [String: Any] = ["caption": saved.caption, "tags": saved.tags]
+        userInfo["editedTime"] = saved.editedTime
+        NotificationCenter.default.post(name: .postCaptionEdited, object: postIdentifier, userInfo: userInfo)
+    }
+
+    /// The comment counterpart of `applySavedCaption`, compared against the
+    /// comment as it is shown now rather than as it was when the edit began.
+    func applySavedComment(_ saved: EditCommentResponse, commentId: String, threadId: String) {
+        guard !SavedEdit.isNewer(saved: savedCommentEdits[commentId]?.editedTime, fetched: saved.editedTime),
+              let threadIndex = commentThreads.firstIndex(where: { $0.id == threadId }),
+              let commentIndex = commentThreads[threadIndex].comments.firstIndex(where: { $0.id == commentId }),
+              !SavedEdit.isNewer(saved: commentThreads[threadIndex].comments[commentIndex].editedTime,
+                                 fetched: saved.editedTime) else { return }
+        savedCommentEdits[commentId] = saved
+        commentThreads[threadIndex].comments[commentIndex].body = saved.body
+        commentThreads[threadIndex].comments[commentIndex].formatting = saved.bodyFormatting
+        commentThreads[threadIndex].comments[commentIndex].isEdited = saved.editedTime != nil
+        commentThreads[threadIndex].comments[commentIndex].editedTime = saved.editedTime
+    }
+
+    /// Saves an edit to one of the user's own comments, with the same
+    /// change-only-on-success behaviour as `editCaption`.
+    func editComment(_ comment: CommentViewData, commentText: String, formatting: [CommentFormatSpan]?) {
+        guard !commentText.isEmpty else { return }
+        NSLog("%@", "ACTION: Edit comment \(comment.id)")
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let userSession = try self.keychainHelper.load(UserSession.self, from: self.keychainService, account: self.account) else {
+                    self.alertMessage = "Session not found."
+                    return
+                }
+                let data = try await self.api.editComment(
+                    sessionManagementToken: userSession.sessionToken,
+                    postIdentifier: self.postIdentifier,
+                    commentThreadIdentifier: comment.threadId,
+                    commentIdentifier: comment.id,
+                    commentText: commentText,
+                    formatting: formatting
+                )
+                let saved = try self.decodeSingle(from: data, type: EditCommentResponse.self)
+                self.applySavedComment(saved, commentId: comment.id, threadId: comment.threadId)
+            } catch {
+                NSLog("%@", "Failed to edit comment: \(error)")
+                self.alertMessage = "Failed to edit comment: \(error.userFacingMessage)"
+            }
+        }
+    }
+
     // MARK: - Sharing (issue #34)
 
     /// Builds the website link for this post and shows the native share sheet.
@@ -828,6 +1022,12 @@ final class PostDetailViewModel: ObservableObject {
         /// #492). Optional so responses that predate the field still decode
         /// as comments allowed.
         let comments_disabled: Bool?
+        /// When the caption was last edited (issue #462); nil if never, and
+        /// absent on older responses.
+        let edited_time: String?
+        /// Author-only: whether the viewer's own post is hidden (pending,
+        /// rejected or moderated). Absent on everyone else's posts.
+        let hidden: Bool?
     }
 
     private struct ThreadIDFields: Decodable {
@@ -857,6 +1057,8 @@ final class PostDetailViewModel: ObservableObject {
         /// and their own reason (#176). Optional so older responses still decode.
         let is_reported: Bool?
         let report_reason: String?
+        /// When the author last edited it (issue #462); nil if never.
+        let edited_time: String?
     }
 
     private func decodeSingle<T: Decodable>(from data: Data, type: T.Type) throws -> T {

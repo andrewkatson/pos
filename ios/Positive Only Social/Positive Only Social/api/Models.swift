@@ -109,6 +109,26 @@ struct DisableTotpFields: Codable {
 struct CurrentUserFields: Codable {
     let username: String
     let email: String
+    /// The private account setting (issue #96), shown as a Settings toggle.
+    /// Optional so a response from an older backend still decodes.
+    var isPrivate: Bool? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case username
+        case email
+        case isPrivate = "is_private"
+    }
+}
+
+/// The follow endpoint's reply (issue #96). `followRequestPending` is true when
+/// the target is a private account, so the call filed a request instead of
+/// following; nil on older backends, which only ever follow outright.
+struct FollowResponse: Codable {
+    var followRequestPending: Bool? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case followRequestPending = "follow_request_pending"
+    }
 }
 
 // Represents a single post in the user's grid.
@@ -194,6 +214,10 @@ struct Post: Codable, Identifiable, Hashable {
     /// unchanged; use `createdDate` to render it.
     var commentCount: Int
     var creationTime: String?
+    /// When the author last edited the caption (issue #462); nil if never or
+    /// on older backends. Lets a list tell whether a refreshed row is newer
+    /// than a caption it saved locally.
+    var editedTime: String? = nil
 
     /// When the post was made, or nil when the backend didn't send a timestamp
     /// (or sent one we can't parse) — in which case the feed omits the label.
@@ -221,6 +245,7 @@ struct Post: Codable, Identifiable, Hashable {
         case reportReason = "report_reason"
         case commentCount = "comment_count"
         case creationTime = "creation_time"
+        case editedTime = "edited_time"
         case status
         case hidden
         case hiddenReason = "hidden_reason"
@@ -249,6 +274,7 @@ struct Post: Codable, Identifiable, Hashable {
         reportReason: String? = nil,
         commentCount: Int = 0,
         creationTime: String? = nil,
+        editedTime: String? = nil,
         status: String? = nil,
         hidden: Bool? = nil,
         hiddenReason: String? = nil,
@@ -275,6 +301,7 @@ struct Post: Codable, Identifiable, Hashable {
         self.reportReason = reportReason
         self.commentCount = commentCount
         self.creationTime = creationTime
+        self.editedTime = editedTime
         self.status = status
         self.hidden = hidden
         self.hiddenReason = hiddenReason
@@ -311,6 +338,7 @@ struct Post: Codable, Identifiable, Hashable {
         reportReason = try container.decodeIfPresent(String.self, forKey: .reportReason)
         commentCount = try container.decodeIfPresent(Int.self, forKey: .commentCount) ?? 0
         creationTime = try container.decodeIfPresent(String.self, forKey: .creationTime)
+        editedTime = try container.decodeIfPresent(String.self, forKey: .editedTime)
         // Author-only classification state (#282); absent on others' posts.
         status = try container.decodeIfPresent(String.self, forKey: .status)
         hidden = try container.decodeIfPresent(Bool.self, forKey: .hidden)
@@ -322,6 +350,49 @@ struct Post: Codable, Identifiable, Hashable {
         commentsDisabled = try container.decodeIfPresent(Bool.self, forKey: .commentsDisabled) ?? false
         // Hashtags (#379); absent on older backends, so default to none.
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+    }
+}
+
+// MARK: - Editing (issue #462)
+
+/// Whether an edit saved on this device is still newer than content just
+/// fetched. A fetch whose request went out before the save can land after it
+/// with the old text and an older (or no) `edited_time`, and must not undo the
+/// edit; a fetch that already carries the edit, or a later one made elsewhere,
+/// is at least as new and wins.
+enum SavedEdit {
+    static func isNewer(saved: String?, fetched: String?) -> Bool {
+        guard let savedDate = saved.flatMap(RelativeTime.date(from:)) else { return false }
+        guard let fetchedDate = fetched.flatMap(RelativeTime.date(from:)) else { return true }
+        return fetchedDate < savedDate
+    }
+}
+
+/// The caption as `editPost` saved it, with the hashtags re-parsed from it.
+struct EditPostResponse: Codable {
+    let caption: String
+    /// When the caption was last edited; nil only if the request changed nothing
+    /// on a never-edited post.
+    let editedTime: String?
+    let tags: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case caption
+        case editedTime = "edited_time"
+        case tags
+    }
+}
+
+/// The comment as `editComment` saved it.
+struct EditCommentResponse: Codable {
+    let body: String
+    let bodyFormatting: [CommentFormatSpan]?
+    let editedTime: String?
+
+    enum CodingKeys: String, CodingKey {
+        case body
+        case bodyFormatting = "body_formatting"
+        case editedTime = "edited_time"
     }
 }
 
@@ -408,8 +479,31 @@ struct NotificationPreference: Codable, Identifiable {
     let type: String
     let label: String
     let enabled: Bool
+    /// The type this row sits under in the preference tree (issue #444): nil
+    /// for the master switch, or from an older backend that sends no tree.
+    var parent: String? = nil
 
     var id: String { type }
+
+    /// The toggles to show, in order, each with how deep it is indented. The
+    /// backend lists every parent before its children; a row is hidden while
+    /// any ancestor is off (an off parent silences everything beneath it), and
+    /// a row whose parent is missing shows at the top level.
+    static func visibleRows(_ prefs: [NotificationPreference]) -> [(pref: NotificationPreference, depth: Int)] {
+        let byType = Dictionary(prefs.map { ($0.type, $0) }, uniquingKeysWith: { first, _ in first })
+        var shownDepth: [String: Int] = [:]
+        var rows: [(pref: NotificationPreference, depth: Int)] = []
+        for pref in prefs {
+            var depth = 0
+            if let parentType = pref.parent, let parent = byType[parentType] {
+                guard parent.enabled, let parentDepth = shownDepth[parentType] else { continue }
+                depth = parentDepth + 1
+            }
+            shownDepth[pref.type] = depth
+            rows.append((pref, depth))
+        }
+        return rows
+    }
 }
 
 struct NotificationPreferencesResponse: Codable {
@@ -497,15 +591,19 @@ struct User: Codable, Identifiable, Hashable {
     /// The photo's BlurHash (issue #460), decoded into a blurred preview shown
     /// while it loads. Nil when there is no photo or on older responses.
     var authorProfileImageBlurHash: String? = nil
+    /// Present only on follow-request rows (issue #96): the request's id, the
+    /// keyset cursor for loading the next page.
+    var requestId: Int? = nil
 
     init(username: String, identityIsVerified: Bool,
          authorProfileImageUrl: String? = nil, authorProfileImageOriginalUrl: String? = nil,
-         authorProfileImageBlurHash: String? = nil) {
+         authorProfileImageBlurHash: String? = nil, requestId: Int? = nil) {
         self.username = username
         self.identityIsVerified = identityIsVerified
         self.authorProfileImageUrl = authorProfileImageUrl
         self.authorProfileImageOriginalUrl = authorProfileImageOriginalUrl
         self.authorProfileImageBlurHash = authorProfileImageBlurHash
+        self.requestId = requestId
     }
 
     enum CodingKeys: String, CodingKey {
@@ -514,6 +612,7 @@ struct User: Codable, Identifiable, Hashable {
         case authorProfileImageUrl = "author_profile_image_url"
         case authorProfileImageOriginalUrl = "author_profile_image_original_url"
         case authorProfileImageBlurHash = "author_profile_image_blurhash"
+        case requestId = "request_id"
     }
 
     init(from decoder: Decoder) throws {
@@ -523,6 +622,7 @@ struct User: Codable, Identifiable, Hashable {
         authorProfileImageUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageUrl)
         authorProfileImageOriginalUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageOriginalUrl)
         authorProfileImageBlurHash = try container.decodeIfPresent(String.self, forKey: .authorProfileImageBlurHash)
+        requestId = try container.decodeIfPresent(Int.self, forKey: .requestId)
     }
 }
 
@@ -567,6 +667,15 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     /// would still make the synthesized decoder *require* the key. nil and "" are
     /// treated alike ("no bio set"); read it via the view model's `bio` accessor.
     var bio: String? = nil
+    /// Private account (issue #96): only approved followers see its posts and
+    /// counts. The counts above are zeroed for anyone else, so the view hides
+    /// them rather than show zeros. Nil on older backends (treated as public).
+    var isPrivate: Bool? = nil
+    /// The viewer has asked to follow this private account and is waiting on
+    /// an answer (issue #96).
+    var followRequestPending: Bool? = nil
+    /// Owner-only: incoming follow requests awaiting a decision (issue #96).
+    var followRequestCount: Int? = nil
 
     enum CodingKeys: String, CodingKey {
         case username
@@ -586,6 +695,9 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
         case profileImageReasonCode = "profile_image_reason_code"
         case pendingProfileImageUrl = "pending_profile_image_url"
         case bio
+        case isPrivate = "is_private"
+        case followRequestPending = "follow_request_pending"
+        case followRequestCount = "follow_request_count"
     }
 }
 
@@ -770,6 +882,27 @@ enum FollowCategory: String, CaseIterable, Identifiable {
     }
 }
 
+/// Rolling window for the Top posts scoreboard (issue #558): posts created in
+/// the last day / 7 days / 30 days / 365 days, ranked by likes. Raw values
+/// match the backend's `period` query parameter.
+enum TopPostPeriod: String, CaseIterable, Identifiable {
+    case day
+    case week
+    case month
+    case year
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .day: return "Today"
+        case .week: return "Week"
+        case .month: return "Month"
+        case .year: return "Year"
+        }
+    }
+}
+
 /// Who may see a post (issue #392). Nested circles from broadest to closest;
 /// raw values match the backend.
 enum PostAudience: String, CaseIterable, Identifiable {
@@ -832,7 +965,8 @@ struct PostDisplayData: Identifiable, Equatable {
     /// compressed `imageURL` fails to load (see `Post.originalImageUrl`).
     /// Optional for backward compatibility with responses that predate the field.
     let originalImageURL: String?
-    let caption: String
+    /// `var` so a saved caption edit (issue #462) can update it in place.
+    var caption: String
     /// Caption font + background color keys (issue #318); "default" is normal.
     var captionFont: String = "default"
     var backgroundColor: String = "default"
@@ -860,6 +994,16 @@ struct PostDisplayData: Identifiable, Equatable {
     /// Whether the author has turned off commenting on this post (issue #492),
     /// either at creation or afterward via lockComments/unlockComments.
     var commentsDisabled: Bool = false
+    /// Whether the caption was changed after posting (issue #462), so the view
+    /// can say "edited".
+    var isEdited: Bool = false
+    /// Whether the post is hidden — pending review, rejected, or hidden by a
+    /// moderator. Only ever true on the viewer's own post (nobody else is shown
+    /// a hidden one), and such a post can't be edited (issue #462).
+    var isHidden: Bool = false
+    /// When the caption was last edited, as the server sent it (issue #462) —
+    /// what a slow save response is compared against before it may replace it.
+    var editedTime: String? = nil
 }
 
 // A struct representing a single comment, for use in the view
@@ -874,7 +1018,8 @@ struct CommentViewData: Identifiable, Equatable {
     var authorProfileImageOriginalURL: String? = nil
     /// That photo's BlurHash (issue #460), shown blurred while it loads.
     var authorProfileImageBlurHash: String? = nil
-    let body: String
+    /// `var` so a saved edit (issue #462) can update it in place.
+    var body: String
     /// Inline formatting spans over `body` (issue #318); nil = plain text.
     var formatting: [CommentFormatSpan]? = nil
     /// Who may see this comment (issue #445); nil/absent is treated as public.
@@ -886,6 +1031,11 @@ struct CommentViewData: Identifiable, Equatable {
     /// their own report reason for the pre-populated retract dialog (issue #176).
     var isReported: Bool = false
     var reportReason: String? = nil
+    /// Whether the author changed it after posting (issue #462).
+    var isEdited: Bool = false
+    /// When it was last edited, as the server sent it (issue #462) — what a
+    /// reload is compared against before it may replace an edit saved here.
+    var editedTime: String? = nil
 }
 
 // A struct representing a full thread, which is just a list of comments
@@ -893,6 +1043,13 @@ struct CommentViewData: Identifiable, Equatable {
 struct CommentThreadViewData: Identifiable, Equatable {
     var id: String { comments.first?.threadId ?? UUID().uuidString }
     var comments: [CommentViewData]
+
+    /// Ids of the comments that have a later reply in this thread — every
+    /// comment but the last. Only these get a collapse control: there is
+    /// nothing below the last one to fold away (issue #537).
+    var commentIdsWithReplies: Set<String> {
+        Set(comments.dropLast().map(\.id))
+    }
 }
 
 // MARK: - Text formatting (issue #318)

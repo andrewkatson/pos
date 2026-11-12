@@ -3,11 +3,13 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import FeedTab from './FeedTab'
+import type { FeedPost } from '../api/types'
 
 vi.mock('../api/client', () => ({
   apiClient: {
     getFeed: vi.fn(),
     getFollowedFeed: vi.fn(),
+    getTopPosts: vi.fn(),
     getPostLikers: vi.fn(),
     likePost: vi.fn(),
     unlikePost: vi.fn(),
@@ -18,17 +20,20 @@ vi.mock('../api/client', () => ({
     deletePost: vi.fn(),
     lockComments: vi.fn(),
     unlockComments: vi.fn(),
+    editPost: vi.fn(),
   },
 }))
 
 import { apiClient } from '../api/client'
 const mockGetFeed = vi.mocked(apiClient.getFeed)
 const mockGetFollowed = vi.mocked(apiClient.getFollowedFeed)
+const mockGetTop = vi.mocked(apiClient.getTopPosts)
 const mockLikePost = vi.mocked(apiClient.likePost)
 const mockSavePost = vi.mocked(apiClient.savePost)
 const mockDeletePost = vi.mocked(apiClient.deletePost)
 const mockLockComments = vi.mocked(apiClient.lockComments)
 const mockGetPostLikers = vi.mocked(apiClient.getPostLikers)
+const mockEditPost = vi.mocked(apiClient.editPost)
 
 function renderTab() {
   return render(
@@ -48,11 +53,17 @@ function renderTab() {
 beforeEach(() => {
   mockGetFeed.mockReset()
   mockGetFollowed.mockReset()
+  mockGetTop.mockReset()
   mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockSavePost.mockReset().mockResolvedValue({ message: 'Post saved' })
   mockDeletePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockLockComments.mockReset().mockResolvedValue({ comments_disabled: true })
   mockGetPostLikers.mockReset().mockResolvedValue([])
+  mockEditPost.mockReset().mockImplementation(async (_id, caption) => ({
+    caption,
+    edited_time: '2024-01-02T00:00:00.000Z',
+    tags: [],
+  }))
   // getCurrentUsername reads storage; 'ada' is another user in these feeds
   // unless a test says otherwise.
   vi.stubGlobal('localStorage', {
@@ -190,6 +201,138 @@ test('the group filter is hidden on the For You feed (#392)', () => {
   ).not.toBeInTheDocument()
 })
 
+test('shows the Top scoreboard for this week by default, ranked (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'best' },
+    { post_identifier: 'p2', image_url: 'http://img/2.jpg', author_username: 'bob', caption: 'next' },
+  ])
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalledWith(0, 'week'))
+  expect(await screen.findByLabelText('Rank 1')).toHaveTextContent('#1')
+  expect(screen.getByLabelText('Rank 2')).toHaveTextContent('#2')
+  expect(screen.getByLabelText('Top posts time period')).toHaveValue('week')
+})
+
+test('changing the Top period reloads the scoreboard (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'best' },
+  ])
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalledWith(0, 'week'))
+
+  await userEvent.selectOptions(screen.getByLabelText('Top posts time period'), 'year')
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalledWith(0, 'year'))
+})
+
+test('a slow response for the previous period does not overwrite the new one (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  let resolveWeek: (posts: FeedPost[]) => void = () => {}
+  mockGetTop.mockImplementation((_batch, period) =>
+    period === 'week'
+      ? new Promise<FeedPost[]>(resolve => {
+          resolveWeek = resolve
+        })
+      : Promise.resolve([
+          { post_identifier: 'y1', image_url: 'http://img/y.jpg', author_username: 'yearly', caption: 'y' },
+        ]),
+  )
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalledWith(0, 'week'))
+  await userEvent.selectOptions(screen.getByLabelText('Top posts time period'), 'year')
+  expect(await screen.findByRole('button', { name: 'Open post by yearly' })).toBeInTheDocument()
+
+  // The Week request finally lands; it must be ignored.
+  resolveWeek([
+    { post_identifier: 'w1', image_url: 'http://img/w.jpg', author_username: 'weekly', caption: 'w' },
+  ])
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(screen.queryByRole('button', { name: 'Open post by weekly' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Open post by yearly' })).toBeInTheDocument()
+})
+
+test('switching to a feed that fails to load does not keep the old posts (#558)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },
+  ])
+  mockGetTop.mockRejectedValue(new Error('boom'))
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await waitFor(() => expect(mockGetTop).toHaveBeenCalled())
+
+  expect(screen.queryByRole('button', { name: 'Open post by ada' })).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Rank 1')).not.toBeInTheDocument()
+  expect(await screen.findByText('No posts here yet.')).toBeInTheDocument()
+})
+
+test('a post repeated across Top pages is only listed once (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  const post = (id: string) => ({
+    post_identifier: id,
+    image_url: `http://img/${id}.jpg`,
+    author_username: `author_${id}`,
+    caption: id,
+  })
+  mockGetTop.mockImplementation(batch =>
+    Promise.resolve(batch === 0 ? [post('a'), post('b')] : [post('b'), post('c')]),
+  )
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await screen.findByRole('button', { name: 'Open post by author_b' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  await screen.findByRole('button', { name: 'Open post by author_c' })
+
+  expect(screen.getAllByRole('button', { name: 'Open post by author_b' })).toHaveLength(1)
+  expect(screen.getByLabelText('Rank 3')).toBeInTheDocument()
+  expect(screen.queryByLabelText('Rank 4')).not.toBeInTheDocument()
+})
+
+test('Load more skips past a Top page of nothing but repeats (#558)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  const post = (id: string) => ({
+    post_identifier: id,
+    image_url: `http://img/${id}.jpg`,
+    author_username: `author_${id}`,
+    caption: id,
+  })
+  const pages: Record<number, ReturnType<typeof post>[]> = {
+    0: [post('a'), post('b')],
+    1: [post('a'), post('b')],
+    2: [post('c')],
+  }
+  mockGetTop.mockImplementation(batch => Promise.resolve(pages[batch] ?? []))
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await screen.findByRole('button', { name: 'Open post by author_b' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  // One click reaches page 2's new post instead of stalling on page 1.
+  expect(await screen.findByRole('button', { name: 'Open post by author_c' })).toBeInTheDocument()
+  expect(mockGetTop).toHaveBeenCalledWith(2, 'week')
+})
+
+test('the period picker and ranks are only on the Top feed (#558)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },
+  ])
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  expect(screen.queryByLabelText('Top posts time period')).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Rank 1')).not.toBeInTheDocument()
+})
+
 test('navigates to an author profile from the feed', async () => {
   mockGetFeed.mockResolvedValue([
     { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hi' },
@@ -214,6 +357,111 @@ test('refresh reloads the feed from the first page', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
   await waitFor(() => expect(mockGetFeed).toHaveBeenCalledTimes(2))
   expect(mockGetFeed).toHaveBeenLastCalledWith(0)
+})
+
+// ---- The "you finished!" banner (issue #528) ----
+
+const endPost = (id: string) => ({
+  post_identifier: id,
+  image_url: `http://img/${id}.jpg`,
+  author_username: `author_${id}`,
+  caption: id,
+})
+
+test('celebrates once the feed runs out of posts (#528)', async () => {
+  mockGetFeed.mockImplementation(batch => Promise.resolve(batch === 0 ? [endPost('a')] : []))
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by author_a' })
+  // More may exist until a page comes back empty.
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  const banner = await screen.findByRole('status')
+  expect(banner).toHaveTextContent('You finished!')
+  expect(banner).toHaveTextContent("You've seen every post in your feed.")
+  expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
+})
+
+test('a failed page does not claim the feed is finished (#528)', async () => {
+  mockGetFeed.mockImplementation(batch =>
+    batch === 0 ? Promise.resolve([endPost('a')]) : Promise.reject(new Error('offline')),
+  )
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by author_a' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  await waitFor(() => expect(mockGetFeed).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument())
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+})
+
+test('an empty feed shows its empty state, not the finished banner (#528)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  renderTab()
+  expect(await screen.findByText('No posts here yet.')).toBeInTheDocument()
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+})
+
+test('the finished banner names the Top period (#528)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockImplementation(batch => Promise.resolve(batch === 0 ? [endPost('a')] : []))
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await screen.findByRole('button', { name: 'Open post by author_a' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+  expect(await screen.findByRole('status')).toHaveTextContent("That's the whole Top board for this week.")
+})
+
+test('switching feeds clears the finished banner (#528)', async () => {
+  mockGetFeed.mockImplementation(batch => Promise.resolve(batch === 0 ? [endPost('a')] : []))
+  mockGetFollowed.mockResolvedValue([endPost('f')])
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by author_a' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  await screen.findByText('You finished!')
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Following' }))
+  await screen.findByRole('button', { name: 'Open post by author_f' })
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Load more' })).toBeInTheDocument()
+})
+
+test('refreshing a finished feed clears the banner (#528)', async () => {
+  mockGetFeed.mockImplementation(batch => Promise.resolve(batch === 0 ? [endPost('a')] : []))
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by author_a' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  await screen.findByText('You finished!')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() => expect(mockGetFeed).toHaveBeenCalledTimes(3))
+  await screen.findByRole('button', { name: 'Load more' })
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
+})
+
+test('a failed refresh of a finished feed does not bring the banner back (#528)', async () => {
+  mockGetFeed.mockImplementation(batch => Promise.resolve(batch === 0 ? [endPost('a')] : []))
+  renderTab()
+
+  await screen.findByRole('button', { name: 'Open post by author_a' })
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  await screen.findByText('You finished!')
+
+  mockGetFeed.mockRejectedValue(new Error('offline'))
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() => expect(mockGetFeed).toHaveBeenCalledTimes(3))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled())
+
+  // The old posts stay, but the finish they had isn't replayed.
+  expect(screen.getByRole('button', { name: 'Open post by author_a' })).toBeInTheDocument()
+  expect(screen.queryByText('You finished!')).not.toBeInTheDocument()
 })
 
 // ---- In-place post actions on the feed (issue #267) ----
@@ -294,6 +542,121 @@ test('turning off commenting from the feed menu closes the menu (#492)', async (
   // Reopening offers the opposite action.
   await userEvent.click(screen.getByRole('button', { name: 'Options for post by me' }))
   expect(screen.getByRole('menuitem', { name: 'Turn on commenting' })).toBeInTheDocument()
+})
+
+test('editing your own caption from the feed menu updates the row in place (#462)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'me', caption: 'mine' },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  const { container } = renderTab()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Options for post by me' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Edit' }))
+  const field = screen.getByLabelText('Caption text')
+  expect(field).toHaveValue('mine')
+  await userEvent.clear(field)
+  await userEvent.type(field, 'still mine')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+  await waitFor(() => expect(mockEditPost).toHaveBeenCalledWith('p1', 'still mine'))
+  await waitFor(() =>
+    expect(container.querySelector('.feed-post__caption')).toHaveTextContent('still mine'),
+  )
+  // No reload: that would reshuffle the weighted feed under the user.
+  expect(mockGetFeed).toHaveBeenCalledTimes(1)
+})
+
+test('a refreshed row edited elsewhere replaces the locally saved caption (#462)', async () => {
+  mockGetFeed
+    .mockResolvedValueOnce([
+      { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'me', caption: 'mine' },
+    ])
+    .mockResolvedValue([
+      {
+        post_identifier: 'p1',
+        image_url: 'http://img/1.jpg',
+        author_username: 'me',
+        caption: 'edited on my phone',
+        edited_time: '2024-01-03T00:00:00.000Z',
+      },
+    ])
+  mockGetFollowed.mockResolvedValue([])
+  const { container } = renderTab()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Options for post by me' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Edit' }))
+  const field = screen.getByLabelText('Caption text')
+  await userEvent.clear(field)
+  await userEvent.type(field, 'still mine')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() =>
+    expect(container.querySelector('.feed-post__caption')).toHaveTextContent('still mine'),
+  )
+
+  // The local save is stamped 2024-01-02; the refreshed row's later edit wins.
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  await waitFor(() =>
+    expect(container.querySelector('.feed-post__caption')).toHaveTextContent('edited on my phone'),
+  )
+})
+
+test('overlapping caption saves answered newest-first keep the newest (#462)', async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'me', caption: 'mine' },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  const responders: Array<(value: { caption: string; edited_time: string; tags: string[] }) => void> = []
+  mockEditPost.mockImplementation(
+    () =>
+      new Promise(resolve => {
+        responders.push(resolve)
+      }),
+  )
+  const { container } = renderTab()
+
+  async function saveCaption(text: string) {
+    await userEvent.click(await screen.findByRole('button', { name: 'Options for post by me' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Edit' }))
+    const field = screen.getByLabelText('Caption text')
+    await userEvent.clear(field)
+    await userEvent.type(field, text)
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  }
+  await saveCaption('first try')
+  await saveCaption('second try')
+  expect(responders).toHaveLength(2)
+
+  // The newer save answers first, then the older one.
+  responders[1]({ caption: 'second try', edited_time: '2024-01-03T00:00:00.000Z', tags: [] })
+  await waitFor(() =>
+    expect(container.querySelector('.feed-post__caption')).toHaveTextContent('second try'),
+  )
+  responders[0]({ caption: 'first try', edited_time: '2024-01-02T00:00:00.000Z', tags: [] })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(container.querySelector('.feed-post__caption')).toHaveTextContent('second try')
+})
+
+test("the feed menu offers no Edit on someone else's post or your own pending one (#462)", async () => {
+  mockGetFeed.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'hers' },
+    {
+      post_identifier: 'p2',
+      image_url: 'http://img/2.jpg',
+      author_username: 'me',
+      caption: 'mine',
+      hidden: true,
+      status: 'pending',
+    },
+  ])
+  mockGetFollowed.mockResolvedValue([])
+  renderTab()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Options for post by ada' }))
+  expect(screen.queryByRole('menuitem', { name: 'Edit' })).not.toBeInTheDocument()
+  await userEvent.keyboard('{Escape}')
+  await userEvent.click(screen.getByRole('button', { name: 'Options for post by me' }))
+  expect(screen.queryByRole('menuitem', { name: 'Edit' })).not.toBeInTheDocument()
 })
 
 test('hides the like control on your own post in the feed', async () => {

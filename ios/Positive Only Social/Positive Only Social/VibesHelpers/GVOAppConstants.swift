@@ -80,14 +80,32 @@ import Foundation
     static let pathSegmentComments = "comments"
     static let pathSegmentCreate = "create"
     static let pathSegmentDelete = "delete"
+    // POST posts/<id>/edit/ and .../comments/<id>/edit/ — author-only edits of
+    // a caption or a comment (issue #462).
+    static let pathSegmentEdit = "edit"
     // POST devices/register/ registers this device's APNs token (issue #342).
     static let pathSegmentDevices = "devices"
     static let pathSegmentDetails = "details"
     static let pathSegmentFollow = "follow"
+    // Private accounts & follow requests (issue #96): users/follow-requests/,
+    // users/<name>/follow-request/{approve,deny,cancel}/ and profile/private/.
+    static let pathSegmentFollowRequests = "follow-requests"
+    static let pathSegmentFollowRequest = "follow-request"
+    static let pathSegmentApprove = "approve"
+    static let pathSegmentDeny = "deny"
+    static let pathSegmentCancel = "cancel"
+    static let pathSegmentPrivate = "private"
     static let pathSegmentFollowed = "followed"
     // Relationship-category endpoint and query key (issue #392).
     static let pathSegmentCategory = "category"
     static let queryKeyCategory = "category"
+    // Top posts scoreboard: GET feed/top/<batch>/?period=... (issue #558).
+    static let pathSegmentTop = "top"
+    static let queryKeyPeriod = "period"
+
+    // Keyset cursor for the follow-request list (issue #96): the request id
+    // of the oldest row loaded so far.
+    static let queryKeyAfter = "after"
     // POST login/google/ — exchange a Google ID token for a session (issue #10).
     static let pathSegmentGoogle = "google"
     static let pathSegmentFollowers = "followers"

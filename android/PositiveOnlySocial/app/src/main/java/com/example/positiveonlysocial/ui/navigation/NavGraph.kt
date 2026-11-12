@@ -195,6 +195,11 @@ fun NavGraph(
             BlockedUsersScreen(navController, api, keychainHelper)
         }
 
+        // Incoming follow requests for a private account (issue #96).
+        composable(Screen.FollowRequests.route) {
+            FollowRequestsScreen(navController, api, keychainHelper)
+        }
+
         // Your own followers / following — only your own, since the endpoints
         // take no username (issue #8). The mode arg picks which list.
         composable(

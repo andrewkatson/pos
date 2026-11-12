@@ -218,6 +218,10 @@ struct MockedAPI: Networking {
         return try encodeGenericSuccess()
     }
 
+    func editPost(sessionManagementToken: String, postIdentifier: String, caption: String) async throws -> Data {
+        return try encode(EditPostResponse(caption: caption, editedTime: nil, tags: []))
+    }
+
     func lockComments(sessionManagementToken: String, postIdentifier: String) async throws -> Data {
         struct Fields: Codable { let comments_disabled: Bool }
         return try encode(Fields(comments_disabled: true))
@@ -283,6 +287,16 @@ struct MockedAPI: Networking {
         return try encode(posts)
     }
 
+    func getTopPosts(sessionManagementToken: String, batch: Int, period: String) async throws -> Data {
+        // One page only: TopPostsViewModel pages past repeat-only pages, so the
+        // same rows on every batch would make a preview request forever.
+        guard batch == 0 else { return try encode([Post]()) }
+        let posts = [
+            Post(postIdentifier: "7", imageUrl: "https://picsum.photos/400/305", originalImageUrl: nil, caption: "Crowd favorite", authorUsername: "popular_pal")
+        ]
+        return try encode(posts)
+    }
+
     func getPostsForTag(sessionManagementToken: String, tag: String, batch: Int) async throws -> Data {
         let posts = [
             Post(postIdentifier: "6", imageUrl: "https://picsum.photos/400/304", originalImageUrl: nil, caption: "Tagged #\(tag)", authorUsername: "tag_fan", tags: [tag])
@@ -338,6 +352,10 @@ struct MockedAPI: Networking {
 
     func deleteComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         return try encodeGenericSuccess()
+    }
+
+    func editComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, commentText: String, formatting: [CommentFormatSpan]?) async throws -> Data {
+        return try encode(EditCommentResponse(body: commentText, bodyFormatting: formatting, editedTime: nil))
     }
 
     func reportComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String, reason: String) async throws -> Data {
@@ -434,6 +452,33 @@ struct MockedAPI: Networking {
         return try encode(users)
     }
 
+    func getFollowRequests(sessionManagementToken: String, after: Int?) async throws -> Data {
+        guard after == nil else { return try encode([User]()) }
+        // Newest first, with request ids so the view model gets a cursor and
+        // "Load more" reaches the empty page above.
+        let users = [
+            User(username: "requester_1", identityIsVerified: true, requestId: 2),
+            User(username: "requester_2", identityIsVerified: false, requestId: 1)
+        ]
+        return try encode(users)
+    }
+
+    func approveFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func denyFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func cancelFollowRequest(sessionManagementToken: String, username: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func setAccountPrivacy(sessionManagementToken: String, isPrivate: Bool) async throws -> Data {
+        return try encode(["is_private": isPrivate])
+    }
+
     func getProfileDetails(sessionManagementToken: String, username: String) async throws -> Data {
         let profile = ProfileDetailsResponse(
             username: username,
@@ -492,7 +537,10 @@ struct MockedAPI: Networking {
     }
 
     func getNotificationPreferences(sessionManagementToken: String) async throws -> Data {
-        let prefs = [NotificationPreference(type: "post_rejected", label: "Post moderation", enabled: true)]
+        let prefs = [NotificationPreference(type: "all", label: "Push notifications", enabled: true),
+                     NotificationPreference(type: "post_rejected", label: "Post moderation", enabled: true, parent: "all"),
+                     NotificationPreference(type: "new_like", label: "Likes", enabled: true, parent: "all"),
+                     NotificationPreference(type: "new_like_friend", label: "From friends", enabled: true, parent: "new_like")]
         return try encode(NotificationPreferencesResponse(preferences: prefs))
     }
 

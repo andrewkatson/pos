@@ -15,6 +15,7 @@ import AppealsPage from './pages/AppealsPage'
 import BlockedUsersPage from './pages/BlockedUsersPage'
 import SavedPostsPage from './pages/SavedPostsPage'
 import FollowListPage from './pages/FollowListPage'
+import FollowRequestsPage from './pages/FollowRequestsPage'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 import TermsOfServicePage from './pages/TermsOfServicePage'
 import DeleteAccountPage from './pages/DeleteAccountPage'
@@ -39,6 +40,7 @@ function App() {
       <Route path="/saved" element={<SavedPostsPage />} />
       <Route path="/followers" element={<FollowListPage mode="followers" />} />
       <Route path="/following" element={<FollowListPage mode="following" />} />
+      <Route path="/follow-requests" element={<FollowRequestsPage />} />
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
       <Route path="/terms-of-service" element={<TermsOfServicePage />} />
       <Route path="/delete-account" element={<DeleteAccountPage />} />

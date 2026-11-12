@@ -126,8 +126,12 @@ export interface LoginWithRememberMeResponse {
 
 export interface MessageResponse {
   message: string
-  /** Echoed by the follow / set-category endpoints (issue #392). */
-  follow_category?: FollowCategory
+  /** Echoed by the follow / set-category endpoints (issue #392). Null when a
+   * follow call filed a request instead (issue #96). */
+  follow_category?: FollowCategory | null
+  /** Echoed by the follow endpoint (issue #96): true when the target is a
+   * private account, so the call filed a follow request rather than following. */
+  follow_request_pending?: boolean
 }
 
 /** Register (or refresh) this browser's Web-push token (issues #342/#343).
@@ -140,10 +144,14 @@ export interface RegisterDeviceRequest {
 
 /** One push notification type the user can toggle in Settings (issues
  * #342/#343). `label` is human-facing; the client renders a toggle per row, so
- * new types added on the backend appear here automatically. */
+ * new types added on the backend appear here automatically. The types form a
+ * tree (issue #444): `parent` names the row this one sits under (null or
+ * absent at the top), and `enabled` is this row's own setting — a push is only
+ * delivered when it and every ancestor are on. */
 export interface NotificationPreference {
   type: string
   label: string
+  parent?: string | null
   enabled: boolean
 }
 
@@ -190,6 +198,8 @@ export interface ResetPasswordRequest {
 export interface CurrentUser {
   username: string
   email: string
+  /** Whether the account is private (issue #96). Absent on older backends. */
+  is_private?: boolean
 }
 
 export interface ChangePasswordRequest {
@@ -219,6 +229,12 @@ export type FollowCategory = 'following' | 'friend' | 'family'
  * Defaults to 'public' when omitted.
  */
 export type PostAudience = 'public' | 'following' | 'friends' | 'family'
+
+/**
+ * Rolling window for the Top posts scoreboard (issue #558): posts created in
+ * the last day / 7 days / 30 days / 365 days, ranked by likes.
+ */
+export type TopPostPeriod = 'day' | 'week' | 'month' | 'year'
 
 // ---------------------------------------------------------------------------
 // Text formatting (issue #318)
@@ -449,6 +465,10 @@ export interface FeedPost extends AuthorAvatarFields {
    * (issue #249). The backend column is nullable, so this can be null; older
    * responses that predate the field omit it entirely. */
   creation_time?: string | null
+  /** ISO-8601 timestamp of the author's last caption edit (issue #462); null
+   * when never edited. Lets a list tell whether a refreshed row is newer than
+   * a caption saved locally. Older responses omit it. */
+  edited_time?: string | null
   /** Who may see the post (issue #392). Absent on older responses; treat a
    * missing value as 'public'. */
   audience?: PostAudience
@@ -483,6 +503,9 @@ export interface PostDetails extends AuthorAvatarFields {
    * nullable, so this can be null; older responses that predate the field
    * omit it entirely. */
   creation_time?: string | null
+  /** ISO-8601 timestamp of the author's last caption edit (issue #462); null
+   * when it was never edited. Older responses omit it. */
+  edited_time?: string | null
   /** Whole-caption font key (issue #318); absent/`default` renders normally. */
   caption_font?: CaptionFont
   /** Whole-tile background color key (issue #318); absent/`default` is normal. */
@@ -516,6 +539,20 @@ export interface PostDetails extends AuthorAvatarFields {
   appealable?: boolean
 }
 
+/** Response of editPost (issue #462): the caption as saved. */
+export interface EditPostResponse {
+  caption: string
+  edited_time: string | null
+  tags: string[]
+}
+
+/** Response of editComment (issue #462): the comment as saved. */
+export interface EditCommentResponse {
+  body: string
+  body_formatting: CommentFormatSpan[] | null
+  edited_time: string | null
+}
+
 /** Response of lockComments/unlockComments (issue #492). */
 export interface SetCommentsDisabledResponse {
   comments_disabled: boolean
@@ -544,6 +581,9 @@ export interface Comment extends AuthorAvatarFields {
   author_username: string
   creation_time: string
   updated_time: string
+  /** ISO-8601 timestamp of the author's last edit (issue #462); null/absent
+   * when it was never edited. */
+  edited_time?: string | null
   comment_likes: number
   /** Whether the requesting user has liked this comment. */
   is_liked?: boolean
@@ -557,6 +597,12 @@ export interface Comment extends AuthorAvatarFields {
 export interface UserSearchResult extends AuthorAvatarFields {
   username: string
   identity_is_verified: boolean
+}
+
+/** One incoming follow request (issue #96): the requester plus the request's
+ * id, which is the keyset cursor for the next page (`?after=<request_id>`). */
+export interface FollowRequestRow extends UserSearchResult {
+  request_id: number
 }
 
 /**
@@ -587,6 +633,10 @@ export interface PublicProfileDetails {
   /** The user's free-text bio (#380), already moderated on write and shown to
    * everyone. Empty string when they have not set one. */
   bio: string
+  /** Private account (issue #96): only approved followers see its posts and
+   * counts. The counts above are zeroed for anyone else, so clients hide them
+   * rather than show zeros. Absent on older backends (treated as public). */
+  is_private?: boolean
 }
 
 export interface ProfileDetails extends PublicProfileDetails {
@@ -595,6 +645,11 @@ export interface ProfileDetails extends PublicProfileDetails {
    * not following. Absent on older backends. */
   follow_category?: FollowCategory | null
   is_blocked: boolean
+  /** The viewer has asked to follow this private account and is waiting on
+   * an answer (issue #96). Absent on older backends. */
+  follow_request_pending?: boolean
+  /** Owner-only: incoming follow requests awaiting a decision (issue #96). */
+  follow_request_count?: number
   is_adult: boolean
   /** Owner-only: the moderation state of a photo still under review (or the
    * last rejected upload). Present only when viewing your own profile, so your

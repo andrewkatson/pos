@@ -1,6 +1,7 @@
 import { test, expect } from 'vitest'
 import {
   applyStyleToRange,
+  attrsFromSpans,
   attrsToSpans,
   emptyAttrs,
   reconcileAttrs,
@@ -67,4 +68,19 @@ test('spansForTrimmedComment aligns offsets to the trimmed text', () => {
 
 test('spansForTrimmedComment returns undefined when nothing is styled', () => {
   expect(spansForTrimmedComment('plain', emptyAttrs(5))).toBeUndefined()
+})
+
+test('attrsFromSpans round-trips through attrsToSpans (issue #462)', () => {
+  const spans = [
+    { start: 0, end: 4, bold: true, italic: false, size: 'normal' as const },
+    { start: 6, end: 9, bold: false, italic: true, size: 'large' as const },
+  ]
+  expect(attrsToSpans(attrsFromSpans('hello world', spans))).toEqual(spans)
+})
+
+test('attrsFromSpans clips spans that run past the text', () => {
+  const attrs = attrsFromSpans('hi', [{ start: 0, end: 10, bold: true, italic: false, size: 'normal' }])
+  expect(attrs).toHaveLength(2)
+  expect(attrs.every((a) => a.bold)).toBe(true)
+  expect(attrsFromSpans('hi', null)).toEqual(emptyAttrs(2))
 })

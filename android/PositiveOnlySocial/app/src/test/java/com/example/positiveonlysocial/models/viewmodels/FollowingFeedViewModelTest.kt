@@ -114,4 +114,21 @@ class FollowingFeedViewModelTest {
         assertEquals(initialPosts, viewModel.followingPosts.value)
         assertFalse(viewModel.isRefreshing.value)
     }
+
+    @Test
+    fun `reachedEnd turns on once a page comes back empty (issue 528)`() = runTest {
+        val page0 = listOf(Post("1", "url1", "caption1", "user1", 0))
+        whenever(api.getFollowedPosts("token123", 0)).thenReturn(Response.success(page0))
+        whenever(api.getFollowedPosts("token123", 1)).thenReturn(Response.success(emptyList()))
+
+        viewModel.fetchFollowingFeed()
+        assertFalse(viewModel.reachedEnd.value)
+
+        viewModel.fetchFollowingFeed()
+        assertTrue(viewModel.reachedEnd.value)
+
+        // A refresh starts the list over, so it isn't finished any more.
+        viewModel.refreshFollowingFeed()
+        assertFalse(viewModel.reachedEnd.value)
+    }
 }
