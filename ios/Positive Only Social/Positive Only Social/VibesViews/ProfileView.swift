@@ -314,7 +314,6 @@ struct ProfileBodyView: View {
     /// The owner's profile-photo controls (issue #7): pick a photo to upload and
     /// set, remove the current one, plus the async review status. Only shown on
     /// your own profile.
-    @ViewBuilder
     @State private var showPhotoOptions = false
     @State private var showPhotosPicker = false
     
