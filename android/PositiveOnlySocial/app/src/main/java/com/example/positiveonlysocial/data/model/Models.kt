@@ -774,6 +774,37 @@ enum class TopPostPeriod(val value: String, val displayName: String) {
 }
 
 /**
+ * Which scoreboard the Feed tab's Top segment shows: posts ranked by likes
+ * (issue #558) or profiles ranked by followers (issue #588).
+ */
+enum class TopBoard(val displayName: String) {
+    POSTS("Posts"),
+    PROFILES("Profiles")
+}
+
+/**
+ * One row of the Top profiles scoreboard (issue #588): an account and how many
+ * followers the viewer can see it has, matching its profile page. Every field
+ * but the username is nullable: Gson ignores Kotlin defaults for absent keys.
+ */
+data class TopProfile(
+    val username: String,
+    @SerializedName("identity_is_verified") val identityIsVerified: Boolean? = null,
+    @SerializedName("author_profile_image_url") val authorProfileImageUrl: String? = null,
+    @SerializedName("author_profile_image_original_url") val authorProfileImageOriginalUrl: String? = null,
+    @SerializedName("author_profile_image_blurhash") val authorProfileImageBlurHash: String? = null,
+    @SerializedName("follower_count") val followerCount: Int? = null
+) {
+    /** "1 follower" / "1,200 followers". */
+    val followerCountLabel: String
+        get() {
+            val count = followerCount ?: 0
+            val number = java.text.NumberFormat.getIntegerInstance().format(count)
+            return if (count == 1) "$number follower" else "$number followers"
+        }
+}
+
+/**
  * Who may see a post. Nested circles from broadest to closest; raw values match
  * the backend.
  */

@@ -297,6 +297,15 @@ struct MockedAPI: Networking {
         return try encode(posts)
     }
 
+    func getTopProfiles(sessionManagementToken: String, batch: Int) async throws -> Data {
+        // One page only, for the same reason as getTopPosts above.
+        guard batch == 0 else { return try encode([TopProfile]()) }
+        return try encode([
+            TopProfile(username: "popular_pal", identityIsVerified: true, followerCount: 1200),
+            TopProfile(username: "coffee_addict", identityIsVerified: false, followerCount: 87),
+        ])
+    }
+
     func getPostsForTag(sessionManagementToken: String, tag: String, batch: Int) async throws -> Data {
         let posts = [
             Post(postIdentifier: "6", imageUrl: "https://picsum.photos/400/304", originalImageUrl: nil, caption: "Tagged #\(tag)", authorUsername: "tag_fan", tags: [tag])

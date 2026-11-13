@@ -6,6 +6,9 @@ whole app over a period the viewer picks: **Today**, **This week** (the
 default), **This month** or **This year**. Each row is numbered by its rank and
 carries the same author line, caption and action bar as the other feeds.
 
+A **Posts / Profiles** toggle at the top of the segment switches to a second
+board, [Top profiles](#top-profiles) (issue #588). Posts is the default.
+
 ## Endpoint
 
 `GET /feed/top/<batch>/?period=day|week|month|year` returns the ranking in the
@@ -61,3 +64,32 @@ is a 400.
 
 The ranking is computed on the fly per request. Pre-computing each period's
 board on a schedule is tracked in issue #559.
+
+## Top profiles
+
+The Profiles board (issue #588) ranks the public accounts with the most
+followers. Each row shows the rank, avatar, username, verified badge and the
+follower total, and opens that profile (your own row opens the Profile tab).
+
+- **Endpoint.** `GET /feed/top/profiles/<batch>/` returns rows of `username`,
+  `identity_is_verified`, the author avatar fields and `follower_count`, in
+  batches of `TOP_PROFILES_BATCH_SIZE` (20), stopping at `TOP_PROFILES_LIMIT`
+  (100) like Top posts.
+- **All-time.** It ranks each account's current follower total, so there is no
+  period picker. "Followers gained this week" would be a different metric;
+  `UserFollow.created` would make it possible if that's wanted later.
+- **Counting.** `follower_count` is counted the way the profile page counts it
+  (`searchable_users` over the account's followers, issue #398): shadow-banned
+  followers and followers outside the viewer's age band don't count, so a row's
+  number matches the profile it opens.
+- **Eligibility.** Private accounts never compete (they show non-followers no
+  counts at all), nor do shadow-banned or cross-age-band accounts
+  (`searchable_users`, so each age band gets its own board) or accounts blocked
+  in either direction. The viewer's own account competes like any other.
+  Accounts with no visible followers are left off.
+- **Ranking and paging.** Follower count descending, then username, then the
+  primary key. Paging is live LIMIT/OFFSET with the same repeat-dropping on the
+  clients as Top posts. Computed on the fly per request, like Top posts.
+- **Clients.** The website keeps the board in its own component, so switching
+  boards drops the other board's list. iOS and Android keep a view model per
+  board and remember the selected board while you visit the other feeds.

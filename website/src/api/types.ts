@@ -599,6 +599,12 @@ export interface UserSearchResult extends AuthorAvatarFields {
   identity_is_verified: boolean
 }
 
+/** One row of the Top profiles scoreboard (issue #588): an account and how
+ * many followers the viewer can see it has, matching its profile page. */
+export interface TopProfile extends UserSearchResult {
+  follower_count: number
+}
+
 /** One incoming follow request (issue #96): the requester plus the request's
  * id, which is the keyset cursor for the next page (`?after=<request_id>`). */
 export interface FollowRequestRow extends UserSearchResult {

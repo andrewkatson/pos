@@ -9,9 +9,13 @@ import PostActionBar from './PostActionBar'
 import { usePostActions } from './usePostActions'
 import Avatar from './Avatar'
 import FeedEndBanner from './FeedEndBanner'
+import TopProfilesList from './TopProfilesList'
 import { captionFontClass } from './textFormatting'
 
 type FeedType = 'forYou' | 'following' | 'top'
+/** Which scoreboard the Top segment shows: posts by likes (#558) or profiles
+ * by followers (#588). */
+type TopBoard = 'posts' | 'profiles'
 /** 'all' is the whole following feed; the others narrow it by group (#392). */
 type FeedGroup = 'all' | FollowCategory
 
@@ -28,6 +32,11 @@ const FEED_OPTIONS: { value: FeedType; label: string }[] = [
   { value: 'forYou', label: 'For You' },
   { value: 'following', label: 'Following' },
   { value: 'top', label: 'Top' },
+]
+
+const TOP_BOARD_OPTIONS: { value: TopBoard; label: string }[] = [
+  { value: 'posts', label: 'Posts' },
+  { value: 'profiles', label: 'Profiles' },
 ]
 
 const PERIOD_OPTIONS: { value: TopPostPeriod; label: string }[] = [
@@ -54,7 +63,8 @@ function feedEndMessage(feed: FeedType, period: TopPostPeriod): string {
 /**
  * The "Feed" tab with a For You / Following / Top segmented control. Each feed
  * loads independently and supports pagination. Top is the scoreboard of the
- * most-liked public posts across the app over a chosen period (issue #558). Mirrors iOS FeedView (ForYou +
+ * most-liked public posts across the app over a chosen period (issue #558),
+ * with a Profiles board beside it ranking accounts by followers (issue #588). Mirrors iOS FeedView (ForYou +
  * Following feeds, infinite scroll, tap author → profile, tap image → detail).
  *
  * Each post carries the same like / report / delete controls as the profile
@@ -65,6 +75,10 @@ function FeedTab() {
   const [selected, setSelected] = useState<FeedType>('forYou')
   const [group, setGroup] = useState<FeedGroup>('all')
   const [period, setPeriod] = useState<TopPostPeriod>('week')
+  const [topBoard, setTopBoard] = useState<TopBoard>('posts')
+  // The Profiles board loads its own list (TopProfilesList); the post list
+  // below sits idle while it shows.
+  const showingTopProfiles = selected === 'top' && topBoard === 'profiles'
 
   // Track mount state so async loads that resolve after the tab is switched
   // away (HomePage unmounts inactive tabs) don't set state on an unmounted view.
@@ -100,10 +114,13 @@ function FeedTab() {
   const fetcher = useCallback(
     (batch: number) => {
       if (selected === 'forYou') return apiClient.getFeed(batch)
-      if (selected === 'top') return apiClient.getTopPosts(batch, period)
+      if (selected === 'top') {
+        if (topBoard === 'profiles') return Promise.resolve<FeedPost[]>([])
+        return apiClient.getTopPosts(batch, period)
+      }
       return apiClient.getFollowedFeed(batch, group === 'all' ? undefined : group)
     },
-    [selected, group, period],
+    [selected, group, period, topBoard],
   )
 
   // Bumped on every from-scratch load. A response from an older generation —
@@ -252,6 +269,29 @@ function FeedTab() {
       )}
 
       {selected === 'top' && (
+        <div className="segmented segmented--sub" role="tablist" aria-label="Top board">
+          {TOP_BOARD_OPTIONS.map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={topBoard === value}
+              className={`segmented__option${topBoard === value ? ' segmented__option--active' : ''}`}
+              onClick={() => {
+                if (value === topBoard) return
+                startSelectionChange()
+                setTopBoard(value)
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {showingTopProfiles && <TopProfilesList />}
+
+      {selected === 'top' && !showingTopProfiles && (
         <label className="feed-group-filter">
           <span className="visually-hidden">Time period</span>
           <select
@@ -274,99 +314,103 @@ function FeedTab() {
         </label>
       )}
 
-      <button
-        type="button"
-        className="refresh-button"
-        aria-label="Refresh"
-        disabled={isLoading}
-        onClick={() => {
-          setIsLoading(true)
-          void loadFeed(0, true)
-        }}
-      >
-        <span aria-hidden="true">↻</span> Refresh
-      </button>
+      {!showingTopProfiles && (
+        <>
+          <button
+            type="button"
+            className="refresh-button"
+            aria-label="Refresh"
+            disabled={isLoading}
+            onClick={() => {
+              setIsLoading(true)
+              void loadFeed(0, true)
+            }}
+          >
+            <span aria-hidden="true">↻</span> Refresh
+          </button>
 
-      {posts.length === 0 && !isLoading ? (
-        <p className="muted">No posts here yet.</p>
-      ) : (
-        <div className="feed-list">
-          {posts.map(withEdits).map((post, index) => (
-            <article key={post.post_identifier}>
-              <div className="author-line">
-                {/* The scoreboard position (issue #558). Deleting a row from
-                    Top shifts the ranks below it up, matching a refresh. */}
-                {selected === 'top' && (
-                  <span className="feed-post__rank" aria-label={`Rank ${index + 1}`}>
-                    #{index + 1}
-                  </span>
-                )}
-                <Avatar
-                  src={post.author_profile_image_url}
-                  originalSrc={post.author_profile_image_original_url}
-                  blurhash={post.author_profile_image_blurhash}
-                  username={post.author_username}
-                  size="sm"
-                />
-                <button
-                  type="button"
-                  className="feed-post__author"
-                  onClick={() => navigate(profilePathFor(post.author_username))}
-                >
-                  {post.author_username}
-                </button>
-              </div>
-              <button
-                type="button"
-                className="feed-post__image"
-                aria-label={`Open post by ${post.author_username}`}
-                onClick={() => navigate(`/post/${post.post_identifier}`)}
-              >
-                <PostThumbnail post={post} />
-              </button>
-              {/* The caption under the photo (issue #378). Text-only posts (#307)
-                  already render their caption as the tile above, so it isn't
-                  repeated for them. The author's chosen caption font (issue
-                  #318) applies here too, so the feed matches the detail view
-                  (issue #450). */}
-              {post.image_url !== null && (
-                <p className={`feed-post__caption ${captionFontClass(post.caption_font)}`.trim()}>
-                  {post.caption}
-                </p>
-              )}
-              {/* Comment count and post time only appear here: feed rows have
-                  the width for them, the square profile tiles don't (#249). */}
-              <PostActionBar
-                post={post}
-                state={stateFor(post)}
-                onToggleLike={toggleLike}
-                onToggleSave={toggleSave}
-                onOpenMenu={openMenu}
-                isMenuOpen={openMenuPostId === post.post_identifier}
-                onOpenLikes={openLikes}
-                onOpenPost={p => navigate(`/post/${p.post_identifier}`)}
-                showDetails
-              />
-            </article>
-          ))}
-        </div>
-      )}
+          {posts.length === 0 && !isLoading ? (
+            <p className="muted">No posts here yet.</p>
+          ) : (
+            <div className="feed-list">
+              {posts.map(withEdits).map((post, index) => (
+                <article key={post.post_identifier}>
+                  <div className="author-line">
+                    {/* The scoreboard position (issue #558). Deleting a row from
+                        Top shifts the ranks below it up, matching a refresh. */}
+                    {selected === 'top' && (
+                      <span className="feed-post__rank" aria-label={`Rank ${index + 1}`}>
+                        #{index + 1}
+                      </span>
+                    )}
+                    <Avatar
+                      src={post.author_profile_image_url}
+                      originalSrc={post.author_profile_image_original_url}
+                      blurhash={post.author_profile_image_blurhash}
+                      username={post.author_username}
+                      size="sm"
+                    />
+                    <button
+                      type="button"
+                      className="feed-post__author"
+                      onClick={() => navigate(profilePathFor(post.author_username))}
+                    >
+                      {post.author_username}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="feed-post__image"
+                    aria-label={`Open post by ${post.author_username}`}
+                    onClick={() => navigate(`/post/${post.post_identifier}`)}
+                  >
+                    <PostThumbnail post={post} />
+                  </button>
+                  {/* The caption under the photo (issue #378). Text-only posts (#307)
+                      already render their caption as the tile above, so it isn't
+                      repeated for them. The author's chosen caption font (issue
+                      #318) applies here too, so the feed matches the detail view
+                      (issue #450). */}
+                  {post.image_url !== null && (
+                    <p className={`feed-post__caption ${captionFontClass(post.caption_font)}`.trim()}>
+                      {post.caption}
+                    </p>
+                  )}
+                  {/* Comment count and post time only appear here: feed rows have
+                      the width for them, the square profile tiles don't (#249). */}
+                  <PostActionBar
+                    post={post}
+                    state={stateFor(post)}
+                    onToggleLike={toggleLike}
+                    onToggleSave={toggleSave}
+                    onOpenMenu={openMenu}
+                    isMenuOpen={openMenuPostId === post.post_identifier}
+                    onOpenLikes={openLikes}
+                    onOpenPost={p => navigate(`/post/${p.post_identifier}`)}
+                    showDetails
+                  />
+                </article>
+              ))}
+            </div>
+          )}
 
-      {isLoading && <div className="center-spinner"><span className="spinner" /></div>}
-      {canLoadMore && !isLoading && posts.length > 0 && (
-        <button
-          type="button"
-          className="load-more"
-          onClick={() => {
-            setIsLoading(true)
-            void loadFeed(page, false)
-          }}
-        >
-          Load more
-        </button>
-      )}
-      {reachedEnd && !isLoading && posts.length > 0 && (
-        <FeedEndBanner message={feedEndMessage(selected, period)} />
+          {isLoading && <div className="center-spinner"><span className="spinner" /></div>}
+          {canLoadMore && !isLoading && posts.length > 0 && (
+            <button
+              type="button"
+              className="load-more"
+              onClick={() => {
+                setIsLoading(true)
+                void loadFeed(page, false)
+              }}
+            >
+              Load more
+            </button>
+          )}
+          {reachedEnd && !isLoading && posts.length > 0 && (
+            <FeedEndBanner message={feedEndMessage(selected, period)} />
+          )}
+        </>
       )}
 
       {dialogs}

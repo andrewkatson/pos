@@ -308,6 +308,9 @@ final class StatefulStubbedAPI: Networking {
     /// The `period` of the most recent getTopPosts call, for asserting the
     /// view model forwards the selected window (issue #558).
     public private(set) var lastTopPostsPeriod: String?
+    public private(set) var getTopProfilesCallCount = 0
+    /// Accounts per Top profiles page, matching TOP_PROFILES_BATCH_SIZE.
+    public var topProfilesPageSize = 20
     public private(set) var getPostsForUserCallCount = 0
     public private(set) var getUsersMatchingFragmentCallCount = 0
 
@@ -1545,6 +1548,68 @@ final class StatefulStubbedAPI: Networking {
         let fieldObjects = Array(ranked)[startIndex..<endIndex].map { postListingFields(for: $0, viewer: currentUser) }
         return try createSerializedListResponse(fieldsList: fieldObjects)
     }
+
+    /// Mirrors get_top_profiles (issue #588): public, same-age-band accounts not
+    /// blocked either way, ranked by followers in the viewer's age band, then
+    /// username, leaving out accounts with none, capped at the top 100. The stub
+    /// has no shadow bans, so that exclusion has no counterpart here.
+    func getTopProfiles(sessionManagementToken: String, batch: Int) async throws -> Data {
+        getTopProfilesCallCount += 1
+        await simulateNetwork()
+
+        guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
+            throw APIError.badServerResponse(statusCode: 401)
+        }
+        let viewerIsMinor = isVerifiedMinor(currentUser)
+        let ranked = users
+            .filter { user in
+                !user.isPrivate &&
+                !currentUser.blocked.contains(user.id) &&
+                !currentUser.blockedBy.contains(user.id) &&
+                isVerifiedMinor(user) == viewerIsMinor
+            }
+            .map { user -> (MockUser, Int) in
+                let followerCount = userFollows
+                    .filter { $0.userToId == user.id }
+                    // A deleted account leaves its follow edges behind; only
+                    // live followers count, as on the backend.
+                    .filter { follow in
+                        guard let follower = users.first(where: { $0.id == follow.userFromId }) else { return false }
+                        return isVerifiedMinor(follower) == viewerIsMinor
+                    }
+                    .count
+                return (user, followerCount)
+            }
+            .filter { $0.1 > 0 }
+            .sorted {
+                if $0.1 != $1.1 { return $0.1 > $1.1 }
+                return $0.0.username < $1.0.username
+            }
+            .prefix(Self.topProfilesLimit)
+
+        struct Fields: Codable {
+            let username: String
+            let identity_is_verified: Bool
+            let author_profile_image_url: String?
+            let author_profile_image_original_url: String?
+            let follower_count: Int
+        }
+        let startIndex = batch * topProfilesPageSize
+        guard startIndex < ranked.count else {
+            return try createSerializedListResponse(fieldsList: [Fields]())
+        }
+        let endIndex = min(startIndex + topProfilesPageSize, ranked.count)
+        let fieldObjects = Array(ranked)[startIndex..<endIndex].map { entry -> Fields in
+            let (user, followerCount) = entry
+            let avatar = user.profileImageStatus == "approved" ? user.profileImageUrl : nil
+            return Fields(username: user.username, identity_is_verified: user.identityIsVerified,
+                          author_profile_image_url: avatar, author_profile_image_original_url: avatar,
+                          follower_count: followerCount)
+        }
+        return try createSerializedListResponse(fieldsList: fieldObjects)
+    }
+
+    private static let topProfilesLimit = 100
 
     // The Top posts windows and depth, matching backend/user_system/constants.py.
     private static let topPostPeriodDays = ["day": 1, "week": 7, "month": 30, "year": 365]

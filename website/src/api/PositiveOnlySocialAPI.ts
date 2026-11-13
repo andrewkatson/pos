@@ -59,6 +59,7 @@ import type {
   SubmitAppealRequest,
   SubmitAppealResponse,
   TopPostPeriod,
+  TopProfile,
   TwoFactorSetupResponse,
   UserSearchResult,
   VerifyEmailRequest,
@@ -135,6 +136,9 @@ export interface PositiveOnlySocialAPI {
   /** The Top posts scoreboard (issue #558): the most-liked public posts across
    * the app created within `period`, batched and capped at the top 100. */
   getTopPosts(batch: number, period: TopPostPeriod): Promise<FeedPost[]>
+  /** The Top profiles scoreboard (issue #588): public accounts with the most
+   * followers, all-time, batched and capped at the top 100. */
+  getTopProfiles(batch: number): Promise<TopProfile[]>
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]>
   /** Posts carrying a given #hashtag, newest first, batched (issue #379). */
   getPostsByTag(tag: string, batch: number): Promise<FeedPost[]>

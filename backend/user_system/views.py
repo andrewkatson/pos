@@ -40,6 +40,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, \
     REVIEW_STATUS_PENDING, REVIEW_STATUS_ESCALATED, TERMINAL_REVIEW_STATUSES, \
     POST_STATUS_PENDING, POST_STATUS_REJECTED, POST_STATUS_REJECTED_FINAL, \
     TOP_POST_PERIOD_DAYS, TOP_POST_DEFAULT_PERIOD, TOP_POSTS_LIMIT, \
+    TOP_PROFILES_BATCH_SIZE, TOP_PROFILES_LIMIT, \
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN, \
     MAX_APPEAL_REASON_LENGTH, \
     TWO_FACTOR_CHALLENGE_MINUTES, TWO_FACTOR_MAX_ATTEMPTS, NUM_RECOVERY_CODES, \
@@ -70,7 +71,7 @@ from .s3 import delete_image, generate_presigned_upload, image_url_to_key, is_so
     strip_query_and_fragment
 from .tags import set_post_tags
 from .visibility import audience_admits, can_view_post, in_same_age_band, privacy_admits, \
-    searchable_users, \
+    searchable_users, searchable_users_q, \
     visible_comment_threads, visible_comments, visible_posts, PUBLIC_VIEWER
 
 
@@ -3186,6 +3187,58 @@ def get_top_posts(request, batch):
         for post in batched_posts
     ]
     return log_and_return_json("get_top_posts", posts_data, safe=False)
+
+
+@api_login_required
+@ratelimit(key='user', rate='30/m', block=True)
+@require_GET
+def get_top_profiles(request, batch):
+    """The Top profiles scoreboard (issue #588), beside Top posts: the public
+    accounts with the most followers, most first.
+
+    All-time — it ranks each account's current follower total. Eligibility
+    mirrors Top posts: private accounts (issue #96) never compete, since they
+    show non-followers no counts at all; shadow-banned and cross-age-band
+    accounts stay off through searchable_users, so each age band gets its own
+    board; accounts blocked in either direction are dropped, as in the other
+    listings. The viewer's own account competes like any other. Accounts with
+    no visible followers are left off — a board of zeros ranks nothing.
+
+    Each follower_count is counted the way the profile page counts it
+    (searchable_users over the account's followers, issue #398), so a row's
+    number matches the profile it opens. Ranked on the fly by follower count,
+    then username, so the order is deterministic; paging is live LIMIT/OFFSET
+    like Top posts. Stops at TOP_PROFILES_LIMIT; later batches are empty."""
+    logger.info("Endpoint get_top_profiles invoked by IP or User")
+    if batch < 0:
+        return log_and_return_json("get_top_profiles", {'error': "Invalid batch parameter"}, status=400)
+
+    starting_index = batch * TOP_PROFILES_BATCH_SIZE
+    if starting_index >= TOP_PROFILES_LIMIT:
+        return log_and_return_json("get_top_profiles", [], safe=False)
+
+    candidates = searchable_users(
+        PositiveOnlySocialUser.objects.filter(is_private=False), request.user
+    ).exclude(pk__in=request.user.blocked.all()).exclude(pk__in=request.user.blocked_by.all())
+    ranked_users = (
+        candidates
+        .annotate(top_follower_count=Count(
+            'followers', filter=searchable_users_q(request.user, 'followers'), distinct=True))
+        .filter(top_follower_count__gt=0)
+        .order_by('-top_follower_count', 'username', 'pk')
+    )
+
+    batch_size = min(TOP_PROFILES_BATCH_SIZE, TOP_PROFILES_LIMIT - starting_index)
+    users_data = [
+        {
+            Fields.username: user.username,
+            Fields.identity_is_verified: user.identity_is_verified,
+            **_author_avatar_fields(user),
+            Fields.follower_count: user.top_follower_count,
+        }
+        for user in ranked_users[starting_index:starting_index + batch_size]
+    ]
+    return log_and_return_json("get_top_profiles", users_data, safe=False)
 
 
 @api_login_required

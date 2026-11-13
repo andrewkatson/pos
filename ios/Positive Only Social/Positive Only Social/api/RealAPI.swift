@@ -775,6 +775,16 @@ final class RealAPI: Networking {
         )
     }
 
+    func getTopProfiles(sessionManagementToken: String, batch: Int) async throws -> Data {
+        // Sends an authenticated GET to /feed/top/profiles/<batch>/ (issue #588).
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSregmenFeed, GVOAppConstants.pathSegmentTop,
+                           GVOAppConstants.pathSegmentProfiles, String(batch)],
+            method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
     /// Gets a batch of posts for another user.
     func getPostsForUser(sessionManagementToken: String, username: String, batch: Int) async throws -> Data {
         // This is a GET request, no body, with auth. Username/Batch are in path.
