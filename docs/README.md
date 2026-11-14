@@ -39,7 +39,7 @@ changes.
 ## Accounts and sign-in
 
 - [Accounts](accounts.md) — account settings, usernames, membership numbers,
-  account deletion, and the terms of service.
+  account deletion, the terms of service, and the public support page.
 - [Authentication](authentication.md) — Google sign-in, email verification,
   two-factor authentication, and new-device login emails.
 - [Google sign-in setup](google-sign-in-setup.md) — wiring the OAuth client

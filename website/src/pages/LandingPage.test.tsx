@@ -28,6 +28,7 @@ function renderWithRouter(initialPath = '/') {
         <Route path="/privacy-policy" element={<div>Privacy policy page</div>} />
         <Route path="/terms-of-service" element={<div>Terms of service page</div>} />
         <Route path="/delete-account" element={<div>Delete account page</div>} />
+        <Route path="/support" element={<div>Support page</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -72,6 +73,14 @@ test('Delete Account link navigates to /delete-account', async () => {
   renderWithRouter()
   await userEvent.click(screen.getByRole('link', { name: 'Delete Account' }))
   expect(screen.getByText('Delete account page')).toBeInTheDocument()
+})
+
+// The App Store listing's Support URL points at /support, so the page stays
+// one click from the home page too.
+test('Support link navigates to /support', async () => {
+  renderWithRouter()
+  await userEvent.click(screen.getByRole('link', { name: 'Support' }))
+  expect(screen.getByText('Support page')).toBeInTheDocument()
 })
 
 test('sends an already-remembered session straight into the app', async () => {
