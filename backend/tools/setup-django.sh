@@ -15,7 +15,15 @@
 # Repo layout on the host (matches production): the repo is cloned into
 #   $APP_DIR/pos              -> REPO_DIR
 # so Django lives at
-#   $APP_DIR/pos/backend      -> BACKEND_DIR   (manage.py, requirements.txt, venv, .env)
+#   $APP_DIR/pos/backend      -> BACKEND_DIR   (manage.py, requirements.txt)
+# and the venv and .env sit beside the clone, outside the git working tree, where
+# a pull or checkout cannot touch them:
+#   $APP_DIR/venv             -> VENV_DIR      (override with --venv-dir)
+#   $APP_DIR/.env             -> ENV_FILE      (override with --env-file)
+#
+# A full run is for FRESH hosts only: it moves an existing $APP_DIR aside. On a
+# host that is already live, use --refresh-scripts (see docs/deployment.md), which
+# rewrites ~/update-app.sh and ~/status_check.sh and touches nothing else.
 #
 # Usage:
 #   ./setup-django.sh \
@@ -55,6 +63,8 @@ FRONTEND_DOMAIN="smiling.social"      # website host; used only to build CORS/CS
 APP_DIR="/var/www/smiling-social"
 REPO_DIR="$APP_DIR/pos"               # repo is cloned here (nested, matches prod)
 BACKEND_DIR="$REPO_DIR/backend"       # Django project root (manage.py lives here)
+VENV_DIR="$APP_DIR/venv"              # beside the clone, outside the git working tree
+ENV_FILE="$APP_DIR/.env"              # same; see validate_paths for where it may go
 GIT_REPO=""
 PROJECT_NAME=""                       # Django project package, e.g. pos_backend
 APP_USER="ubuntu"
@@ -83,6 +93,9 @@ REDIS_URL=""                          # optional: enables queue mode + the class
 # service, a bad logrotate config produces no symptom until the disk fills, so
 # the one error line must not be left to scroll past.
 LOGROTATE_CONFIG_VALID=true
+
+# Set by --refresh-scripts: rewrite the scripts in ~ on a live host, and nothing else.
+REFRESH_SCRIPTS_ONLY=false
 
 ###############################################################################
 # Helper Functions
@@ -137,6 +150,14 @@ Optional:
                                 enables queue mode: async classification runs in the
                                 classification-worker service instead of eagerly in-process.
   --admin-email EMAIL           Admin email for Let's Encrypt (standalone TLS only)
+  --venv-dir PATH               Absolute path of the Python venv, using only letters,
+                                digits and . _ - / (default: $APP_DIR/venv)
+  --env-file PATH               .env location (default: $APP_DIR/.env). Must be named .env
+                                and sit in the backend directory or one of its parents,
+                                because manage.py finds it by searching upward.
+  --refresh-scripts             On an existing host, rewrite ~/update-app.sh and
+                                ~/status_check.sh and exit. Needs none of the required
+                                options, and changes nothing else on the host.
   --help                        Show this help message
 EOF
     exit 0
@@ -166,10 +187,19 @@ parse_arguments() {
             --admin-ip-allowlist)    ADMIN_IP_ALLOWLIST="$2"; shift 2 ;;
             --redis-url)             REDIS_URL="$2"; shift 2 ;;
             --admin-email)           ADMIN_EMAIL="$2"; shift 2 ;;
+            --venv-dir)              VENV_DIR="$2"; shift 2 ;;
+            --env-file)              ENV_FILE="$2"; shift 2 ;;
+            --refresh-scripts)       REFRESH_SCRIPTS_ONLY=true; shift ;;
             --help)                  print_usage ;;
             *) print_error "Unknown option: $1"; print_usage ;;
         esac
     done
+
+    validate_paths
+
+    if [ "$REFRESH_SCRIPTS_ONLY" = true ]; then
+        return 0
+    fi
 
     # Validate required parameters
     local missing_params=()
@@ -198,6 +228,49 @@ parse_arguments() {
         echo ""
         print_usage
     fi
+}
+
+# manage.py calls load_dotenv() with no path, which searches upward from manage.py
+# for a file named .env. systemd is told the path outright, so an .env that search
+# cannot reach would give the services their config and leave every manage.py
+# command (migrate, the update script) without it, falling back to dev defaults.
+validate_paths() {
+    local env_dir
+    env_dir="$(dirname "$ENV_FILE")"
+    if [[ "$(basename "$ENV_FILE")" != ".env" || "$BACKEND_DIR/" != "$env_dir/"* ]]; then
+        print_error "--env-file must be a file named .env in $BACKEND_DIR or one of its parents, got: $ENV_FILE"
+        exit 1
+    fi
+
+    # The update script changes into $BACKEND_DIR before activating this venv, and
+    # systemd needs an absolute ExecStart, so a relative path breaks both. The path
+    # also lands unquoted in shell and in unit files, which disagree on what is
+    # special ('(' and '$' in shell, '%' in systemd, spaces in both). An allowlist
+    # is simpler and safer than escaping it correctly for each of them.
+    if [[ ! "$VENV_DIR" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+        print_error "--venv-dir must be an absolute path using only letters, digits and . _ - /, got: $VENV_DIR"
+        exit 1
+    fi
+}
+
+# load_dotenv() stops at the first .env it finds, so one nearer to manage.py than
+# $ENV_FILE wins: manage.py would run (and migrate) against different config from
+# the services. Kept apart from validate_paths because that runs before a full
+# provision moves any old tree aside, and only the tree after that step matters.
+reject_shadowing_env() {
+    local dir="$BACKEND_DIR" env_dir
+    env_dir="$(dirname "$ENV_FILE")"
+    # Compare directories, not "$dir/.env": dirname normalizes a path like
+    # /a//.env, so the file path itself might never match and the walk never stop.
+    while [ "$dir" != "$env_dir" ] && [ "$dir" != "/" ]; do
+        # -ef, not a string compare: a link to $ENV_FILE is the same config.
+        if [ -e "$dir/.env" ] && [ ! "$dir/.env" -ef "$ENV_FILE" ]; then
+            print_error "$dir/.env shadows $ENV_FILE: manage.py would load it, but systemd loads $ENV_FILE."
+            print_error "Move it aside, or pass --env-file $dir/.env if that is the live config."
+            exit 1
+        fi
+        dir="$(dirname "$dir")"
+    done
 }
 
 # Quote a value for a KEY="value" line in the generated .env. Secrets/passwords
@@ -272,8 +345,8 @@ setup_python_environment() {
     print_status "Setting up Python virtual environment..."
     cd "$BACKEND_DIR"
 
-    python3 -m venv venv
-    source venv/bin/activate
+    python3 -m venv "$VENV_DIR"
+    source "$VENV_DIR/bin/activate"
 
     pip install --upgrade pip
     pip install wheel
@@ -289,7 +362,7 @@ setup_python_environment() {
 }
 
 create_env_file() {
-    print_status "Creating .env file at $BACKEND_DIR/.env ..."
+    print_status "Creating .env file at $ENV_FILE ..."
 
     # Derived defaults for the internet-facing config. ALLOWED_HOSTS gates which
     # Host headers Django accepts (missing => 400 DisallowedHost). CSRF/CORS lists
@@ -309,7 +382,7 @@ create_env_file() {
     local frontend_base_url="https://$FRONTEND_DOMAIN"
 
     # Values are double-quoted (see env_quote) so spaces/'#' in secrets survive.
-    cat > "$BACKEND_DIR/.env" << EOF
+    cat > "$ENV_FILE" << EOF
 # Django Settings
 DJANGO_SECRET_KEY=$(env_quote "$DJANGO_SECRET_KEY")
 
@@ -353,20 +426,20 @@ EOF
     # classification-worker service consumes. Left unset, the worker service is
     # installed but stays disabled (see setup_classification_worker_service).
     if [ -n "$REDIS_URL" ]; then
-        cat >> "$BACKEND_DIR/.env" << EOF
+        cat >> "$ENV_FILE" << EOF
 
 # Redis (enables queue mode + the classification worker; also used for caching/rate-limiting)
 REDIS_URL=$(env_quote "$REDIS_URL")
 EOF
     fi
 
-    chmod 600 "$BACKEND_DIR/.env"
+    chmod 600 "$ENV_FILE"
     print_status ".env file created successfully"
 
     if [ -z "$ADMIN_IP_ALLOWLIST" ]; then
         print_warning "ADMIN_IP_ALLOWLIST is empty — AdminIPAllowlistMiddleware default-denies,"
         print_warning "so /admin will 404 for everyone (by design) until you set your public IP in"
-        print_warning "$BACKEND_DIR/.env and restart gunicorn. Re-run with --admin-ip-allowlist to set it now."
+        print_warning "$ENV_FILE and restart gunicorn. Re-run with --admin-ip-allowlist to set it now."
     fi
 }
 
@@ -383,12 +456,13 @@ test_database_connection() {
 
 run_django_setup() {
     print_status "Running Django migrations and collecting static files..."
+    reject_shadowing_env
     cd "$BACKEND_DIR"
-    source venv/bin/activate
+    source "$VENV_DIR/bin/activate"
 
-    # No manual env loading: manage.py calls dotenv.load_dotenv(), which reads
-    # $BACKEND_DIR/.env from the cwd and parses KEY="value" the same way systemd
-    # does — without shell-evaluating the file (so '$' in secrets is safe).
+    # No manual env loading: manage.py calls dotenv.load_dotenv(), which searches
+    # upward from manage.py, finds $ENV_FILE and parses KEY="value" the same way
+    # systemd does — without shell-evaluating the file (so '$' in secrets is safe).
 
     # Create static/media dirs at the ABSOLUTE paths settings.py pins them to
     # (STATIC_ROOT=$APP_DIR/staticfiles, MEDIA_ROOT=$APP_DIR/media) — collectstatic
@@ -431,9 +505,9 @@ After=network.target
 User=$APP_USER
 Group=www-data
 WorkingDirectory=$BACKEND_DIR
-Environment="PATH=$BACKEND_DIR/venv/bin"
-EnvironmentFile=$BACKEND_DIR/.env
-ExecStart=$BACKEND_DIR/venv/bin/gunicorn \\
+Environment="PATH=$VENV_DIR/bin"
+EnvironmentFile=$ENV_FILE
+ExecStart=$VENV_DIR/bin/gunicorn \\
           --access-logfile - \\
           --workers 3 \\
           --bind unix:$APP_DIR/gunicorn.sock \\
@@ -479,11 +553,11 @@ After=network-online.target
 User=$APP_USER
 Group=www-data
 WorkingDirectory=$BACKEND_DIR
-Environment="PATH=$BACKEND_DIR/venv/bin"
+Environment="PATH=$VENV_DIR/bin"
 # wsgi.py does not load .env; systemd must, or the worker starts without
 # REDIS_URL/DB/AWS creds and cannot reach the queue.
-EnvironmentFile=$BACKEND_DIR/.env
-ExecStart=$BACKEND_DIR/venv/bin/python manage.py classification_worker
+EnvironmentFile=$ENV_FILE
+ExecStart=$VENV_DIR/bin/python manage.py classification_worker
 # Long-lived: restart if it ever exits (crash, OOM, transient Redis blip).
 Restart=always
 RestartSec=5
@@ -498,7 +572,7 @@ EOF
     # .env (queue mode). The optional-quote + non-quote-char match rejects both
     # a missing line and an empty `REDIS_URL=""`, either of which would make the
     # worker crash-loop (the command hard-requires a non-empty REDIS_URL).
-    if grep -Eq '^REDIS_URL="?[^"]' "$BACKEND_DIR/.env"; then
+    if grep -Eq '^REDIS_URL="?[^"]' "$ENV_FILE"; then
         sudo systemctl enable --now classification-worker
         if sudo systemctl is-active --quiet classification-worker; then
             print_status "Classification worker started successfully (queue mode)"
@@ -506,7 +580,7 @@ EOF
             print_error "Classification worker failed to start. Check: sudo journalctl -u classification-worker -n 50"
         fi
     else
-        print_warning "REDIS_URL is not set in $BACKEND_DIR/.env — the app runs in eager mode,"
+        print_warning "REDIS_URL is not set in $ENV_FILE — the app runs in eager mode,"
         print_warning "so the classification-worker service was installed but left DISABLED."
         print_warning "To switch to queue mode: add REDIS_URL to .env, restart gunicorn, then run"
         print_warning "  sudo systemctl enable --now classification-worker"
@@ -534,9 +608,9 @@ Type=oneshot
 User=$APP_USER
 Group=www-data
 WorkingDirectory=$BACKEND_DIR
-Environment="PATH=$BACKEND_DIR/venv/bin"
-EnvironmentFile=$BACKEND_DIR/.env
-ExecStart=$BACKEND_DIR/venv/bin/python manage.py sweep_classifications
+Environment="PATH=$VENV_DIR/bin"
+EnvironmentFile=$ENV_FILE
+ExecStart=$VENV_DIR/bin/python manage.py sweep_classifications
 EOF
 
     sudo tee /etc/systemd/system/sweep-classifications.timer > /dev/null << EOF
@@ -580,9 +654,9 @@ Type=oneshot
 User=$APP_USER
 Group=www-data
 WorkingDirectory=$BACKEND_DIR
-Environment="PATH=$BACKEND_DIR/venv/bin"
-EnvironmentFile=$BACKEND_DIR/.env
-ExecStart=$BACKEND_DIR/venv/bin/python manage.py cleanup_orphan_images
+Environment="PATH=$VENV_DIR/bin"
+EnvironmentFile=$ENV_FILE
+ExecStart=$VENV_DIR/bin/python manage.py cleanup_orphan_images
 EOF
 
     sudo tee /etc/systemd/system/cleanup-orphan-images.timer > /dev/null << EOF
@@ -758,7 +832,7 @@ set_permissions() {
     sudo chmod 660 "$APP_DIR/gunicorn.sock" 2>/dev/null || true
     # Re-assert 600 on the secrets file — the recursive chmod above would have
     # made it world-readable.
-    sudo chmod 600 "$BACKEND_DIR/.env"
+    sudo chmod 600 "$ENV_FILE"
     # Same for the request log, which carries usernames and endpoint payloads:
     # match the 0640 the logrotate config above recreates it with, so the
     # permissions do not silently loosen between rotations.
@@ -780,10 +854,10 @@ git pull origin main
 
 # Backend
 cd $BACKEND_DIR
-source venv/bin/activate
+source $VENV_DIR/bin/activate
 pip install -r requirements.txt
 
-# manage.py loads .env via python-dotenv (no shell 'source' of secrets).
+# manage.py finds $ENV_FILE via python-dotenv (no shell 'source' of secrets).
 python manage.py migrate --noinput
 # Idempotent; needed for eager-mode (no REDIS_URL) DatabaseCache rate limiting,
 # a no-op under Redis. Cheap insurance in case the cache backend changes.
@@ -809,6 +883,9 @@ if systemctl is-enabled --quiet classification-worker 2>/dev/null; then
 fi
 sudo systemctl restart sweep-classifications.timer cleanup-orphan-images.timer
 sudo systemctl reload nginx
+
+# Last, so a problem here can never stop the restarts above.
+install -m 755 $BACKEND_DIR/tools/status_check.sh ~/status_check.sh
 
 echo "API updated successfully!"
 EOF
@@ -846,21 +923,35 @@ print_summary() {
         echo "        systemctl status logrotate.timer   # or: ls -l /etc/cron.daily/logrotate"
         echo ""
     fi
-    if ! grep -Eq '^REDIS_URL="?[^"]' "$BACKEND_DIR/.env"; then
+    if ! grep -Eq '^REDIS_URL="?[^"]' "$ENV_FILE"; then
         echo -e "${YELLOW}NOTE:${NC} REDIS_URL is unset — running in eager mode (classification on the"
         echo "      request path, and rate limiting via the DatabaseCache 'rate_limit_cache'"
         echo "      table, which this setup already created). For production set REDIS_URL in"
-        echo "      $BACKEND_DIR/.env and run"
+        echo "      $ENV_FILE and run"
         echo "      'sudo systemctl enable --now classification-worker' to switch to queue mode."
         echo ""
     fi
     echo "Next Steps:"
     echo "  1. Confirm the ALB target group points at this instance on :80 and is healthy."
     echo "  2. Create Django superuser:"
-    echo "       cd $BACKEND_DIR && source venv/bin/activate && python manage.py createsuperuser"
+    echo "       cd $BACKEND_DIR && source $VENV_DIR/bin/activate && python manage.py createsuperuser"
     echo "  3. Register a test user via the website and click the verification email link."
     echo ""
     echo "========================================================================="
+}
+
+refresh_scripts() {
+    # Refuse rather than write an update script that would fail partway through a
+    # deploy: both of these are what the generated script depends on.
+    if [ ! -x "$VENV_DIR/bin/python" ] || [ ! -f "$ENV_FILE" ]; then
+        print_error "No venv at $VENV_DIR or no .env at $ENV_FILE."
+        print_error "Pass --venv-dir / --env-file to match 'systemctl cat gunicorn'."
+        exit 1
+    fi
+    reject_shadowing_env
+
+    install_health_check_script
+    create_update_script
 }
 
 ###############################################################################
@@ -879,6 +970,11 @@ main() {
     parse_arguments "$@"
 
     check_root
+
+    if [ "$REFRESH_SCRIPTS_ONLY" = true ]; then
+        refresh_scripts
+        return 0
+    fi
 
     echo ""
     print_status "Starting setup process..."
