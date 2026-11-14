@@ -76,3 +76,13 @@
   font-weight: 700;
   color: #16181d;
 }
+
+/* The support page leads with the contact address, set a notch larger than
+   body copy so it is the first thing found on the page. */
+.legal-page__email {
+  max-width: 640px;
+  width: 100%;
+  margin: 1rem 0 2rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
