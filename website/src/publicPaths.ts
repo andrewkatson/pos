@@ -7,9 +7,14 @@
  * catch is that a stale session in storage makes startup do authenticated work
  * (remember-me rotation, push registration), and a suspended or unverified
  * account fails that work with `account_banned` / `email_not_verified` — whose
- * handlers in `main.tsx` bounce the tab to /login. That would throw exactly the
- * people the support page exists for off the support page, so on these paths
- * the dead session is cleared in place and the page stays put.
+ * handlers bounce the tab to /login. That would throw exactly the people the
+ * support page exists for off the support page, so on these paths the dead
+ * session is cleared in place and the page stays put.
+ *
+ * Only the redirect is suppressed, never the startup work itself: push
+ * registration is what subscribes a tab to foreground messages, and nothing
+ * re-runs it on the client-side navigation that carries a signed-in reader
+ * from here into the app.
  *
  * /delete-account is deliberately *not* here: it has to sign the visitor in
  * before it can delete anything, so it handles those same errors itself with a

@@ -175,9 +175,14 @@ session belonging to a suspended or unverified account fails it with
 `website/src/publicPaths.ts` lists `/support`, `/privacy-policy` and
 `/terms-of-service`: on those paths `installAuthFailureHandlers`
 (`website/src/api/authFailureRedirects.ts`) clears the dead session but stays
-put, and startup skips the authenticated calls altogether. `/delete-account` is
-deliberately excluded — it signs the visitor in itself and reports those same
-errors in its own form.
+put. `/delete-account` is deliberately excluded — it signs the visitor in
+itself and reports those same errors in its own form.
+
+Only the redirect is suppressed. The startup work still runs on these pages,
+because push registration is the one thing that subscribes a tab to foreground
+messages and nothing re-runs it on the client-side navigation that takes a
+signed-in reader from the support page into the app — skipping it there would
+leave that tab's notifications silently dead for the rest of the session.
 
 The address and the section list live in `website/src/support.ts` as
 `SUPPORT_EMAIL` and an ordered list of `{heading, body}` sections — the same
