@@ -137,3 +137,29 @@ carries a
 line covering both the form and the Google button; its links open in a new tab
 so reading them cannot discard a half-filled form or a Google credential still
 waiting on the privacy-policy confirmation.
+
+## Support page
+
+Apple requires a **Support URL** on every App Store listing, so the website
+serves a public support page at `https://smiling.social/support`. Like the
+legal pages it needs no session — which is the point: the people most likely to
+open it are a suspended user who cannot log in and a shopper who has not
+installed anything yet. The landing-page footer links to it alongside "Privacy
+Policy", "Terms of Service" and "Delete Account".
+
+The page leads with the support address `katsonsoftware@gmail.com` as a
+`mailto:` link, then covers what to include in a message, how to
+[report a post or comment](reporting.md), how to
+[appeal hidden content](bans-and-appeals.md#appeals) in-app, how a
+[suspended user appeals by email](bans-and-appeals.md#appeals), and where to go
+for [account and data deletion](#account--data-deletion).
+
+The address and the section list live in `website/src/support.ts` as
+`SUPPORT_EMAIL` and an ordered list of `{heading, body}` sections — the same
+one-source-shared pattern `termsOfService.ts` uses — so the public page and the
+Settings → "Contact Us" row cannot name different addresses. The page shares
+`website/src/pages/LegalPage.css` with the privacy policy and the terms.
+
+Apple's other listing URLs map to pages that already exist: the **Privacy
+Policy URL** (also required) is `/privacy-policy`, and the optional
+**Marketing URL** is the landing page, `https://smiling.social`.

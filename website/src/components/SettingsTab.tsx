@@ -6,6 +6,7 @@ import type { CurrentUser, NotificationPreference } from '../api/types'
 import { visibleNotificationRows } from '../api/notificationPreferences'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
 import { TERMS_OF_SERVICE_LAST_UPDATED, TERMS_OF_SERVICE_SECTIONS } from '../termsOfService'
+import { SUPPORT_EMAIL } from '../support'
 import Modal from './Modal'
 import InterestsModal from './InterestsModal'
 import {
@@ -25,9 +26,6 @@ type ActiveModal =
   | 'changePassword'
   | 'interests'
   | null
-
-/** Support address shown under "Contact Us" for feedback and help (issue #194). */
-const SUPPORT_EMAIL = 'katsonsoftware@gmail.com'
 
 /**
  * The "Settings" tab: contact info, logout, identity verification, privacy
