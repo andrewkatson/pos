@@ -31,7 +31,7 @@ export const SUPPORT_SECTIONS: SupportSection[] = [
   {
     heading: 'If your post or comment was hidden',
     body:
-      'You can appeal it yourself. Open Appeals in the app, pick the hidden post or comment, and say why you think it fits the guidelines. A person reviews the appeal and either restores the content or explains why it stays hidden. Each item can be appealed once.',
+      'Most hidden content can be appealed from Appeals in the app: pick the hidden post or comment and say why you think it fits the guidelines. Anything still being checked has not been decided yet and will not be listed, and content moderation turned down outright is final and cannot be appealed. Each item gets one appeal, and you are emailed either way. An approved appeal puts the content back; when an appeal is denied, a post is deleted for good and a comment stays hidden.',
   },
   {
     heading: 'If your account was suspended',
@@ -41,6 +41,6 @@ export const SUPPORT_SECTIONS: SupportSection[] = [
   {
     heading: 'Account and data questions',
     body:
-      'You can delete your account and everything attached to it yourself, at any time, from the account and data deletion page — no email required. Write to us if you want to know what we hold about you, or if you want a copy of it.',
+      'You can delete your account and everything attached to it yourself from the account and data deletion page. It signs you in first — username or email and password, plus your two-factor code if you use one — so that nobody else can delete an account that is not theirs. That sign-in is refused while an account is suspended or its email address was never verified, so if you are in either position, write to the support address above from the account’s own email and we will take care of the deletion for you. Write to us as well if you want to know what we hold about you or want a copy of it.',
   },
 ]
