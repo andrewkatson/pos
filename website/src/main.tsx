@@ -5,12 +5,13 @@ import App from './App'
 import { apiClient } from './api/client'
 import {
   clearRememberMeTokens,
-  clearSession,
   getStoredSessionToken,
   loadRememberMeTokens,
   saveRememberMeTokens,
 } from './api/session'
 import { registerForPush } from './push/webPush'
+import { installAuthFailureHandlers } from './api/authFailureRedirects'
+import { isPublicPath } from './publicPaths'
 import './index.css'
 
 // Restore the session token persisted at login so a page reload keeps the user
@@ -59,28 +60,29 @@ async function refreshRememberMeSession(): Promise<void> {
     clearRememberMeTokens()
   }
 }
+// A banned account has its sessions revoked server-side, and an unverified
+// email blocks every authenticated endpoint, so a restored session that hits
+// either is useless: drop it and land on the login page, which explains why.
+// Public pages (the support and legal URLs) are the exception and stay put —
+// see api/authFailureRedirects.ts.
+installAuthFailureHandlers({
+  pathname: () => window.location.pathname,
+  assign: url => window.location.assign(url),
+})
+
 // Refresh a remembered session, then (whether or not it rotated) refresh this
 // browser's push token if we're signed in. promptIfNeeded is left false so a
 // returning user isn't asked for notification permission on every load — that
 // prompt happens at login. Best-effort; never blocks startup.
-void refreshRememberMeSession().finally(() => {
-  void registerForPush()
-})
-
-// A banned account has its sessions revoked server-side; drop the local
-// session and land on the login page, which explains the suspension.
-apiClient.setOnAccountBanned(() => {
-  clearSession()
-  window.location.assign('/login?suspended=1')
-})
-
-// An unverified email blocks every authenticated endpoint, so a restored
-// session that hits email_not_verified is useless — drop it and land on the
-// login page, which explains the verification requirement.
-apiClient.setOnEmailNotVerified(() => {
-  clearSession()
-  window.location.assign('/login?verify_email=1')
-})
+//
+// Skipped entirely on the pages that exist to be read signed out: a visitor
+// there may well be the suspended or unverified user whose stored session can
+// only fail, and neither call does anything for a page with no feed to show.
+if (!isPublicPath(window.location.pathname)) {
+  void refreshRememberMeSession().finally(() => {
+    void registerForPush()
+  })
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

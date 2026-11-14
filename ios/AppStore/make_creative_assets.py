@@ -7,11 +7,35 @@ Apple specs (App Store Connect > creative assets specifications):
   header    3840x1646,      art safe area 1646x661  at (1097, 493)
   search    3840x2560,      art safe area 2168x1030 at (836, 765)
 No alpha channel is allowed, so every canvas is painted edge to edge.
+
+Running it rewrites the .svg sources *and* re-renders the .png files that are
+actually uploaded, so a layout change here can never leave stale PNGs behind.
+
+Prerequisite: a Chrome-family browser, used headless as the SVG renderer — it
+is the only one that ships on a stock macOS dev machine and it rasterises SVG
+filters (the blurs and drop shadows this art leans on) correctly. Checked, in
+order: $CHROME_BIN, Google Chrome, Chromium and Edge in /Applications, then
+google-chrome / chromium / chromium-browser on $PATH. Install Chrome, or point
+$CHROME_BIN at a binary, if none is found.
+
+    python3 make_creative_assets.py
+
+Each render is verified before the script exits: exact pixel dimensions, and a
+PNG colour type with no alpha channel, both of which App Store Connect rejects
+on a mismatch.
 """
 import math
 import os
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
 
 OUT = os.path.dirname(os.path.abspath(__file__))
+
+# PNG colour types that carry an alpha channel; App Store Connect rejects both.
+PNG_ALPHA_COLOR_TYPES = {4, 6}
 
 
 def smiley(cx, cy, d, opacity=1.0, stroke="#ffffff", shadow=False, weight=1.0):
@@ -142,12 +166,84 @@ def compose(w, h, safe, layout, hero_frac=0.96):
             f'viewBox="0 0 {w} {h}">\n' + "\n".join(p) + "\n</svg>")
 
 
-def write(name, svg, w, h):
+def find_chrome():
+    """Locate a headless-capable Chrome-family binary, or explain the failure."""
+    candidates = [
+        os.environ.get("CHROME_BIN"),
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        shutil.which("google-chrome"),
+        shutil.which("chromium"),
+        shutil.which("chromium-browser"),
+    ]
+    for path in candidates:
+        if path and os.path.exists(path) and os.access(path, os.X_OK):
+            return path
+    raise SystemExit(
+        "No Chrome-family browser found to render the PNGs. Install Google "
+        "Chrome, or set CHROME_BIN to a Chrome/Chromium/Edge binary."
+    )
+
+
+def png_dimensions_and_color_type(path):
+    """Read width, height and colour type straight out of the PNG's IHDR."""
+    with open(path, "rb") as handle:
+        header = handle.read(33)
+    if header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+        raise SystemExit(f"{os.path.basename(path)} is not a PNG")
+    width, height = struct.unpack(">II", header[16:24])
+    return width, height, header[25]
+
+
+def render(chrome, name, svg, w, h):
+    """Rasterise one asset to <name>.png at exactly w x h, and verify it."""
+    svg_path = os.path.join(OUT, name + ".svg")
+    png_path = os.path.join(OUT, name + ".png")
+    with open(svg_path, "w") as handle:
+        handle.write(svg)
+
+    # The SVG goes through a minimal HTML host so the page has no margin and no
+    # scrollbars; it is scratch, so it lives in a temp dir rather than beside
+    # the committed sources.
     html = (f'<!doctype html><meta charset="utf-8">'
             f'<style>html,body{{margin:0;padding:0;background:#3A86BB;}}'
             f'svg{{display:block;width:{w}px;height:{h}px;}}</style>{svg}')
-    open(os.path.join(OUT, name + ".html"), "w").write(html)
-    open(os.path.join(OUT, name + ".svg"), "w").write(svg)
+    with tempfile.TemporaryDirectory() as tmp:
+        html_path = os.path.join(tmp, name + ".html")
+        with open(html_path, "w") as handle:
+            handle.write(html)
+        # --force-device-scale-factor=1 keeps CSS pixels and output pixels equal,
+        # so --window-size is the exact asset size. No --default-background-color
+        # override: the page paints its own opaque background and we want the
+        # screenshot opaque (Apple rejects alpha).
+        result = subprocess.run(
+            [chrome, "--headless", "--disable-gpu", "--hide-scrollbars",
+             "--force-device-scale-factor=1", f"--window-size={w},{h}",
+             f"--screenshot={png_path}", f"file://{html_path}"],
+            capture_output=True, text=True,
+        )
+    if not os.path.exists(png_path):
+        raise SystemExit(
+            f"Chrome produced no PNG for {name}:\n{result.stderr.strip()}")
+
+    actual_w, actual_h, color_type = png_dimensions_and_color_type(png_path)
+    if (actual_w, actual_h) != (w, h):
+        raise SystemExit(
+            f"{name}.png came out {actual_w}x{actual_h}, expected {w}x{h}")
+    if color_type in PNG_ALPHA_COLOR_TYPES:
+        raise SystemExit(
+            f"{name}.png has an alpha channel (colour type {color_type}); "
+            "App Store Connect rejects transparency")
+    return png_path, actual_w, actual_h
+
+
+CHROME = find_chrome()
+RENDERED = []
+
+
+def write(name, svg, w, h):
+    RENDERED.append(render(CHROME, name, svg, w, h))
 
 
 # bubbles: (x, y, r, opacity, ring, face, blurred)
@@ -207,4 +303,8 @@ write("search_3840x2560", compose(3840, 2560, (836, 765, 2168, 1030), {
              (0.50, 0.92, 0.055, 0.07)],
 }), 3840, 2560)
 
-print("wrote", sorted(f for f in os.listdir(OUT) if f.endswith(".svg")))
+for path, width, height in RENDERED:
+    size_mb = os.path.getsize(path) / 1_000_000
+    print(f"{os.path.basename(path):<28} {width}x{height}  {size_mb:.1f} MB  no alpha")
+print(f"rendered {len(RENDERED)} assets with {os.path.basename(CHROME)}",
+      file=sys.stderr)
