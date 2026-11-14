@@ -26,7 +26,7 @@ export const SUPPORT_SECTIONS: SupportSection[] = [
   {
     heading: 'Reporting a post or a comment',
     body:
-      'Every post, comment, username, bio, and profile photo is checked by automated moderation before anyone else can see it, but nothing is perfect. If something got through, report it from the post or comment itself in any of the apps. A report sends that content back through moderation on its own merits; it is not a vote, so a single report is enough and piling on changes nothing. You can retract a report later.',
+      'Every post, comment, username, bio, and profile photo is checked by automated moderation before anyone else can see it, but nothing is perfect. If something got through, report it from the post or comment itself in any of the apps. The first report sends that content straight back through moderation, judged on its own merits: how many people reported it, and what they said about it, are never shown to the classifier, so reporting is not a vote and nothing can be hidden by sheer weight of numbers. Content that clears that check and keeps being reported goes to a person to decide instead, and once a moderator has looked at something and dismissed the reports, further reports on it change nothing. You can retract a report at any time, though a retraction never un-hides anything.',
   },
   {
     heading: 'If your post or comment was hidden',
