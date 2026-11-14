@@ -20,9 +20,11 @@ $CHROME_BIN at a binary, if none is found.
 
     python3 make_creative_assets.py
 
-Each render is verified before the script exits: exact pixel dimensions, and a
-PNG colour type with no alpha channel, both of which App Store Connect rejects
-on a mismatch.
+Each asset is rendered to a temporary file and checked there — exact pixel
+dimensions, and a PNG colour type with no alpha channel, both of which App
+Store Connect rejects on a mismatch — before it replaces the committed PNG. A
+failed render therefore aborts the run rather than leaving stale artwork beside
+a freshly rewritten SVG.
 """
 import math
 import os
@@ -206,6 +208,13 @@ def render(chrome, name, svg, w, h):
     # The SVG goes through a minimal HTML host so the page has no margin and no
     # scrollbars; it is scratch, so it lives in a temp dir rather than beside
     # the committed sources.
+    #
+    # Chrome screenshots into that temp dir too, never straight onto the
+    # committed PNG: a renderer that dies without writing anything would
+    # otherwise leave the previous PNG in place, and every check below would
+    # happily pass on last run's artwork while the SVG beside it had already
+    # been rewritten. Nothing replaces the committed file until a freshly
+    # rendered image has passed every check.
     html = (f'<!doctype html><meta charset="utf-8">'
             f'<style>html,body{{margin:0;padding:0;background:#3A86BB;}}'
             f'svg{{display:block;width:{w}px;height:{h}px;}}</style>{svg}')
@@ -213,6 +222,7 @@ def render(chrome, name, svg, w, h):
         html_path = os.path.join(tmp, name + ".html")
         with open(html_path, "w") as handle:
             handle.write(html)
+        staged_png = os.path.join(tmp, name + ".png")
         # --force-device-scale-factor=1 keeps CSS pixels and output pixels equal,
         # so --window-size is the exact asset size. No --default-background-color
         # override: the page paints its own opaque background and we want the
@@ -220,21 +230,31 @@ def render(chrome, name, svg, w, h):
         result = subprocess.run(
             [chrome, "--headless", "--disable-gpu", "--hide-scrollbars",
              "--force-device-scale-factor=1", f"--window-size={w},{h}",
-             f"--screenshot={png_path}", f"file://{html_path}"],
+             f"--screenshot={staged_png}", f"file://{html_path}"],
             capture_output=True, text=True,
         )
-    if not os.path.exists(png_path):
-        raise SystemExit(
-            f"Chrome produced no PNG for {name}:\n{result.stderr.strip()}")
+        kept = f"{os.path.basename(png_path)} left untouched"
+        if result.returncode != 0:
+            raise SystemExit(
+                f"Chrome exited {result.returncode} rendering {name} "
+                f"({kept}):\n{result.stderr.strip()}")
+        if not os.path.exists(staged_png):
+            raise SystemExit(
+                f"Chrome wrote no PNG for {name} ({kept}):\n"
+                f"{result.stderr.strip()}")
 
-    actual_w, actual_h, color_type = png_dimensions_and_color_type(png_path)
-    if (actual_w, actual_h) != (w, h):
-        raise SystemExit(
-            f"{name}.png came out {actual_w}x{actual_h}, expected {w}x{h}")
-    if color_type in PNG_ALPHA_COLOR_TYPES:
-        raise SystemExit(
-            f"{name}.png has an alpha channel (colour type {color_type}); "
-            "App Store Connect rejects transparency")
+        actual_w, actual_h, color_type = png_dimensions_and_color_type(staged_png)
+        if (actual_w, actual_h) != (w, h):
+            raise SystemExit(
+                f"{name} rendered {actual_w}x{actual_h}, expected {w}x{h} ({kept})")
+        if color_type in PNG_ALPHA_COLOR_TYPES:
+            raise SystemExit(
+                f"{name} rendered with an alpha channel (colour type "
+                f"{color_type}); App Store Connect rejects transparency ({kept})")
+
+        # Verified: this one is safe to publish. shutil.move rather than
+        # os.replace, since the temp dir may sit on another filesystem.
+        shutil.move(staged_png, png_path)
     return png_path, actual_w, actual_h
 
 

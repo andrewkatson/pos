@@ -155,7 +155,11 @@ The page leads with the support address `katsonsoftware@gmail.com` as a
 for [account and data deletion](#account--data-deletion).
 
 The copy has to match what the system actually does, because the people reading
-it are already in trouble. So it says that content still being classified and
+it are already in trouble. On [reporting](reporting.md) it says that the first
+report triggers an automated re-review that never sees the report count or the
+reasons, that content which clears it and keeps being reported escalates to a
+moderator, and that a moderator's dismissal is the end of it. It says that
+content still being classified and
 outright classifier rejections are *not* appealable, that an appeal is one per
 item, and that a denied appeal **deletes a post** and leaves a comment hidden —
 all as [appeals](bans-and-appeals.md#appeals) implements it. For deletion it
