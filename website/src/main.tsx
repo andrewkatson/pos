@@ -11,7 +11,6 @@ import {
 } from './api/session'
 import { registerForPush } from './push/webPush'
 import { installAuthFailureHandlers } from './api/authFailureRedirects'
-import { isPublicPath } from './publicPaths'
 import './index.css'
 
 // Restore the session token persisted at login so a page reload keeps the user
@@ -75,14 +74,17 @@ installAuthFailureHandlers({
 // returning user isn't asked for notification permission on every load — that
 // prompt happens at login. Best-effort; never blocks startup.
 //
-// Skipped entirely on the pages that exist to be read signed out: a visitor
-// there may well be the suspended or unverified user whose stored session can
-// only fail, and neither call does anything for a page with no feed to show.
-if (!isPublicPath(window.location.pathname)) {
-  void refreshRememberMeSession().finally(() => {
-    void registerForPush()
-  })
-}
+// This runs on every load, public pages included. Registration is the only
+// thing that subscribes this tab to foreground messages, and the rest of the
+// app is reached from here by client-side navigation that never re-runs it —
+// so a signed-in user whose first load happened to be /support or a legal page
+// would browse on with notifications silently dead. Doing the work everywhere
+// also means a session that has since been suspended is cleared promptly
+// rather than lingering in storage; what must not happen on these pages is the
+// *redirect*, and that is handled above.
+void refreshRememberMeSession().finally(() => {
+  void registerForPush()
+})
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
