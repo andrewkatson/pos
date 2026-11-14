@@ -63,6 +63,7 @@ object FeedEndMessage {
     const val FOR_YOU = "You've seen every post in your feed. Check back soon for more good vibes!"
     const val FOLLOWING = "You've seen every post from the people you follow."
     const val OWN_PROFILE = "That's every post you've shared."
+    const val TOP_PROFILES = "That's the whole Top profiles board."
 
     fun top(period: TopPostPeriod): String {
         val span = when (period) {

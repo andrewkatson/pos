@@ -61,6 +61,7 @@ enum FeedEndMessage {
     static let forYou = "You've seen every post in your feed. Check back soon for more good vibes!"
     static let following = "You've seen every post from the people you follow."
     static let ownProfile = "That's every post you've shared."
+    static let topProfiles = "That's the whole Top profiles board."
 
     static func top(_ period: TopPostPeriod) -> String {
         let span: String
