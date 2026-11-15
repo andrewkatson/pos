@@ -561,6 +561,13 @@ TOP_POST_PERIOD_DAYS = {
 TOP_POST_DEFAULT_PERIOD = TOP_POST_PERIOD_WEEK
 TOP_POSTS_LIMIT = 100
 
+# Top profiles scoreboard (issue #588): the public accounts with the most
+# followers, shown beside Top posts. All-time rather than per period — it ranks
+# the current follower total, not followers gained in a window. Batched and
+# capped like Top posts; batches past TOP_PROFILES_LIMIT come back empty.
+TOP_PROFILES_BATCH_SIZE = 20
+TOP_PROFILES_LIMIT = 100
+
 # Maximum lengths for user-authored text, counted as unicode code points
 # (Python's len() on a str is code-point based, so these limits are unicode
 # aware rather than restricted to ASCII bytes).

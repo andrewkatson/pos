@@ -137,3 +137,59 @@ carries a
 line covering both the form and the Google button; its links open in a new tab
 so reading them cannot discard a half-filled form or a Google credential still
 waiting on the privacy-policy confirmation.
+
+## Support page
+
+Apple requires a **Support URL** on every App Store listing, so the website
+serves a public support page at `https://smiling.social/support`. Like the
+legal pages it needs no session — which is the point: the people most likely to
+open it are a suspended user who cannot log in and a shopper who has not
+installed anything yet. The landing-page footer links to it alongside "Privacy
+Policy", "Terms of Service" and "Delete Account".
+
+The page leads with the support address `katsonsoftware@gmail.com` as a
+`mailto:` link, then covers what to include in a message, how to
+[report a post or comment](reporting.md), how to
+[appeal hidden content](bans-and-appeals.md#appeals) in-app, how a
+[suspended user appeals by email](bans-and-appeals.md#appeals), and where to go
+for [account and data deletion](#account--data-deletion).
+
+The copy has to match what the system actually does, because the people reading
+it are already in trouble. On [reporting](reporting.md) it says that the first
+report triggers an automated re-review that never sees the report count or the
+reasons, that content which clears it and keeps being reported escalates to a
+moderator, and that a moderator's dismissal is the end of it. It says that
+content still being classified and
+outright classifier rejections are *not* appealable, that an appeal is one per
+item, and that a denied appeal **deletes a post** and leaves a comment hidden —
+all as [appeals](bans-and-appeals.md#appeals) implements it. For deletion it
+says the page signs you in first and that the sign-in is refused for suspended
+or unverified accounts, pointing those users at the support address instead of
+at a page that cannot help them.
+
+**A dead session must not redirect these pages away.** Startup does
+authenticated work (remember-me rotation, push registration), and a stored
+session belonging to a suspended or unverified account fails it with
+`account_banned` / `email_not_verified`, whose handlers send the tab to
+`/login`. That would eject precisely the visitors the support page is for, so
+`website/src/publicPaths.ts` lists `/support`, `/privacy-policy` and
+`/terms-of-service`: on those paths `installAuthFailureHandlers`
+(`website/src/api/authFailureRedirects.ts`) clears the dead session but stays
+put. `/delete-account` is deliberately excluded — it signs the visitor in
+itself and reports those same errors in its own form.
+
+Only the redirect is suppressed. The startup work still runs on these pages,
+because push registration is the one thing that subscribes a tab to foreground
+messages and nothing re-runs it on the client-side navigation that takes a
+signed-in reader from the support page into the app — skipping it there would
+leave that tab's notifications silently dead for the rest of the session.
+
+The address and the section list live in `website/src/support.ts` as
+`SUPPORT_EMAIL` and an ordered list of `{heading, body}` sections — the same
+one-source-shared pattern `termsOfService.ts` uses — so the public page and the
+Settings → "Contact Us" row cannot name different addresses. The page shares
+`website/src/pages/LegalPage.css` with the privacy policy and the terms.
+
+Apple's other listing URLs map to pages that already exist: the **Privacy
+Policy URL** (also required) is `/privacy-policy`, and the optional
+**Marketing URL** is the landing page, `https://smiling.social`.

@@ -74,6 +74,7 @@ import type {
   SubmitAppealRequest,
   SubmitAppealResponse,
   TopPostPeriod,
+  TopProfile,
   TwoFactorSetupResponse,
   AuthorAvatarFields,
   UserSearchResult,
@@ -95,6 +96,8 @@ const FOLLOW_REQUEST_BATCH_SIZE = 30
 // The Top posts windows and depth, matching backend/user_system/constants.py.
 const TOP_POST_PERIOD_DAYS: Record<TopPostPeriod, number> = { day: 1, week: 7, month: 30, year: 365 }
 const TOP_POSTS_LIMIT = 100
+const TOP_PROFILES_BATCH_SIZE = 20
+const TOP_PROFILES_LIMIT = 100
 // Hidden reasons meaning the classifier hasn't approved a post (pending or
 // rejected); such posts never rank, even for their author.
 const TOP_POST_UNAPPROVED_REASONS = ['pending_classification', 'classifier', 'classifier_final']
@@ -1375,6 +1378,41 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       )
       .slice(0, TOP_POSTS_LIMIT)
     return this.batch(ranked, batch, POST_BATCH_SIZE).map((p) => this.toFeedPost(p, user))
+  }
+
+  /** Mirrors get_top_profiles (issue #588): public, same-age-band accounts not
+   * blocked either way, ranked by followers in the viewer's age band, then
+   * username, leaving out accounts with none, capped at TOP_PROFILES_LIMIT.
+   * The stub has no ban model, so the backend's shadow-ban exclusion has no
+   * counterpart here. */
+  async getTopProfiles(batch: number): Promise<TopProfile[]> {
+    const user = this.requireUser()
+    const viewerIsMinor = user.isVerified && !user.isAdult
+    const ranked = this.users
+      .filter(
+        (u) =>
+          !u.isPrivate &&
+          !user.blocked.has(u.id) &&
+          !user.blockedBy.has(u.id) &&
+          this.isVerifiedMinor(u.id) === viewerIsMinor,
+      )
+      .map((u) => ({
+        user: u,
+        // A deleted account leaves its id behind in `followers`; only live
+        // accounts count, as the backend's join to the user table enforces.
+        followerCount: [...u.followers].filter(
+          (id) => this.users.some((f) => f.id === id) && this.isVerifiedMinor(id) === viewerIsMinor,
+        ).length,
+      }))
+      .filter(({ followerCount }) => followerCount > 0)
+      .sort((a, b) => b.followerCount - a.followerCount || a.user.username.localeCompare(b.user.username))
+      .slice(0, TOP_PROFILES_LIMIT)
+    return this.batch(ranked, batch, TOP_PROFILES_BATCH_SIZE).map(({ user: u, followerCount }) => ({
+      username: u.username,
+      identity_is_verified: u.isVerified,
+      ...this.authorAvatarFields(u.id),
+      follower_count: followerCount,
+    }))
   }
 
   async getPostsForUser(username: string, batch: number): Promise<FeedPost[]> {

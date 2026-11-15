@@ -102,6 +102,8 @@ import Foundation
     // Top posts scoreboard: GET feed/top/<batch>/?period=... (issue #558).
     static let pathSegmentTop = "top"
     static let queryKeyPeriod = "period"
+    // Top profiles scoreboard: GET feed/top/profiles/<batch>/ (issue #588).
+    static let pathSegmentProfiles = "profiles"
 
     // Keyset cursor for the follow-request list (issue #96): the request id
     // of the oldest row loaded so far.

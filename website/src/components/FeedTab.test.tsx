@@ -10,6 +10,7 @@ vi.mock('../api/client', () => ({
     getFeed: vi.fn(),
     getFollowedFeed: vi.fn(),
     getTopPosts: vi.fn(),
+    getTopProfiles: vi.fn(),
     getPostLikers: vi.fn(),
     likePost: vi.fn(),
     unlikePost: vi.fn(),
@@ -28,6 +29,7 @@ import { apiClient } from '../api/client'
 const mockGetFeed = vi.mocked(apiClient.getFeed)
 const mockGetFollowed = vi.mocked(apiClient.getFollowedFeed)
 const mockGetTop = vi.mocked(apiClient.getTopPosts)
+const mockGetTopProfiles = vi.mocked(apiClient.getTopProfiles)
 const mockLikePost = vi.mocked(apiClient.likePost)
 const mockSavePost = vi.mocked(apiClient.savePost)
 const mockDeletePost = vi.mocked(apiClient.deletePost)
@@ -54,6 +56,7 @@ beforeEach(() => {
   mockGetFeed.mockReset()
   mockGetFollowed.mockReset()
   mockGetTop.mockReset()
+  mockGetTopProfiles.mockReset()
   mockLikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockSavePost.mockReset().mockResolvedValue({ message: 'Post saved' })
   mockDeletePost.mockReset().mockResolvedValue({ message: 'ok' })
@@ -331,6 +334,102 @@ test('the period picker and ranks are only on the Top feed (#558)', async () => 
   await screen.findByRole('button', { name: 'Open post by ada' })
   expect(screen.queryByLabelText('Top posts time period')).not.toBeInTheDocument()
   expect(screen.queryByLabelText('Rank 1')).not.toBeInTheDocument()
+})
+
+test('the Top segment opens on the Posts board (#588)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([])
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  expect(screen.getByRole('tab', { name: 'Posts' })).toHaveAttribute('aria-selected', 'true')
+  expect(mockGetTopProfiles).not.toHaveBeenCalled()
+})
+
+test('the Profiles board ranks accounts by followers and opens a profile (#588)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([])
+  mockGetTopProfiles.mockResolvedValue([
+    { username: 'ada', identity_is_verified: true, follower_count: 1200 },
+    { username: 'bob', identity_is_verified: false, follower_count: 1 },
+  ])
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await userEvent.click(screen.getByRole('tab', { name: 'Profiles' }))
+
+  await waitFor(() => expect(mockGetTopProfiles).toHaveBeenCalledWith(0))
+  expect(await screen.findByLabelText('Rank 1')).toHaveTextContent('#1')
+  expect(screen.getByText(`${(1200).toLocaleString()} followers`)).toBeInTheDocument()
+  expect(screen.getByText('1 follower')).toBeInTheDocument()
+  // Profiles are all-time, so the posts' period picker is gone.
+  expect(screen.queryByLabelText('Top posts time period')).not.toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: /bob/ }))
+  expect(await screen.findByText('Profile page')).toBeInTheDocument()
+})
+
+test('Load more appends the next Profiles page and celebrates the end (#588)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([])
+  mockGetTopProfiles
+    .mockResolvedValueOnce([{ username: 'ada', identity_is_verified: false, follower_count: 3 }])
+    .mockResolvedValueOnce([
+      // Repeated across pages after a rank change: listed once.
+      { username: 'ada', identity_is_verified: false, follower_count: 3 },
+      { username: 'cat', identity_is_verified: false, follower_count: 2 },
+    ])
+    .mockResolvedValueOnce([])
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await userEvent.click(screen.getByRole('tab', { name: 'Profiles' }))
+  await screen.findByLabelText('Rank 1')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  expect(await screen.findByLabelText('Rank 2')).toBeInTheDocument()
+  expect(screen.getAllByText('ada')).toHaveLength(1)
+
+  await userEvent.click(screen.getByRole('button', { name: 'Load more' }))
+  expect(await screen.findByText("That's the whole Top profiles board.")).toBeInTheDocument()
+})
+
+test('a failed Profiles load says so instead of showing an empty board (#588)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([])
+  mockGetTopProfiles.mockRejectedValue(new Error('offline'))
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await userEvent.click(screen.getByRole('tab', { name: 'Profiles' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent("We couldn't load this board.")
+  expect(screen.queryByText('No profiles here yet.')).not.toBeInTheDocument()
+})
+
+test('switching back to Posts reloads the posts board (#588)', async () => {
+  mockGetFeed.mockResolvedValue([])
+  mockGetTop.mockResolvedValue([
+    { post_identifier: 'p1', image_url: 'http://img/1.jpg', author_username: 'ada', caption: 'best' },
+  ])
+  mockGetTopProfiles.mockResolvedValue([])
+  renderTab()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Top' }))
+  await screen.findByRole('button', { name: 'Open post by ada' })
+  await userEvent.click(screen.getByRole('tab', { name: 'Profiles' }))
+  expect(await screen.findByText('No profiles here yet.')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Open post by ada' })).not.toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('tab', { name: 'Posts' }))
+  expect(await screen.findByRole('button', { name: 'Open post by ada' })).toBeInTheDocument()
+  expect(mockGetTop).toHaveBeenCalledTimes(2)
+})
+
+test('the Posts / Profiles toggle is only on the Top feed (#588)', () => {
+  mockGetFeed.mockResolvedValue([])
+  renderTab()
+  expect(screen.queryByRole('tab', { name: 'Profiles' })).not.toBeInTheDocument()
 })
 
 test('navigates to an author profile from the feed', async () => {

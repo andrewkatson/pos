@@ -1235,6 +1235,50 @@ test('top posts stay within the viewer\'s age band', async () => {
   ])
 })
 
+// --- Top profiles scoreboard (#588) ------------------------------------------
+
+test('top profiles rank public accounts by followers and skip those with none', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'popular')
+  await register(api, 'modest')
+  await register(api, 'lonely')
+  await register(api, 'fanone')
+  await api.followUser('popular')
+  await api.followUser('modest')
+  await register(api, 'fantwo')
+  await api.followUser('popular')
+
+  expect((await api.getTopProfiles(0)).map((p) => [p.username, p.follower_count])).toEqual([
+    ['popular', 2],
+    ['modest', 1],
+  ])
+})
+
+test('top profiles leave out private and blocked accounts', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'secret')
+  await api.setAccountPrivacy(true)
+  await register(api, 'rude')
+  await register(api, 'viewer')
+  await api.followUser('rude')
+  await api.followUser('secret')
+  expect((await api.getTopProfiles(0)).map((p) => p.username)).toEqual(['rude'])
+
+  await api.toggleBlock('rude')
+  expect(await api.getTopProfiles(0)).toEqual([])
+})
+
+test('a deleted follower no longer counts toward top profiles', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'popular')
+  await register(api, 'fan')
+  await api.followUser('popular')
+  await api.deleteAccount()
+
+  await register(api, 'viewer')
+  expect(await api.getTopProfiles(0)).toEqual([])
+})
+
 // --- Private accounts (issue #96) -------------------------------------------
 
 async function privateAuthorWithPost(api: StatefulStubbedAPI) {

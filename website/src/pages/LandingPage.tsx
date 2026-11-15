@@ -57,6 +57,11 @@ function LandingPage() {
         <Link to="/delete-account" className="landing__footer-link">
           Delete Account
         </Link>
+        {/* The App Store Support URL points here, so it stays one click from
+            the home page for anyone who lands there instead. */}
+        <Link to="/support" className="landing__footer-link">
+          Support
+        </Link>
       </footer>
     </div>
   )

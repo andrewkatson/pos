@@ -903,6 +903,70 @@ enum TopPostPeriod: String, CaseIterable, Identifiable {
     }
 }
 
+/// Which scoreboard the Feed tab's Top segment shows: posts ranked by likes
+/// (issue #558) or profiles ranked by followers (issue #588).
+enum TopBoard: String, CaseIterable, Identifiable {
+    case posts
+    case profiles
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .posts: return "Posts"
+        case .profiles: return "Profiles"
+        }
+    }
+}
+
+/// One row of the Top profiles scoreboard (issue #588): an account and how
+/// many followers the viewer can see it has, matching its profile page.
+struct TopProfile: Codable, Identifiable, Hashable {
+    var id: String { username }
+    let username: String
+    let identityIsVerified: Bool
+    var authorProfileImageUrl: String? = nil
+    var authorProfileImageOriginalUrl: String? = nil
+    var authorProfileImageBlurHash: String? = nil
+    let followerCount: Int
+
+    init(username: String, identityIsVerified: Bool, followerCount: Int,
+         authorProfileImageUrl: String? = nil, authorProfileImageOriginalUrl: String? = nil,
+         authorProfileImageBlurHash: String? = nil) {
+        self.username = username
+        self.identityIsVerified = identityIsVerified
+        self.followerCount = followerCount
+        self.authorProfileImageUrl = authorProfileImageUrl
+        self.authorProfileImageOriginalUrl = authorProfileImageOriginalUrl
+        self.authorProfileImageBlurHash = authorProfileImageBlurHash
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case username
+        case identityIsVerified = "identity_is_verified"
+        case authorProfileImageUrl = "author_profile_image_url"
+        case authorProfileImageOriginalUrl = "author_profile_image_original_url"
+        case authorProfileImageBlurHash = "author_profile_image_blurhash"
+        case followerCount = "follower_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        username = try container.decode(String.self, forKey: .username)
+        identityIsVerified = try container.decodeIfPresent(Bool.self, forKey: .identityIsVerified) ?? false
+        authorProfileImageUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageUrl)
+        authorProfileImageOriginalUrl = try container.decodeIfPresent(String.self, forKey: .authorProfileImageOriginalUrl)
+        authorProfileImageBlurHash = try container.decodeIfPresent(String.self, forKey: .authorProfileImageBlurHash)
+        followerCount = try container.decodeIfPresent(Int.self, forKey: .followerCount) ?? 0
+    }
+
+    /// "1 follower" / "1,200 followers".
+    var followerCountLabel: String {
+        let number = followerCount.formatted()
+        return followerCount == 1 ? "\(number) follower" : "\(number) followers"
+    }
+}
+
 /// Who may see a post (issue #392). Nested circles from broadest to closest;
 /// raw values match the backend.
 enum PostAudience: String, CaseIterable, Identifiable {

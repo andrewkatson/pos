@@ -5,12 +5,12 @@ import App from './App'
 import { apiClient } from './api/client'
 import {
   clearRememberMeTokens,
-  clearSession,
   getStoredSessionToken,
   loadRememberMeTokens,
   saveRememberMeTokens,
 } from './api/session'
 import { registerForPush } from './push/webPush'
+import { installAuthFailureHandlers } from './api/authFailureRedirects'
 import './index.css'
 
 // Restore the session token persisted at login so a page reload keeps the user
@@ -59,27 +59,31 @@ async function refreshRememberMeSession(): Promise<void> {
     clearRememberMeTokens()
   }
 }
+// A banned account has its sessions revoked server-side, and an unverified
+// email blocks every authenticated endpoint, so a restored session that hits
+// either is useless: drop it and land on the login page, which explains why.
+// Public pages (the support and legal URLs) are the exception and stay put —
+// see api/authFailureRedirects.ts.
+installAuthFailureHandlers({
+  pathname: () => window.location.pathname,
+  assign: url => window.location.assign(url),
+})
+
 // Refresh a remembered session, then (whether or not it rotated) refresh this
 // browser's push token if we're signed in. promptIfNeeded is left false so a
 // returning user isn't asked for notification permission on every load — that
 // prompt happens at login. Best-effort; never blocks startup.
+//
+// This runs on every load, public pages included. Registration is the only
+// thing that subscribes this tab to foreground messages, and the rest of the
+// app is reached from here by client-side navigation that never re-runs it —
+// so a signed-in user whose first load happened to be /support or a legal page
+// would browse on with notifications silently dead. Doing the work everywhere
+// also means a session that has since been suspended is cleared promptly
+// rather than lingering in storage; what must not happen on these pages is the
+// *redirect*, and that is handled above.
 void refreshRememberMeSession().finally(() => {
   void registerForPush()
-})
-
-// A banned account has its sessions revoked server-side; drop the local
-// session and land on the login page, which explains the suspension.
-apiClient.setOnAccountBanned(() => {
-  clearSession()
-  window.location.assign('/login?suspended=1')
-})
-
-// An unverified email blocks every authenticated endpoint, so a restored
-// session that hits email_not_verified is useless — drop it and land on the
-// login page, which explains the verification requirement.
-apiClient.setOnEmailNotVerified(() => {
-  clearSession()
-  window.location.assign('/login?verify_email=1')
 })
 
 createRoot(document.getElementById('root')!).render(

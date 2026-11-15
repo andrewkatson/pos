@@ -18,6 +18,7 @@ import FollowListPage from './pages/FollowListPage'
 import FollowRequestsPage from './pages/FollowRequestsPage'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 import TermsOfServicePage from './pages/TermsOfServicePage'
+import SupportPage from './pages/SupportPage'
 import DeleteAccountPage from './pages/DeleteAccountPage'
 
 function App() {
@@ -43,6 +44,8 @@ function App() {
       <Route path="/follow-requests" element={<FollowRequestsPage />} />
       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
       <Route path="/terms-of-service" element={<TermsOfServicePage />} />
+      {/* Apple's App Store listing needs a Support URL that works signed out. */}
+      <Route path="/support" element={<SupportPage />} />
       <Route path="/delete-account" element={<DeleteAccountPage />} />
     </Routes>
   )

@@ -66,6 +66,7 @@ import type {
   SubmitAppealRequest,
   SubmitAppealResponse,
   TopPostPeriod,
+  TopProfile,
   TwoFactorSetupResponse,
   UserSearchResult,
   VerifyEmailRequest,
@@ -614,6 +615,10 @@ export class ApiClient implements PositiveOnlySocialAPI {
       `/feed/top/${batch}/?period=${encodeURIComponent(period)}`,
       { auth: true },
     )
+  }
+
+  getTopProfiles(batch: number): Promise<TopProfile[]> {
+    return this.request<TopProfile[]>('GET', `/feed/top/profiles/${batch}/`, { auth: true })
   }
 
   getPostsForUser(username: string, batch: number): Promise<FeedPost[]> {

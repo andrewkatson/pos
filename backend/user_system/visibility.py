@@ -276,6 +276,14 @@ def same_age_band_users(users, viewer):
     return users.filter(_same_age_band_q(viewer, ''))
 
 
+def searchable_users_q(viewer, prefix):
+    """Q form of searchable_users for a related account, e.g. 'followers' to
+    keep only the follower rows a viewer may see. Lets a filtered Count agree
+    with the list it summarizes, the way get_profile_details' follower_count
+    (searchable_users over profile_user.followers) agrees with the follower list."""
+    return ~Q(**{f'{prefix}__in': _shadow_banned_user_ids()}) & _same_age_band_q(viewer, prefix)
+
+
 def searchable_users(users, viewer):
     """Excludes shadow-banned users, and users outside the viewer's age band,
     from user search results (so adults cannot find underage accounts and vice
