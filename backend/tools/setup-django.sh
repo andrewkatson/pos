@@ -819,6 +819,10 @@ install_health_check_script() {
     if [ -f "$BACKEND_DIR/tools/status_check.sh" ]; then
         cp "$BACKEND_DIR/tools/status_check.sh" ~/status_check.sh
         chmod +x ~/status_check.sh
+        # Record this host's paths beside the script, which reads them on every
+        # run. A separate file, so ~/update-app.sh can keep replacing the script
+        # on each deploy without losing --venv-dir / --env-file.
+        printf 'SAVED_VENV_DIR=%q\nSAVED_ENV_FILE=%q\n' "$VENV_DIR" "$ENV_FILE" > ~/.status_check_paths
         print_status "Health check script installed at ~/status_check.sh"
     else
         print_warning "status_check.sh not found in repo; skipping."

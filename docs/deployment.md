@@ -87,8 +87,11 @@ nginx, the classification worker (active/enabled, or "stranding!" if enabled but
 dead), the two timers (last/next run), and best-effort depth for both queues the
 worker drains, `classification` and `notifications` — so a silently dead worker is
 visible at a glance, and so is a push backlog building behind moderation. It reads
-the venv and `.env` from the paths above; set `VENV_DIR` and `ENV_FILE` to override
-them.
+the venv and `.env` from the paths above. When `setup-django.sh` installs it (on
+setup or `--refresh-scripts`) it records the `--venv-dir` / `--env-file` it was
+given in `~/.status_check_paths`, which the health check reads on every run and
+`~/update-app.sh` leaves alone, so a host with custom paths stays correct across
+deploys. Set `VENV_DIR` and `ENV_FILE` in the environment to override either.
 
 ## gunicorn tuning, and the keepalive that must beat the load balancer
 
