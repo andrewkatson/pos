@@ -46,5 +46,21 @@ def test_scripts_default_to_the_same_venv_and_env_paths():
 
     assert 'VENV_DIR="$APP_DIR/venv"' in setup
     assert 'ENV_FILE="$APP_DIR/.env"' in setup
-    assert f'VENV_DIR="${{VENV_DIR:-{app_dir}/venv}}"' in status
-    assert f'ENV_FILE="${{ENV_FILE:-{app_dir}/.env}}"' in status
+    assert f'VENV_DIR="${{VENV_DIR:-${{SAVED_VENV_DIR:-{app_dir}/venv}}}}"' in status
+    assert f'ENV_FILE="${{ENV_FILE:-${{SAVED_ENV_FILE:-{app_dir}/.env}}}}"' in status
+
+
+def test_installed_health_check_keeps_custom_paths_across_deploys():
+    # --venv-dir / --env-file must reach the installed health check, and survive
+    # ~/update-app.sh replacing the script on each deploy: the paths live in a
+    # file beside it that setup writes and the update script never touches.
+    setup = _read("setup-django.sh")
+    status = _read("status_check.sh")
+
+    assert "> ~/.status_check_paths" in setup
+    assert 'PATHS_FILE="$(dirname "${BASH_SOURCE[0]}")/.status_check_paths"' in status
+    update_script = re.search(
+        r"cat > ~/update-app.sh << EOF\n(.*?)\nEOF\n", setup, re.DOTALL
+    ).group(1)
+    assert "status_check.sh" in update_script
+    assert ".status_check_paths" not in update_script

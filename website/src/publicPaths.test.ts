@@ -15,6 +15,21 @@ test('a trailing slash still matches', () => {
   expect(isPublicPath('/support/')).toBe(true)
 })
 
+test('repeated trailing slashes still match, as they do in the router', () => {
+  expect(isPublicPath('/support//')).toBe(true)
+  expect(isPublicPath('/privacy-policy///')).toBe(true)
+})
+
+test('casing is ignored, as it is in the router', () => {
+  expect(isPublicPath('/Support')).toBe(true)
+  expect(isPublicPath('/TERMS-OF-SERVICE/')).toBe(true)
+})
+
+test('the root path is not public', () => {
+  expect(isPublicPath('/')).toBe(false)
+  expect(isPublicPath('')).toBe(false)
+})
+
 test('signed-in and sign-in pages are not public', () => {
   expect(isPublicPath('/home')).toBe(false)
   expect(isPublicPath('/login')).toBe(false)

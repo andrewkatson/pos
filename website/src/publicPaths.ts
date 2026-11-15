@@ -22,9 +22,14 @@
  */
 export const PUBLIC_PATHS = ['/support', '/privacy-policy', '/terms-of-service'] as const
 
-/** True when `pathname` is one of the signed-out-reachable pages above. */
+/**
+ * True when `pathname` is one of the signed-out-reachable pages above.
+ *
+ * Matches the way React Router matches these routes, which ignores case and any
+ * number of trailing slashes, so `/Support` and `/support//` count too. A URL
+ * that renders the page but missed this check would still bounce to /login.
+ */
 export function isPublicPath(pathname: string): boolean {
-  const normalized =
-    pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
+  const normalized = pathname.toLowerCase().replace(/\/+$/, '')
   return (PUBLIC_PATHS as readonly string[]).includes(normalized)
 }
