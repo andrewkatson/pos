@@ -8,10 +8,19 @@
 DOMAIN="${DOMAIN:-api.smiling.social}"
 FRONTEND_DOMAIN="${FRONTEND_DOMAIN:-smiling.social}"
 SOCKET="${SOCKET:-/var/www/smiling-social/gunicorn.sock}"
-# Used to read REDIS_URL and inspect the worker queues. Both sit beside the clone,
-# outside the git working tree, matching setup-django.sh's defaults.
-VENV_DIR="${VENV_DIR:-/var/www/smiling-social/venv}"
-ENV_FILE="${ENV_FILE:-/var/www/smiling-social/.env}"
+# Used to read REDIS_URL and inspect the worker queues. setup-django.sh records
+# the paths it was given (--venv-dir / --env-file) in .status_check_paths beside
+# the installed copy, so a host with custom paths is checked correctly from a
+# fresh shell. Without that file, fall back to setup-django.sh's defaults, which
+# sit beside the clone, outside the git working tree. VENV_DIR / ENV_FILE in the
+# environment override both.
+PATHS_FILE="$(dirname "${BASH_SOURCE[0]}")/.status_check_paths"
+if [ -f "$PATHS_FILE" ]; then
+  # shellcheck source=/dev/null
+  . "$PATHS_FILE"
+fi
+VENV_DIR="${VENV_DIR:-${SAVED_VENV_DIR:-/var/www/smiling-social/venv}}"
+ENV_FILE="${ENV_FILE:-${SAVED_ENV_FILE:-/var/www/smiling-social/.env}}"
 
 echo "=== Checking Gunicorn ==="
 sudo systemctl status gunicorn --no-pager
