@@ -362,6 +362,7 @@ struct ProfileBodyView: View {
                 }
                 .disabled(viewModel.isUpdatingPhoto)
                 .font(.subheadline)
+                .accessibilityLabel("Profile photo options")
                 .accessibilityIdentifier("ProfilePhotoMenuButton")
                 .confirmationDialog("Profile Photo", isPresented: $showPhotoOptions, titleVisibility: .hidden) {
                     let pickerLabel = Label(
@@ -424,15 +425,17 @@ struct ProfileBodyView: View {
             photoLibrary: .shared()
         )
         .onChange(of: selectedPhotoItem) { _, profilePicture in
-          
             guard let profilePicture else { return }
+            // Clear the selection before the async load so a slow load can't
+            // wipe out a newer pick when it finishes.
+            selectedPhotoItem = nil
             Task {
-                defer { selectedPhotoItem = nil }
                 do {
-                    if let rawData = try await profilePicture.loadTransferable(type: Data.self),
-                       let uiImage = UIImage(data: rawData),
-                       let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
-                        await viewModel.updateProfilePhoto(imageData: jpegData)
+                    // Pass the original bytes through: S3Uploader.compressImage
+                    // re-encodes them to fit the size limit, so converting here
+                    // would only cost quality.
+                    if let rawData = try await profilePicture.loadTransferable(type: Data.self) {
+                        await viewModel.updateProfilePhoto(imageData: rawData)
                     }
                 } catch {
                     viewModel.photoErrorMessage = "Failed to load selected photo."
