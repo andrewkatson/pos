@@ -10,6 +10,8 @@ import com.example.positiveonlysocial.data.model.User
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +20,8 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 
 private const val TAG = "HomeViewModel"
+// Bound requests even if a server keeps returning full pages indefinitely.
+private const val MAX_SEARCH_BATCHES = 100
 
 /**
  * Backs the first bottom-nav destination, which is now the signed-in user's own
@@ -61,6 +65,8 @@ class HomeViewModel(
 
     private var prefetchedSecondBatch: List<User> = emptyList()
     private var prefetchedSecondBatchQuery: String? = null
+    private var prefetchedSecondBatchRawSize: Int? = null
+    private var loadAllJob: Job? = null
 
     private val service = "positive-only-social.Positive-Only-Social"
 
@@ -86,6 +92,9 @@ class HomeViewModel(
     }
 
     fun updateSearchText(text: String) {
+        loadAllJob?.cancel()
+        loadAllJob = null
+        _isLoadingAllResults.value = false
         val trimmedText = text.trim()
 
         _searchText.value = text
@@ -96,6 +105,7 @@ class HomeViewModel(
         _isSearching.value = trimmedText.length >= 3
         prefetchedSecondBatch = emptyList()
         prefetchedSecondBatchQuery = null
+        prefetchedSecondBatchRawSize = null
     }
 
     private suspend fun performSearch(query: String) {
@@ -127,6 +137,8 @@ class HomeViewModel(
                 0
             )
 
+            if (_searchText.value.trim() != trimmedQuery) return
+
             if (!response.isSuccessful) {
                 _searchedUsers.value = emptyList()
                 _hasMoreResults.value = false
@@ -143,6 +155,7 @@ class HomeViewModel(
             if (results.size != 10) {
                 prefetchedSecondBatch = emptyList()
                 prefetchedSecondBatchQuery = null
+                prefetchedSecondBatchRawSize = null
                 _hasMoreResults.value = false
                 return
             }
@@ -154,31 +167,47 @@ class HomeViewModel(
                     1
                 )
 
+                if (_searchText.value.trim() != trimmedQuery) return
+
+                if (!nextResponse.isSuccessful) {
+                    prefetchedSecondBatch = emptyList()
+                    prefetchedSecondBatchQuery = null
+                    prefetchedSecondBatchRawSize = null
+                    _hasMoreResults.value = true // Let View All retry this page.
+                    return
+                }
+
+                val rawNextBatch = nextResponse.body() ?: emptyList()
+
                 val firstBatchUsernames =
                     results.mapTo(mutableSetOf()) { it.username }
 
-                val nextBatch = if (nextResponse.isSuccessful) {
-                    (nextResponse.body() ?: emptyList()).filter { user ->
-                        firstBatchUsernames.add(user.username)
-                    }
-                } else {
-                    emptyList()
+                val nextBatch = rawNextBatch.filter { user ->
+                    firstBatchUsernames.add(user.username)
                 }
 
                 prefetchedSecondBatch = nextBatch
                 prefetchedSecondBatchQuery = trimmedQuery
-                _hasMoreResults.value = nextBatch.isNotEmpty()
+                prefetchedSecondBatchRawSize = rawNextBatch.size
+                _hasMoreResults.value = rawNextBatch.isNotEmpty()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (_searchText.value.trim() != trimmedQuery) return
                 prefetchedSecondBatch = emptyList()
                 prefetchedSecondBatchQuery = null
-                _hasMoreResults.value = false
+                prefetchedSecondBatchRawSize = null
+                _hasMoreResults.value = true // Retry when View All opens.
                 Log.e(
                     TAG,
                     "Error checking for additional search results",
                     e
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            if (_searchText.value.trim() != trimmedQuery) return
             _searchedUsers.value = emptyList()
             _hasMoreResults.value = false
             _errorMessage.value = ApiErrors.messageFor(
@@ -204,7 +233,7 @@ class HomeViewModel(
 
         _allSearchResults.value = emptyList()
 
-        viewModelScope.launch {
+        loadAllJob = viewModelScope.launch {
             _isLoadingAllResults.value = true
 
             try {
@@ -215,7 +244,7 @@ class HomeViewModel(
                 )
 
                 if (userSession == null) {
-                    _errorMessage.value = Constants.SESSION_MISSING_MESSAGE
+                    if (_searchText.value.trim() == query) _errorMessage.value = Constants.SESSION_MISSING_MESSAGE
                     Log.e(
                         TAG,
                         "No active session found — cannot load search results"
@@ -243,15 +272,16 @@ class HomeViewModel(
 
                 val shouldLoadAnotherBatch =
                     cachedSecondBatch == null ||
-                        cachedSecondBatch.size == 10
+                        prefetchedSecondBatchRawSize == 10
 
-                while (shouldLoadAnotherBatch) {
+                while (shouldLoadAnotherBatch && _searchText.value.trim() == query) {
                     val response = api.searchUsers(
                         userSession.sessionToken,
                         query,
                         batch
                     )
 
+                    if (_searchText.value.trim() != query) return@launch
                     if (!response.isSuccessful) {
                         _errorMessage.value = ApiErrors.messageFor(
                             response,
@@ -268,8 +298,16 @@ class HomeViewModel(
 
                     results.addAll(newUsers)
 
-                    if (nextBatch.size < 10 || newUsers.isEmpty()) {
+                    // Only the raw page size indicates the end of pagination;
+                    // a full page of known users can precede more new users.
+                    if (nextBatch.size < 10) {
                         break
+                    }
+
+                    if (batch + 1 >= MAX_SEARCH_BATCHES) {
+                        _errorMessage.value =
+                            "Unable to finish loading all search results. Try a more specific search."
+                        return@launch
                     }
 
                     batch++
@@ -280,7 +318,10 @@ class HomeViewModel(
                 if (_searchText.value.trim() == query) {
                     _allSearchResults.value = results
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (_searchText.value.trim() != query) return@launch
                 _errorMessage.value = ApiErrors.messageFor(
                     e,
                     fallback =
@@ -288,7 +329,7 @@ class HomeViewModel(
                 )
                 Log.e(TAG, "Error loading all search results", e)
             } finally {
-                _isLoadingAllResults.value = false
+                if (_searchText.value.trim() == query) _isLoadingAllResults.value = false
             }
         }
     }

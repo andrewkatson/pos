@@ -6,6 +6,8 @@ import com.example.positiveonlysocial.data.model.User
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -16,6 +18,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.doSuspendableAnswer
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
@@ -176,7 +179,7 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun `performSearch hides view all when second batch repeats first batch`() = runTest {
+    fun `performSearch retains pagination when second batch repeats first batch`() = runTest {
         val firstBatch = List(10) { index ->
             User("user$index", true)
         }
@@ -194,7 +197,7 @@ class HomeViewModelTest {
         advanceTimeBy(600)
 
         assertEquals(firstBatch, viewModel.searchedUsers.value)
-        assertEquals(false, viewModel.hasMoreResults.value)
+        assertEquals(true, viewModel.hasMoreResults.value)
 
         verify(api).searchUsers("token123", "query", 0)
         verify(api).searchUsers("token123", "query", 1)
@@ -219,10 +222,105 @@ class HomeViewModelTest {
         advanceTimeBy(600)
 
         assertEquals(firstBatch, viewModel.searchedUsers.value)
-        assertEquals(false, viewModel.hasMoreResults.value)
+        assertEquals(true, viewModel.hasMoreResults.value)
 
         verify(api).searchUsers("token123", "query", 0)
         verify(api).searchUsers("token123", "query", 1)
+    }
+
+    @Test
+    fun `cancelled search does not show an error`() = runTest {
+        whenever(api.searchUsers("token123", "old", 0))
+            .thenThrow(CancellationException("old request"))
+
+        viewModel.updateSearchText("old")
+        advanceTimeBy(600)
+        advanceUntilIdle()
+
+        assertNull(viewModel.errorMessage.value)
+    }
+
+    @Test
+    fun `changing query cancels old prefetch without changing new results`() = runTest {
+        val oldFirst = List(10) { User("old$it", true) }
+        val pendingPrefetch = CompletableDeferred<Response<List<User>>>()
+        val newResults = listOf(User("newUser", true))
+        whenever(api.searchUsers("token123", "old", 0)).thenReturn(Response.success(oldFirst))
+        whenever(api.searchUsers("token123", "old", 1))
+            .doSuspendableAnswer { pendingPrefetch.await() }
+        whenever(api.searchUsers("token123", "new", 0)).thenReturn(Response.success(newResults))
+
+        viewModel.updateSearchText("old")
+        advanceTimeBy(600)
+        viewModel.updateSearchText("new")
+        advanceTimeBy(600)
+        advanceUntilIdle()
+
+        assertEquals(newResults, viewModel.searchedUsers.value)
+        assertNull(viewModel.errorMessage.value)
+        assertEquals(false, viewModel.hasMoreResults.value)
+    }
+
+    @Test
+    fun `old pagination failure cannot show an error for new query`() = runTest {
+        val first = List(10) { User("old$it", true) }
+        val pendingPage = CompletableDeferred<Response<List<User>>>()
+        whenever(api.searchUsers("token123", "old", 0)).thenReturn(Response.success(first))
+        whenever(api.searchUsers("token123", "old", 1))
+            .thenReturn(Response.success(List(10) { User("old${it + 10}", true) }))
+        whenever(api.searchUsers("token123", "old", 2))
+            .doSuspendableAnswer { pendingPage.await() }
+        whenever(api.searchUsers("token123", "new", 0))
+            .thenReturn(Response.success(listOf(User("newUser", true))))
+
+        viewModel.updateSearchText("old")
+        advanceTimeBy(600)
+        viewModel.loadAllSearchResults()
+        advanceTimeBy(1)
+        viewModel.updateSearchText("new")
+        pendingPage.completeExceptionally(RuntimeException("old failure"))
+        advanceUntilIdle()
+
+        assertNull(viewModel.errorMessage.value)
+        assertTrue(viewModel.allSearchResults.value.isEmpty())
+        assertEquals(false, viewModel.isLoadingAllResults.value)
+    }
+
+    @Test
+    fun `deduplicated full cached page still fetches following page`() = runTest {
+        val first = List(10) { User("user$it", true) }
+        val second = listOf(first[0]) + List(9) { User("user${it + 10}", true) }
+        val third = listOf(User("user19", true))
+        whenever(api.searchUsers("token123", "query", 0)).thenReturn(Response.success(first))
+        whenever(api.searchUsers("token123", "query", 1)).thenReturn(Response.success(second))
+        whenever(api.searchUsers("token123", "query", 2)).thenReturn(Response.success(third))
+
+        viewModel.updateSearchText("query")
+        advanceTimeBy(600)
+        viewModel.loadAllSearchResults()
+        advanceUntilIdle()
+
+        assertEquals((first + second + third).distinctBy { it.username }, viewModel.allSearchResults.value)
+        verify(api).searchUsers("token123", "query", 2)
+    }
+
+    @Test
+    fun `failed prefetch can be retried when loading all results`() = runTest {
+        val first = List(10) { User("user$it", true) }
+        val second = listOf(User("user10", true))
+        whenever(api.searchUsers("token123", "query", 0)).thenReturn(Response.success(first))
+        whenever(api.searchUsers("token123", "query", 1))
+            .thenThrow(RuntimeException("temporary failure"))
+            .thenReturn(Response.success(second))
+
+        viewModel.updateSearchText("query")
+        advanceTimeBy(600)
+        assertTrue(viewModel.hasMoreResults.value)
+        viewModel.loadAllSearchResults()
+        advanceUntilIdle()
+
+        assertEquals(first + second, viewModel.allSearchResults.value)
+        assertNull(viewModel.errorMessage.value)
     }
 
     @Test
@@ -311,7 +409,7 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun `loadAllSearchResults stops when a later batch repeats known users`() = runTest {
+    fun `loadAllSearchResults continues past full duplicate pages to later users`() = runTest {
         val firstBatch = List(10) { index ->
             User("user$index", true)
         }
@@ -327,10 +425,17 @@ class HomeViewModelTest {
             api.searchUsers("token123", "query", 1)
         ).thenReturn(Response.success(secondBatch))
 
-        // Simulates a broken or stale backend returning batch 1 again.
+        // Consecutive full duplicate pages must not hide later new users.
         whenever(
             api.searchUsers("token123", "query", 2)
         ).thenReturn(Response.success(secondBatch))
+        whenever(
+            api.searchUsers("token123", "query", 3)
+        ).thenReturn(Response.success(firstBatch))
+        val finalBatch = listOf(User("user20", true))
+        whenever(
+            api.searchUsers("token123", "query", 4)
+        ).thenReturn(Response.success(finalBatch))
 
         viewModel.updateSearchText("query")
         advanceTimeBy(600)
@@ -341,13 +446,37 @@ class HomeViewModelTest {
         advanceUntilIdle()
 
         assertEquals(
-            firstBatch + secondBatch,
+            firstBatch + secondBatch + finalBatch,
             viewModel.allSearchResults.value
         )
         assertEquals(false, viewModel.isLoadingAllResults.value)
 
         verify(api).searchUsers("token123", "query", 2)
+        verify(api).searchUsers("token123", "query", 3)
+        verify(api).searchUsers("token123", "query", 4)
         verify(api, org.mockito.kotlin.never())
-            .searchUsers("token123", "query", 3)
+            .searchUsers("token123", "query", 5)
+    }
+
+    @Test
+    fun `endless full duplicate pages stop with an error instead of incomplete results`() = runTest {
+        val firstBatch = List(10) { User("user$it", true) }
+        whenever(api.searchUsers(any(), any(), any()))
+            .thenReturn(Response.success(firstBatch))
+
+        viewModel.updateSearchText("query")
+        advanceTimeBy(600)
+        viewModel.loadAllSearchResults()
+        advanceUntilIdle()
+
+        assertEquals(firstBatch, viewModel.searchedUsers.value)
+        assertTrue(viewModel.allSearchResults.value.isEmpty())
+        assertEquals(
+            "Unable to finish loading all search results. Try a more specific search.",
+            viewModel.errorMessage.value
+        )
+        assertEquals(false, viewModel.isLoadingAllResults.value)
+        verify(api).searchUsers("token123", "query", 99)
+        verify(api, org.mockito.kotlin.never()).searchUsers("token123", "query", 100)
     }
 }
