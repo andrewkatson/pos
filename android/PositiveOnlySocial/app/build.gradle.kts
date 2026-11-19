@@ -15,7 +15,7 @@ android {
         versionCode = 7
         versionName = "1.01.06"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "com.example.positiveonlysocial.StubbedApiTestRunner"
 
         buildConfigField(
             "String",
