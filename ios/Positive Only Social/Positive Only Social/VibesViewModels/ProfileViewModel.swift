@@ -90,14 +90,14 @@ class ProfileViewModel: ObservableObject {
 
     /// Applies a confirmed report/retraction. A profile read still in flight
     /// would otherwise land afterwards and restore the old report state, so
-    /// this supersedes it; if that read was the initial load (no details yet),
-    /// a replacement is started.
+    /// this supersedes it, and starts a replacement read: whatever the
+    /// superseded one was settling (the initial load, a pull-to-refresh, or an
+    /// unfollow/block revalidation) still lands, and the server already
+    /// reflects this report state.
     private func markAccountReported(_ reported: Bool) {
         detailsRefreshGeneration += 1
         isAccountReported = reported
-        if profileDetails == nil {
-            Task { await refreshProfileDetails() }
-        }
+        Task { await refreshProfileDetails() }
     }
 
     func reportAccount(reason: String) {

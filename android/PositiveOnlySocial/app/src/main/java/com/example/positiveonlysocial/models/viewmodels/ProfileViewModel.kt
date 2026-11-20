@@ -68,6 +68,12 @@ class ProfileViewModel(
     private val _accountReportReason = MutableStateFlow<String?>(null)
     val accountReportReason: StateFlow<String?> = _accountReportReason.asStateFlow()
 
+    // True while a report or retraction of this account is in flight. Both
+    // share it so they never overlap: a report whose response is slow could
+    // otherwise land after a later retraction and set the reported state back.
+    private val _isAccountReportBusy = MutableStateFlow(false)
+    val isAccountReportBusy: StateFlow<Boolean> = _isAccountReportBusy.asStateFlow()
+
     private val _reportErrorMessage = MutableStateFlow<String?>(null)
     val reportErrorMessage: StateFlow<String?> = _reportErrorMessage.asStateFlow()
 
@@ -889,7 +895,8 @@ class ProfileViewModel(
      */
     fun reportAccount(username: String, reason: String) {
         val trimmed = reason.trim()
-        if (trimmed.isEmpty() || _isOwnProfile.value) return
+        if (trimmed.isEmpty() || _isOwnProfile.value || _isAccountReportBusy.value) return
+        _isAccountReportBusy.value = true
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
@@ -907,12 +914,16 @@ class ProfileViewModel(
                 }
             } catch (e: Exception) {
                 _reportErrorMessage.value = ApiErrors.messageFor(e, fallback = "Could not report this account. Please try again.")
+            } finally {
+                _isAccountReportBusy.value = false
             }
         }
     }
 
     /** Withdraw the viewer's report of this account (issue #602). */
     fun retractAccountReport(username: String) {
+        if (_isAccountReportBusy.value) return
+        _isAccountReportBusy.value = true
         viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(UserSession::class.java, service, account)
@@ -930,6 +941,8 @@ class ProfileViewModel(
                 }
             } catch (e: Exception) {
                 _reportErrorMessage.value = ApiErrors.messageFor(e, fallback = "Could not retract your report. Please try again.")
+            } finally {
+                _isAccountReportBusy.value = false
             }
         }
     }

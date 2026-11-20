@@ -596,4 +596,45 @@ class ProfileViewModelTest {
         assertTrue(viewModel.isAccountReported.value)
         assertEquals("Unkind bio", viewModel.accountReportReason.value)
     }
+
+    @Test
+    fun `a retraction cannot overlap a report whose response is still pending`() = runTest {
+        val profile = ProfileDetailsResponse("user1", 1, 1, 2, false, isReported = false)
+        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(profile))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(emptyList()))
+        whenever(api.retractReportAccount(any(), any())).thenReturn(Response.success(GenericResponse("Account report retracted", null)))
+        viewModel.fetchProfile("user1")
+
+        // The report has reached the backend but its response is delayed.
+        val gate = CompletableDeferred<Unit>()
+        api.stub {
+            onBlocking { reportAccount(any(), any(), any()) } doSuspendableAnswer {
+                gate.await()
+                Response.success(GenericResponse("Account reported", null))
+            }
+        }
+        viewModel.reportAccount("user1", "Unkind bio")
+        advanceUntilIdle()
+        assertTrue(viewModel.isAccountReportBusy.value)
+
+        // Neither a second report nor a retraction is sent meanwhile, so the
+        // slow report response cannot land after a retraction and undo it.
+        viewModel.retractAccountReport("user1")
+        viewModel.reportAccount("user1", "Unkind bio")
+        advanceUntilIdle()
+        verify(api, never()).retractReportAccount(any(), any())
+        verify(api, times(1)).reportAccount(any(), any(), any())
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertFalse(viewModel.isAccountReportBusy.value)
+        assertTrue(viewModel.isAccountReported.value)
+
+        // Once it settles, the retraction goes through and sticks.
+        viewModel.retractAccountReport("user1")
+        advanceUntilIdle()
+        verify(api).retractReportAccount(eq("token123"), eq("user1"))
+        assertFalse(viewModel.isAccountReported.value)
+        assertFalse(viewModel.isAccountReportBusy.value)
+    }
 }

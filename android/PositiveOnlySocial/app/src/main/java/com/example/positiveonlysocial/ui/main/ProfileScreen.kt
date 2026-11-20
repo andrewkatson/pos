@@ -149,6 +149,7 @@ fun ProfileBody(
     val isAccountReported by viewModel.isAccountReported.collectAsState()
     val accountReportReason by viewModel.accountReportReason.collectAsState()
     val reportErrorMessage by viewModel.reportErrorMessage.collectAsState()
+    val isAccountReportBusy by viewModel.isAccountReportBusy.collectAsState()
     var showReportAccountDialog by remember { mutableStateOf(false) }
     var showRetractAccountReportDialog by remember { mutableStateOf(false) }
 
@@ -350,6 +351,9 @@ fun ProfileBody(
                                             showProfileMenu = false
                                             showRetractAccountReportDialog = true
                                         },
+                                        // Disabled while a report or retraction
+                                        // is still in flight, so they never overlap.
+                                        enabled = !isAccountReportBusy,
                                         modifier = Modifier.testTag("retractReportAccountMenuItem")
                                     )
                                 } else {
@@ -359,6 +363,7 @@ fun ProfileBody(
                                             showProfileMenu = false
                                             showReportAccountDialog = true
                                         },
+                                        enabled = !isAccountReportBusy,
                                         modifier = Modifier.testTag("reportAccountMenuItem")
                                     )
                                 }
