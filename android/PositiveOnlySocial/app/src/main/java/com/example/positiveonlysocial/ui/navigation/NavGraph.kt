@@ -74,11 +74,14 @@ fun NavGraph(
     // parsed in MainActivity, held the same way until a session exists. It
     // pushes the ordinary Profile screen — the same one a search result opens —
     // so your own username lands on your own profile with Follow / Block hidden.
-    // A follow notification (issue #604) arrives the same way. When that very
-    // profile is already on top it is replaced, not reused: launchSingleTop
-    // would keep its entry and ViewModel, and the screen reloads only when the
-    // username changes, so an accepted follow request would leave the old
-    // "private" view up instead of the posts it unlocked.
+    // A follow notification (issue #604) arrives the same way. Every request
+    // gets a fresh Profile entry, never launchSingleTop: that would reuse the
+    // Profile entry on top and its ViewModel, and ProfileBody fetches only when
+    // nothing is loaded yet, so a different username would show above the
+    // previous person's bio, counts and posts. When that very profile is
+    // already on top it is replaced rather than stacked, so an accepted follow
+    // request swaps the old "private" view for the posts it unlocked without
+    // leaving a duplicate behind it.
     val pendingProfileUsername by PushNavigator.pendingProfileUsername.collectAsState()
     LaunchedEffect(pendingProfileUsername, pushIsLoggedIn) {
         val username = pendingProfileUsername ?: return@LaunchedEffect
@@ -90,8 +93,6 @@ fun NavGraph(
         navController.navigate(Screen.Profile.createRoute(username)) {
             if (sameProfileOnTop) {
                 popUpTo(top!!.destination.id) { inclusive = true }
-            } else {
-                launchSingleTop = true
             }
         }
     }

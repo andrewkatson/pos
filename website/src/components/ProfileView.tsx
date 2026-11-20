@@ -10,6 +10,7 @@ import type {
   ProfileDetails,
   PublicProfileDetails,
 } from '../api/types'
+import { focusableIn } from '../utils/focusable'
 import { profileShareUrl, shareLink } from '../utils/shareLink'
 import AnchoredMenu, { AnchoredMenuItem } from './AnchoredMenu'
 import { anchorFrom, type MenuAnchor } from './menuAnchor'
@@ -99,6 +100,11 @@ function ProfileView({
   const [isReported, setIsReported] = useState(false)
   const [reportDialogOpen, setReportDialogOpen] = useState(false)
   const [reportReason, setReportReason] = useState('')
+  // The report dialog's focus lifecycle: it opens from the options menu, which
+  // closes as it does, so focus goes back to the options button afterwards.
+  const optionsButtonRef = useRef<HTMLButtonElement>(null)
+  const reportDialogRef = useRef<HTMLDivElement>(null)
+  const reportReasonRef = useRef<HTMLInputElement>(null)
   const [isBusy, setIsBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -480,11 +486,56 @@ function ProfileView({
     setReportDialogOpen(true)
   }
 
+  function closeReportDialog() {
+    setReportDialogOpen(false)
+    setReportReason('')
+    if (optionsButtonRef.current?.isConnected) optionsButtonRef.current.focus()
+  }
+
+  // While the report dialog is open: move focus to the reason field, close on
+  // Escape, and keep Tab cycling inside it so a keyboard user can't land on
+  // the page behind the backdrop — what `aria-modal` promises assistive tech.
+  useEffect(() => {
+    if (!reportDialogOpen) return
+
+    const dialog = reportDialogRef.current
+    reportReasonRef.current?.focus()
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeReportDialog()
+        return
+      }
+      if (event.key !== 'Tab' || !dialog) return
+
+      const focusable = focusableIn(dialog)
+      if (focusable.length === 0) {
+        event.preventDefault()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      // -1 when focus is outside the dialog or on something no longer
+      // tabbable (Submit disables when the reason is cleared); wrap either way.
+      const index = focusable.indexOf(document.activeElement as HTMLElement)
+      if (event.shiftKey && index <= 0) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (index === -1 || index === focusable.length - 1)) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [reportDialogOpen])
+
   async function submitAccountReport() {
     const reason = reportReason.trim()
     if (!reason || isBusy) return
-    setReportDialogOpen(false)
-    setReportReason('')
+    closeReportDialog()
     setIsBusy(true)
     setErrorMessage(null)
     try {
@@ -808,6 +859,7 @@ function ProfileView({
               profile can also report the account there (issue #602). */}
           <button
             type="button"
+            ref={optionsButtonRef}
             className="profile-menu-button"
             aria-label="Profile options"
             aria-haspopup="menu"
@@ -1081,7 +1133,13 @@ function ProfileView({
 
       {reportDialogOpen && (
         <div className="modal-overlay">
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Report account">
+          <div
+            ref={reportDialogRef}
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Report account"
+          >
             <h2 className="modal__title">Report {username}</h2>
             <p className="muted">
               Tell us what's wrong with this account's username, bio or profile photo.
@@ -1091,6 +1149,7 @@ function ProfileView({
               type="text"
               placeholder="Reason for reporting..."
               aria-label="Reason for reporting"
+              ref={reportReasonRef}
               value={reportReason}
               onChange={e => setReportReason(e.target.value)}
             />
@@ -1098,10 +1157,7 @@ function ProfileView({
               <button
                 type="button"
                 className="modal__cancel"
-                onClick={() => {
-                  setReportDialogOpen(false)
-                  setReportReason('')
-                }}
+                onClick={closeReportDialog}
               >
                 Cancel
               </button>

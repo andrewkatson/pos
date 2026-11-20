@@ -437,6 +437,29 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         #expect(sut.isAccountReported == false)
     }
 
+    @Test func testReportAccount_OnALoadedProfile_RefreshesTheDetails() async throws {
+        // A report supersedes any profile read in flight, so it must start a
+        // replacement even when details are already loaded, or whatever that
+        // read was bringing in (here, a new follower) never lands.
+        let (token, viewer) = try await registerUser(username: "reportLoadedViewer")
+        let (_, other) = try await registerUser(username: "reportLoadedSubject")
+        let (fanToken, _) = try await registerUser(username: "reportLoadedFan")
+        let account = "reportLoadedViewer_account"
+        try await setupLoggedInUser(user: viewer, token: token, account: account)
+        let sut = ProfileViewModel(user: other, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.fetchProfileDetails()
+        await yield()
+        #expect(sut.profileDetails?.followerCount == 0)
+
+        _ = try await stubAPI.followUser(sessionManagementToken: fanToken, username: other.username)
+        sut.reportAccount(reason: "Unkind bio")
+        await yield()
+
+        #expect(sut.isAccountReported == true)
+        #expect(sut.profileDetails?.followerCount == 1)
+        #expect(sut.profileDetails?.reportReason == "Unkind bio")
+    }
+
     @Test func testReportAccount_Twice_SurfacesAnError() async throws {
         let (token, viewer) = try await registerUser(username: "reportTwiceViewer")
         let (_, other) = try await registerUser(username: "reportTwiceSubject")

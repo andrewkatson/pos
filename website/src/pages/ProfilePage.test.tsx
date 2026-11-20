@@ -794,6 +794,35 @@ test('reports the account from the profile options menu (#602)', async () => {
   expect(screen.getByRole('menuitem', { name: 'Retract Report' })).toBeInTheDocument()
 })
 
+test('the account report dialog keeps keyboard focus inside it (#602)', async () => {
+  renderProfile()
+  await screen.findByText('10')
+
+  const optionsButton = screen.getByRole('button', { name: 'Profile options' })
+  await userEvent.click(optionsButton)
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Report' }))
+  const dialog = screen.getByRole('dialog', { name: 'Report account' })
+  const reason = within(dialog).getByLabelText('Reason for reporting')
+  // Opening moves focus to the reason field.
+  expect(reason).toHaveFocus()
+
+  // Tab cycles through the dialog's controls only (Submit is disabled while
+  // the reason is empty, so it is skipped).
+  const cancel = within(dialog).getByRole('button', { name: 'Cancel' })
+  await userEvent.tab()
+  expect(cancel).toHaveFocus()
+  await userEvent.tab()
+  expect(reason).toHaveFocus()
+  await userEvent.tab({ shift: true })
+  expect(cancel).toHaveFocus()
+
+  // Escape closes it and hands focus back to the options button.
+  await userEvent.keyboard('{Escape}')
+  expect(screen.queryByRole('dialog', { name: 'Report account' })).not.toBeInTheDocument()
+  expect(optionsButton).toHaveFocus()
+  expect(mockReportAccount).not.toHaveBeenCalled()
+})
+
 test('an account the viewer already reported offers Retract Report (#602)', async () => {
   mockGetProfile.mockResolvedValue({ ...baseProfile, is_reported: true, report_reason: 'Unkind bio' })
   renderProfile()
