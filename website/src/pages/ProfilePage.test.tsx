@@ -50,6 +50,7 @@ const mockUnlikePost = vi.mocked(apiClient.unlikePost)
 const mockReportPost = vi.mocked(apiClient.reportPost)
 const mockRetractReport = vi.mocked(apiClient.retractReportPost)
 const mockReportAccount = vi.mocked(apiClient.reportAccount)
+const mockToggleBlock = vi.mocked(apiClient.toggleBlock)
 const mockRetractReportAccount = vi.mocked(apiClient.retractReportAccount)
 
 const baseProfile: ProfileDetails = {
@@ -90,8 +91,15 @@ beforeEach(() => {
   mockUnlikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockReportPost.mockReset().mockResolvedValue({ message: 'ok' })
   mockRetractReport.mockReset().mockResolvedValue({ message: 'ok' })
-  mockReportAccount.mockReset().mockResolvedValue({ message: 'Account reported' })
-  mockRetractReportAccount.mockReset().mockResolvedValue({ message: 'Account report retracted' })
+  // Like the server, later profile reads reflect a report or retraction.
+  mockReportAccount.mockReset().mockImplementation(async (_username, reason) => {
+    mockGetProfile.mockResolvedValue({ ...baseProfile, is_reported: true, report_reason: reason })
+    return { message: 'Account reported' }
+  })
+  mockRetractReportAccount.mockReset().mockImplementation(async () => {
+    mockGetProfile.mockResolvedValue({ ...baseProfile, is_reported: false, report_reason: null })
+    return { message: 'Account report retracted' }
+  })
 })
 
 test('renders profile stats and follow button', async () => {
@@ -847,4 +855,32 @@ test('a profile read started before a report cannot undo it (#602)', async () =>
 
   await userEvent.click(screen.getByRole('button', { name: 'Profile options' }))
   expect(screen.getByRole('menuitem', { name: 'Retract Report' })).toBeInTheDocument()
+})
+
+test('reporting during a block revalidation still brings the counts back (#602)', async () => {
+  renderProfile()
+  await screen.findByText('10')
+  mockToggleBlock.mockResolvedValue({ message: 'User blocked' })
+
+  // Blocking hides the counts until a fresh profile read; hold that read.
+  let resolveRevalidation: (p: ProfileDetails) => void = () => {}
+  mockGetProfile.mockImplementationOnce(
+    () => new Promise<ProfileDetails>(resolve => { resolveRevalidation = resolve }),
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Block' }))
+  expect(screen.queryByText('10')).not.toBeInTheDocument()
+
+  // A report lands first and supersedes that read...
+  mockReportAccount.mockImplementation(async () => {
+    mockGetProfile.mockResolvedValue({ ...baseProfile, is_blocked: true, is_reported: true })
+    return { message: 'Account reported' }
+  })
+  await userEvent.click(screen.getByRole('button', { name: 'Profile options' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Report' }))
+  await userEvent.type(screen.getByLabelText('Reason for reporting'), 'Unkind bio')
+  await userEvent.click(screen.getByRole('button', { name: 'Submit Report' }))
+  resolveRevalidation({ ...baseProfile, is_blocked: true })
+
+  // ...but its replacement read still settles the revalidation.
+  expect(await screen.findByText('10')).toBeInTheDocument()
 })

@@ -540,7 +540,7 @@ def _issue_email_verification_token(user):
     user.email_verification_token_expires = timezone.now() + timedelta(
         hours=EMAIL_VERIFICATION_TOKEN_HOURS
     )
-    user.save()
+    user.save(update_fields=['email_verified', 'email_verification_token', 'email_verification_token_expires'])
     return token
 def _email_verification_link(token):
     return f"{settings.FRONTEND_BASE_URL}/verify-email?token={token}"
@@ -945,7 +945,7 @@ def verify_identity(request):
 
         request.user.identity_is_verified = True
         request.user.is_adult = age >= ADULT_AGE
-        request.user.save()
+        request.user.save(update_fields=['identity_is_verified', 'is_adult'])
 
         logger.info(f"Identity verification successful for user_id: {request.user.id}")
         return log_and_return_json("verify_identity", {'message': 'Identity verified'})
@@ -1706,7 +1706,7 @@ def verify_email(request):
         user.email_verified = True
         user.email_verification_token = None
         user.email_verification_token_expires = None
-        user.save()
+        user.save(update_fields=['email_verified', 'email_verification_token', 'email_verification_token_expires'])
 
     logger.info(f"Email verification successful for user_id: {user.id}")
     return log_and_return_json("verify_email", {'message': 'Email verified'})
@@ -1794,7 +1794,7 @@ def request_reset(request):
         user.reset_token_expires = None
         user.verification_failed_attempts = 0
         user.verification_lockout_until = None
-        user.save()
+        user.save(update_fields=['verification_token', 'verification_token_expires', 'reset_token', 'reset_token_expires', 'verification_failed_attempts', 'verification_lockout_until'])
         logger.info(f"Password reset request successful for user_id: {user.id}")
         return log_and_return_json("request_reset", {'message': 'Reset email sent'})
     else:
@@ -1865,7 +1865,7 @@ def verify_reset(request):
                 user.reset_token_expires = timezone.now() + timedelta(minutes=15)
                 user.verification_failed_attempts = 0
                 user.verification_lockout_until = None
-                user.save()
+                user.save(update_fields=['verification_token', 'verification_token_expires', 'reset_token', 'reset_token_expires', 'verification_failed_attempts', 'verification_lockout_until'])
                 logger.info(f"Password reset verification successful for user_id: {user.id}")
                 response = log_and_return_json("verify_reset", {'message': 'Verification successful', 'reset_token': reset_token})
                 response['Cache-Control'] = 'no-store'
@@ -1875,7 +1875,7 @@ def verify_reset(request):
                 if user.verification_failed_attempts >= VERIFY_RESET_MAX_ATTEMPTS:
                     user.verification_lockout_until = timezone.now() + timedelta(minutes=VERIFY_RESET_LOCKOUT_MINUTES)
                     user.verification_failed_attempts = 0
-                    user.save()
+                    user.save(update_fields=['verification_failed_attempts', 'verification_lockout_until'])
                     logger.warning(
                         f"Password reset verification locked out after {VERIFY_RESET_MAX_ATTEMPTS} "
                         f"attempts for user_id: {user.id}"
@@ -1883,7 +1883,7 @@ def verify_reset(request):
                     return log_and_return_json("verify_reset", {
                         'error': "Too many failed attempts. Try again later."
                     }, status=429)
-                user.save()
+                user.save(update_fields=['verification_failed_attempts'])
                 logger.warning(f"Password reset verification failed for user_id: {user.id}")
                 return log_and_return_json("verify_reset", {'error': "Invalid or expired verification token"}, status=400)
     except get_user_model().DoesNotExist:
@@ -1938,7 +1938,7 @@ def reset_password(request):
             user.set_password(password)
             user.reset_token = None
             user.reset_token_expires = None
-            user.save()
+            user.save(update_fields=['password', 'reset_token', 'reset_token_expires'])
             Session.objects.filter(management_user=user).delete()
             LoginCookie.objects.filter(cookie_user=user).delete()
     except get_user_model().DoesNotExist:
@@ -2001,7 +2001,7 @@ def change_password(request):
             )
 
         user.set_password(new_password)
-        user.save()
+        user.save(update_fields=['password'])
         # Evict other devices but keep the session that made this request, so the
         # caller isn't logged out of the device they just changed the password on.
         Session.objects.filter(management_user=user).exclude(management_token=request.token).delete()

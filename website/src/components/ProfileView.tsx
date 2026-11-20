@@ -451,6 +451,27 @@ function ProfileView({
     if (result === 'failed') setErrorMessage('Could not share this profile.')
   }
 
+  // A profile-only reload (header, relationship, report state), for after a
+  // mutation superseded the load in flight. Unlike loadProfile a failure keeps
+  // the header already on screen, as a manual refresh does.
+  async function reloadProfileDetails() {
+    const generation = loadGeneration.current
+    const profileGen = profileGeneration.current
+    try {
+      const details = await fetchProfile()
+      if (
+        !isMounted.current ||
+        generation !== loadGeneration.current ||
+        profileGen !== profileGeneration.current
+      )
+        return
+      setProfile(details)
+      applyRelationship(details)
+    } catch {
+      /* keep the loaded header; the next refresh retries */
+    }
+  }
+
   // Report this account — its username, bio or photo (issue #602). Like a post
   // report it hides nothing by itself; it asks for a review.
   function openReportDialog() {
@@ -470,10 +491,13 @@ function ProfileView({
       await apiClient.reportAccount(username, reason)
       if (isMounted.current) {
         // Supersede an older profile load so it can't restore the previous
-        // report state; if that was the only load (no header yet), replace it.
+        // report state, and start a replacement so whatever that load was
+        // settling (the header itself, or an unfollow/block revalidation)
+        // still settles.
         profileGeneration.current += 1
         setIsReported(true)
         if (!profile) refresh()
+        else void reloadProfileDetails()
       }
     } catch (err) {
       if (isMounted.current) setErrorMessage(err instanceof Error ? err.message : 'Failed to report.')
@@ -491,10 +515,13 @@ function ProfileView({
       await apiClient.retractReportAccount(username)
       if (isMounted.current) {
         // Supersede an older profile load so it can't restore the previous
-        // report state; if that was the only load (no header yet), replace it.
+        // report state, and start a replacement so whatever that load was
+        // settling (the header itself, or an unfollow/block revalidation)
+        // still settles.
         profileGeneration.current += 1
         setIsReported(false)
         if (!profile) refresh()
+        else void reloadProfileDetails()
       }
     } catch (err) {
       if (isMounted.current) setErrorMessage(err instanceof Error ? err.message : 'Failed to retract report.')
