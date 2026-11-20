@@ -8,9 +8,10 @@
 import Foundation
 import Combine
 
-/// A tiny shared bus that writes "open this post" (or "open this profile")
-/// requests to the UI. Three things produce them: tapping a "post rejected"
-/// notification (issues #342/#343), opening a shared
+/// A tiny shared bus that writes "open this post" (or "open this profile", or
+/// "open your follow requests") requests to the UI. They come from tapping a
+/// push notification (a post's: issues #342/#343/#444; a new follower's
+/// profile or your follow requests: issue #604), opening a shared
 /// `https://smiling.social/post/<id>` link as a Universal Link (issue #382), and
 /// opening a shared `/profile/<username>` link the same way (issue #510). Kept
 /// separate from all of that plumbing so views depend only on this, not on
@@ -35,6 +36,11 @@ final class PushRouter: ObservableObject {
     /// Consumed and reset to nil the same way as the post above.
     @Published var pendingProfileUsername: String?
 
+    /// Set when a follow-request notification asked us to open the signed-in
+    /// user's incoming follow requests (issue #604). Consumed and reset to
+    /// false the same way.
+    @Published var pendingFollowRequests = false
+
     private init() {}
 
     func openPost(_ postIdentifier: String) {
@@ -43,5 +49,9 @@ final class PushRouter: ObservableObject {
 
     func openProfile(_ username: String) {
         pendingProfileUsername = username
+    }
+
+    func openFollowRequests() {
+        pendingFollowRequests = true
     }
 }

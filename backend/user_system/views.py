@@ -4790,6 +4790,8 @@ def follow_user(request, username_to_follow):
                 UserFollow.objects.create(user_from=request.user, user_to=user_to_follow_obj, category=category)
         except IntegrityError:
             return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
+    # Tell the followed account (issue #604), off the request path.
+    notifications.notify_new_follower(request.user, user_to_follow_obj)
     logger.info(f"Follow user successful: target_user_id: {user_to_follow_obj.id} by user_id: {request.user.id}")
     return log_and_return_json("follow_user", {
         'message': 'User followed',
@@ -4844,6 +4846,8 @@ def _request_to_follow(request, target_user, category):
             FollowRequest.objects.create(user_from=request.user, user_to=target_user, category=category)
     except IntegrityError:
         return log_and_return_json("follow_user", {'error': "Follow already requested"}, status=400)
+    # Tell the owner (issue #604). Enqueued on commit, so the job sees the request.
+    notifications.notify_follow_request(request.user, target_user)
     logger.info(f"Follow request filed: target_user_id: {target_user.id} by user_id: {request.user.id}")
     return log_and_return_json("follow_user", {
         'message': 'Follow requested',

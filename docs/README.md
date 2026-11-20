@@ -46,7 +46,8 @@ changes.
 - [Google sign-in setup](google-sign-in-setup.md) — wiring the OAuth client
   IDs for each surface.
 - [Push notifications](push-notifications.md) — device tokens, the
-  preference tree, which activity (new posts, comments, likes) notifies whom,
+  preference tree, which activity (new posts, comments, likes, follow requests
+  and new followers) notifies whom,
   APNs/FCM delivery, and the required secrets.
 
 ## Infrastructure and operations
