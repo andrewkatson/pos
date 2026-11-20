@@ -26,6 +26,16 @@ import Combine
 /// Push is a nudge, never the source of truth (#282 in-app reconciliation is):
 /// if nothing ever observes this the pending id is simply cleared and the user
 /// still finds the outcome in-app.
+/// The navigation value a routed profile request (a shared link or a follow
+/// notification) pushes. Each value is distinct, unlike a `User` for the same
+/// username, so it always builds a fresh ProfileView that loads the profile
+/// again — after an accepted follow request (issue #604) the posts it now
+/// shows must replace the "private" view an already-open copy would keep.
+struct OpenedProfileDestination: Hashable {
+    let username: String
+    let id = UUID()
+}
+
 final class PushRouter: ObservableObject {
     static let shared = PushRouter()
 
