@@ -324,15 +324,7 @@ def _send_apns(tokens, payload):
         # is JSON so APNs never has to guess.
         "content-type": "application/json",
     }
-    # Custom keys go under "data" (not flattened to the top level) so iOS reads
-    # them at userInfo["data"], matching the FCM data map exactly — including
-    # coercing values to strings, so the "all-string data map" contract holds
-    # even if a future caller passes a non-string.
-    data = {k: str(v) for k, v in payload.get("data", {}).items()}
-    body = json.dumps({
-        "aps": {"alert": {"title": payload["title"], "body": payload["body"]}, "sound": "default"},
-        "data": data,
-    })
+    body = _apns_body(payload)
 
     dead = []
     with httpx.Client(http2=True, timeout=10.0) as client:
@@ -355,6 +347,31 @@ def _send_apns(tokens, payload):
             else:
                 logger.warning("APNs send failed (%s): %s", response.status_code, response.text[:200])
     return dead
+
+
+# APNs rejects a notification whose JSON body is larger than this many bytes.
+APNS_MAX_PAYLOAD_BYTES = 4096
+
+
+def _apns_body(payload):
+    """The UTF-8 JSON body APNs receives for ``payload``.
+
+    Custom keys go under "data" (not flattened to the top level) so iOS reads
+    them at userInfo["data"], matching the FCM data map exactly — including
+    coercing values to strings, so the "all-string data map" contract holds
+    even if a future caller passes a non-string.
+
+    Non-ASCII is written as UTF-8 rather than ``\\uXXXX`` escapes, and with no
+    padding after separators: a username may be up to 150 Unicode word
+    characters, and an astral one (U+10000 and up) escapes to 12 bytes against
+    4 raw, which would push a follow payload — the name in the title, the data
+    map and the percent-encoded deep link — past APNS_MAX_PAYLOAD_BYTES.
+    """
+    data = {k: str(v) for k, v in payload.get("data", {}).items()}
+    return json.dumps({
+        "aps": {"alert": {"title": payload["title"], "body": payload["body"]}, "sound": "default"},
+        "data": data,
+    }, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
 def _apns_token_is_dead(response):
