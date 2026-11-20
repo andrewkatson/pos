@@ -30,8 +30,9 @@ object PushNavigator {
         _pendingPostId.value = postId
     }
 
-    /** A shared profile link (issue #510) or a new-follower notification
-     * (issue #604) asked us to open [username]'s profile. */
+    /** A shared profile link (issue #510), or a new-follower or
+     * accepted-request notification (issue #604), asked us to open
+     * [username]'s profile. */
     fun openProfile(username: String) {
         _pendingProfileUsername.value = username
     }

@@ -143,11 +143,13 @@ PUSH_TYPE_POST_REJECTED = "post_rejected"
 PUSH_TYPE_NEW_POST = "new_post"
 PUSH_TYPE_NEW_COMMENT = "new_comment"
 PUSH_TYPE_NEW_LIKE = "new_like"
-# Follow activity (issue #604): a follow request to a private account, and a new
-# follower of a public one. These are about a person, not a post, so their data
+# Follow activity (issue #604): a follow request to a private account, a new
+# follower of a public one, and a request's approval. These are about a person, not a post, so their data
 # map carries the actor's `username` instead of a post_identifier.
 PUSH_TYPE_FOLLOW_REQUEST = "follow_request"
 PUSH_TYPE_NEW_FOLLOWER = "new_follower"
+# The requester's side of an approved follow request: the owner accepted it.
+PUSH_TYPE_FOLLOW_ACCEPTED = "follow_accepted"
 
 # The master switch (issue #444): off silences every push type below it. It is
 # a preference type only — no payload is ever sent with it.
@@ -158,7 +160,8 @@ PUSH_TYPE_ALL = "all"
 # when the recipient does not follow the actor at all. New posts only ever
 # reach followers, so they have no "other" source; comments, likes, follow
 # requests and new followers can come from anyone (for the last two, "other" is
-# someone the recipient does not follow back).
+# someone the recipient does not follow back). An accepted follow request always
+# leaves the recipient following the owner, so it has no "other" source either.
 PUSH_SOURCE_OTHER = "other"
 PUSH_SOURCE_LABELS = {
     FOLLOW_CATEGORY_FOLLOWING: "From people I follow",
@@ -197,6 +200,7 @@ PUSH_TYPE_TREE = [
     *_push_kind_rows(PUSH_TYPE_NEW_LIKE, "Likes", _ANY_SOURCE),
     *_push_kind_rows(PUSH_TYPE_NEW_FOLLOWER, "New followers", _ANY_SOURCE),
     *_push_kind_rows(PUSH_TYPE_FOLLOW_REQUEST, "Follow requests", _ANY_SOURCE),
+    *_push_kind_rows(PUSH_TYPE_FOLLOW_ACCEPTED, "Accepted follow requests", _FOLLOW_SOURCES),
 ]
 PUSH_TYPE_PARENTS = {value: parent for value, _, parent in PUSH_TYPE_TREE}
 PUSH_TYPES = frozenset(PUSH_TYPE_PARENTS)

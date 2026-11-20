@@ -79,8 +79,8 @@ Following a private account takes a **follow request**:
   a missing account. Filing, approving and blocking take row locks on the two
   accounts, so a block can't race a request into existence or into a follow.
 - A new request sends the owner a push notification that opens their request
-  list (and following a public account tells its owner they have a new
-  follower) — see [Follow notifications](push-notifications.md#follow-notifications-issue-604).
+  list, and approving it tells the requester (following a public account tells
+  its owner they have a new follower) — see [Follow notifications](push-notifications.md#follow-notifications-issue-604).
 - The owner lists incoming requests, newest first, with
   `GET /users/follow-requests/` — 30 per page; each row carries its
   `request_id`, and `?after=<request_id>` fetches the next, older page, a cursor

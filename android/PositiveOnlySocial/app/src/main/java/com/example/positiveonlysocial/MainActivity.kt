@@ -85,8 +85,8 @@ class MainActivity : ComponentActivity() {
 
     /** Route to what a tapped notification is about: a rejected post, a new
      * post, or one that was commented on or liked (issues #342/#343/#444), or
-     * for follow activity (#604) the follow-request list or a new follower's
-     * profile. FCM delivers the payload's data keys as string extras. */
+     * for follow activity (#604) the follow-request list or the profile of a
+     * new follower or of someone who accepted a request. FCM delivers the payload's data keys as string extras. */
     private fun handleNotificationIntent(intent: Intent?) {
         if (intent == null) return
         val postId = intent.getStringExtra(PosFirebaseMessagingService.KEY_POST_IDENTIFIER)
@@ -103,7 +103,7 @@ class MainActivity : ComponentActivity() {
                 PushNavigator.openFollowRequests()
                 true
             }
-            !username.isNullOrEmpty() && type == PosFirebaseMessagingService.TYPE_NEW_FOLLOWER -> {
+            !username.isNullOrEmpty() && type in PosFirebaseMessagingService.PROFILE_TYPES -> {
                 PushNavigator.openProfile(username)
                 true
             }

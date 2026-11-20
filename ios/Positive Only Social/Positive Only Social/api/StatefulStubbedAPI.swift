@@ -2772,6 +2772,8 @@ final class StatefulStubbedAPI: Networking {
         tree.append(contentsOf: sources("new_follower", withOther: true))
         tree.append(("follow_request", "Follow requests", "all"))
         tree.append(contentsOf: sources("follow_request", withOther: true))
+        tree.append(("follow_accepted", "Accepted follow requests", "all"))
+        tree.append(contentsOf: sources("follow_accepted", withOther: false))
         let prefs = tree.map { type, label, parent in
             NotificationPreference(type: type, label: label,
                                    enabled: notificationOverrides[type] ?? true, parent: parent)

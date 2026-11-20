@@ -104,7 +104,8 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
     /// known kinds route anywhere and any future kind is ignored rather than
     /// mis-routed: the post kinds (a rejection, a new post, a comment or a like
     /// — #342/#444) open their `post_identifier`; a follow request opens the
-    /// follow-request list, and a new follower that follower's profile (#604).
+    /// follow-request list, and a new follower or an accepted request the
+    /// other person's profile (#604).
     private func route(userInfo: [AnyHashable: Any]) {
         // APNs bridges the nested JSON object as [AnyHashable: Any] (from
         // NSDictionary), so cast to that — [String: Any] can fail on a valid
@@ -117,7 +118,7 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
             DispatchQueue.main.async { PushRouter.shared.openPost(postIdentifier) }
         } else if type == FOLLOW_REQUEST_PUSH_TYPE {
             DispatchQueue.main.async { PushRouter.shared.openFollowRequests() }
-        } else if type == NEW_FOLLOWER_PUSH_TYPE, let username = data["username"] as? String, !username.isEmpty {
+        } else if PROFILE_PUSH_TYPES.contains(type), let username = data["username"] as? String, !username.isEmpty {
             DispatchQueue.main.async { PushRouter.shared.openProfile(username) }
         }
     }
@@ -128,4 +129,4 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
 private let POST_PUSH_TYPES: Set<String> = ["post_rejected", "new_post", "new_comment", "new_like"]
 // Follow kinds (#604), which carry a `username` instead of a post.
 private let FOLLOW_REQUEST_PUSH_TYPE = "follow_request"
-private let NEW_FOLLOWER_PUSH_TYPE = "new_follower"
+private let PROFILE_PUSH_TYPES: Set<String> = ["new_follower", "follow_accepted"]
