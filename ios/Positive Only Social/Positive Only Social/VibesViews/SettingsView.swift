@@ -44,6 +44,14 @@ struct SettingsView: View {
     @State private var changePasswordNew = ""
     @State private var changePasswordConfirm = ""
 
+    // Username and email change sheets (issue #594).
+    @State private var showingChangeUsername = false
+    @State private var showingChangeEmail = false
+    @State private var newUsername = ""
+    @State private var newEmail = ""
+    @State private var changeEmailPassword = ""
+    private let googleSignIn: GoogleSignInProviding = Config.googleSignIn
+
     // Interests sheet (issues #446/#35).
     @State private var showingInterests = false
 
@@ -73,13 +81,44 @@ struct SettingsView: View {
                 // MARK: - Contact Information Section (issues #194/#197)
                 // The signed-in user's own username + email (was a hardcoded
                 // support address). Falls back to a placeholder while loading.
-                Section(header: Text("Contact Information")) {
-                    Text(viewModel.currentUsername ?? "…")
-                        .foregroundColor(.gray)
+                Section(header: Text("Contact Information"), footer: contactInfoFooter) {
+                    if viewModel.canChangeAccountDetails,
+                       let username = viewModel.currentUsername,
+                       let email = viewModel.currentEmail {
+                        // Changing the username or email (issue #594).
+                        Button {
+                            newUsername = ""
+                            showingChangeUsername = true
+                        } label: {
+                            accountDetailRow(username)
+                        }
+                        // One rename per cooldown: the footer says when the
+                        // next one is allowed instead of opening a form that
+                        // would only fail.
+                        .disabled(!viewModel.canRenameNow)
                         .accessibilityIdentifier("ContactInfoUsername")
-                    Text(viewModel.currentEmail ?? "…")
-                        .foregroundColor(.gray)
+                        Button {
+                            newEmail = ""
+                            changeEmailPassword = ""
+                            showingChangeEmail = true
+                        } label: {
+                            accountDetailRow(email)
+                        }
                         .accessibilityIdentifier("ContactInfoEmail")
+                        if viewModel.pendingEmail != nil {
+                            Button("Cancel Email Change", role: .destructive) {
+                                viewModel.cancelEmailChange()
+                            }
+                            .accessibilityIdentifier("CancelEmailChangeButton")
+                        }
+                    } else {
+                        Text(viewModel.currentUsername ?? "…")
+                            .foregroundColor(.gray)
+                            .accessibilityIdentifier("ContactInfoUsername")
+                        Text(viewModel.currentEmail ?? "…")
+                            .foregroundColor(.gray)
+                            .accessibilityIdentifier("ContactInfoEmail")
+                    }
                 }
 
                 // MARK: - Contact Us Section (issue #194)
@@ -281,6 +320,11 @@ struct SettingsView: View {
             } message: {
                 Text(viewModel.twoFactorStatusMessage)
             }
+            .alert("Account", isPresented: $viewModel.showingAccountChangeStatusAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(viewModel.accountChangeStatusMessage)
+            }
             .alert("Change Password", isPresented: $viewModel.showingPasswordChangeStatusAlert) {
                 Button("OK", role: .cancel) { }
             } message: {
@@ -316,6 +360,26 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showingDisableTwoFactor) {
                 disableTwoFactorSheet
+            }
+            .sheet(isPresented: $showingChangeUsername, onDismiss: {
+                viewModel.finishAccountChangeSheet()
+            }) {
+                changeUsernameSheet
+                    .onChange(of: viewModel.usernameChangeSucceeded) { _, succeeded in
+                        if succeeded { showingChangeUsername = false }
+                    }
+                    .interactiveDismissDisabled(viewModel.isChangingAccountDetails)
+            }
+            .sheet(isPresented: $showingChangeEmail, onDismiss: {
+                // The password is sensitive; don't keep it once the sheet closes.
+                changeEmailPassword = ""
+                viewModel.finishAccountChangeSheet()
+            }) {
+                changeEmailSheet
+                    .onChange(of: viewModel.emailChangeRequested) { _, requested in
+                        if requested { showingChangeEmail = false }
+                    }
+                    .interactiveDismissDisabled(viewModel.isChangingAccountDetails)
             }
             .sheet(isPresented: $showingChangePassword, onDismiss: {
                 // Clear the entered passwords from memory once the sheet closes —
@@ -454,6 +518,188 @@ struct SettingsView: View {
     /// change it, and a successful change evicts the account's other sessions
     /// and remember-me cookies (only this device stays signed in).
     @ViewBuilder
+    // MARK: - Username and email (issue #594)
+
+    /// A Contact Information row: the value, with "Change" on the right.
+    private func accountDetailRow(_ value: String) -> some View {
+        HStack {
+            Text(value)
+                .foregroundColor(.primary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+            Spacer()
+            Text("Change")
+                .foregroundColor(viewModel.isChangingAccountDetails ? .gray : .blue)
+        }
+    }
+
+    /// When the next rename is allowed, and any email waiting on its link.
+    @ViewBuilder
+    private var contactInfoFooter: some View {
+        let renameDate = viewModel.canRenameNow ? nil : viewModel.nextUsernameChangeTime
+        if renameDate != nil || viewModel.pendingEmail != nil {
+            VStack(alignment: .leading, spacing: 4) {
+                if let renameDate {
+                    Text("You can change your username again on \(renameDate.formatted(date: .long, time: .omitted)).")
+                }
+                if let pending = viewModel.pendingEmail {
+                    Text("Waiting for you to confirm \(pending) — open the link we sent there.")
+                        .accessibilityIdentifier("PendingEmailNotice")
+                }
+            }
+        }
+    }
+
+    /// Mirrors Patterns.username: 10–150 letters, digits and underscores.
+    private var newUsernameIsValid: Bool {
+        let trimmed = newUsername.trimmingCharacters(in: .whitespaces)
+        return trimmed.range(of: "^[\\p{L}\\p{N}_]{10,150}$", options: .regularExpression) != nil
+            && trimmed != viewModel.currentUsername
+    }
+
+    private var changeUsernameSheet: some View {
+        VStack(spacing: 16) {
+            Text("Change Username")
+                .font(.headline)
+                .padding(.top)
+
+            Text("You can change your username once every 30 days. Your old username stays reserved for you for 30 days, so links to your profile keep working.")
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+
+            if let changeError = viewModel.accountChangeErrorMessage {
+                Text(changeError)
+                    .font(.subheadline)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("AccountChangeError")
+            }
+
+            TextField("New username", text: $newUsername)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding().background(Color(.systemGray6)).cornerRadius(10)
+                .accessibilityIdentifier("NewUsernameField")
+
+            if !newUsername.isEmpty && !newUsernameIsValid {
+                Text("Use 10 to 150 letters, numbers, and underscores, different from your current username.")
+                    .font(.footnote)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button("Change Username") {
+                viewModel.changeUsername(newUsername.trimmingCharacters(in: .whitespaces), authManager: authManager)
+            }
+            .disabled(!newUsernameIsValid || viewModel.isChangingAccountDetails)
+            .padding()
+            .background(Color.blue)
+            .foregroundColor(.white)
+            .cornerRadius(8)
+            .accessibilityIdentifier("ConfirmChangeUsernameButton")
+
+            Button("Cancel") {
+                showingChangeUsername = false
+            }
+            .disabled(viewModel.isChangingAccountDetails)
+            .foregroundColor(.red)
+            Spacer()
+        }
+        .padding()
+        .presentationDetents([.large])
+    }
+
+    private var newEmailIsValid: Bool {
+        let trimmed = newEmail.trimmingCharacters(in: .whitespaces)
+        return trimmed.range(of: "^[^@]+@[^@]+\\.[^@]+$", options: .regularExpression) != nil
+            && trimmed.lowercased() != viewModel.currentEmail?.lowercased()
+    }
+
+    private var changeEmailSheet: some View {
+        VStack(spacing: 16) {
+            Text("Change Email")
+                .font(.headline)
+                .padding(.top)
+
+            Text("We'll send a link to your new address. Your email changes once you open it — until then, your current address keeps working.")
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+
+            if let changeError = viewModel.accountChangeErrorMessage {
+                Text(changeError)
+                    .font(.subheadline)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("AccountChangeError")
+            }
+
+            TextField("New email", text: $newEmail)
+                .keyboardType(.emailAddress)
+                .textContentType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding().background(Color(.systemGray6)).cornerRadius(10)
+                .accessibilityIdentifier("NewEmailField")
+
+            if !newEmail.isEmpty && !newEmailIsValid {
+                Text("Enter a valid email address that's different from your current one.")
+                    .font(.footnote)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+            }
+
+            let trimmedEmail = newEmail.trimmingCharacters(in: .whitespaces)
+            if viewModel.hasPassword == false {
+                // A Google-only account has no password; it signs in with
+                // Google again to prove it's the owner asking.
+                if googleSignIn.isConfigured {
+                    Button {
+                        viewModel.requestEmailChangeWithGoogle(trimmedEmail, googleSignIn: googleSignIn)
+                    } label: {
+                        HStack {
+                            Image(systemName: "g.circle.fill")
+                            Text("Confirm with Google")
+                        }
+                    }
+                    .disabled(!newEmailIsValid || viewModel.isChangingAccountDetails)
+                    .padding()
+                    .background(Color.black)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                    .accessibilityIdentifier("ConfirmEmailWithGoogleButton")
+                } else {
+                    Text("Google sign-in isn't available right now.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+            } else {
+                SecureField("Current password", text: $changeEmailPassword)
+                    .padding().background(Color(.systemGray6)).cornerRadius(10)
+                    .textContentType(isUITesting() ? nil : .password)
+                    .accessibilityIdentifier("ChangeEmailPasswordField")
+
+                Button("Send Link") {
+                    viewModel.requestEmailChange(trimmedEmail, password: changeEmailPassword, idToken: nil)
+                }
+                .disabled(!newEmailIsValid || changeEmailPassword.isEmpty || viewModel.isChangingAccountDetails)
+                .padding()
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(8)
+                .accessibilityIdentifier("ConfirmChangeEmailButton")
+            }
+
+            Button("Cancel") {
+                showingChangeEmail = false
+            }
+            .disabled(viewModel.isChangingAccountDetails)
+            .foregroundColor(.red)
+            Spacer()
+        }
+        .padding()
+        .presentationDetents([.large])
+    }
+
     private var changePasswordSheet: some View {
         VStack(spacing: 16) {
             Text("Change Password")

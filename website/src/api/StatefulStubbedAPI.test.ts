@@ -1,5 +1,12 @@
 import { vi } from 'vitest'
-import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
+import {
+  ApiError,
+  EMAIL_IN_USE,
+  INVALID_TWO_FACTOR_CHALLENGE,
+  REAUTHENTICATION_REQUIRED,
+  USERNAME_CHANGE_TOO_SOON,
+  USERNAME_TAKEN,
+} from './client'
 import { STUB_TOTP_CODE, StatefulStubbedAPI } from './StatefulStubbedAPI'
 import { isTwoFactorRequired } from './types'
 import type { RegisterRequest } from './types'
@@ -317,7 +324,67 @@ test('getCurrentUser returns the signed-in account’s own username and email', 
     username: 'ada',
     email: 'ada@example.com',
     is_private: false,
+    pending_email: null,
+    has_password: true,
+    next_username_change_time: null,
   })
+})
+
+test('changeUsername renames once, then enforces the cooldown (#594)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'grace')
+  await register(api, 'ada')
+
+  await expect(api.changeUsername({ username: 'short' })).rejects.toThrow("Invalid fields ['USERNAME']")
+  await expect(api.changeUsername({ username: 'negative_name' })).rejects.toThrow(/not positive/)
+
+  const result = await api.changeUsername({ username: 'ada_lovelace' })
+  expect(result.username).toBe('ada_lovelace')
+  expect(result.next_username_change_time).not.toBeNull()
+  expect((await api.getCurrentUser()).username).toBe('ada_lovelace')
+
+  await expect(api.changeUsername({ username: 'ada_lovelace_2' })).rejects.toThrow(USERNAME_CHANGE_TOO_SOON)
+})
+
+test('changeUsername refuses a name in use (#594)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'grace_hopper')
+  await register(api, 'ada')
+  await expect(api.changeUsername({ username: 'grace_hopper' })).rejects.toThrow(USERNAME_TAKEN)
+})
+
+test('an email change waits for its link, then swaps the address (#594)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'grace')
+  await register(api, 'ada')
+
+  await expect(
+    api.requestEmailChange({ email: 'new@example.com', password: 'wrong' }),
+  ).rejects.toThrow(REAUTHENTICATION_REQUIRED)
+  await expect(
+    api.requestEmailChange({ email: 'GRACE@example.com', password: 'password123' }),
+  ).rejects.toThrow(EMAIL_IN_USE)
+
+  await api.requestEmailChange({ email: 'new@example.com', password: 'password123' })
+  let me = await api.getCurrentUser()
+  expect(me.email).toBe('ada@example.com')
+  expect(me.pending_email).toBe('new@example.com')
+
+  await api.confirmEmailChange({ verification_token: 'stub_email_change_token_ada' })
+  me = await api.getCurrentUser()
+  expect(me.email).toBe('new@example.com')
+  expect(me.pending_email).toBeNull()
+})
+
+test('a cancelled email change can no longer be confirmed (#594)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+  await api.requestEmailChange({ email: 'new@example.com', password: 'password123' })
+  await api.cancelEmailChange()
+  await expect(
+    api.confirmEmailChange({ verification_token: 'stub_email_change_token_ada' }),
+  ).rejects.toThrow('Invalid or expired verification token')
+  expect((await api.getCurrentUser()).email).toBe('ada@example.com')
 })
 
 test('changePassword enforces the current password and strength, then updates it', async () => {

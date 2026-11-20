@@ -8,6 +8,7 @@ import {
   getStoredSessionToken,
   loadRememberMeTokens,
   saveRememberMeTokens,
+  updateStoredUsername,
 } from './api/session'
 import { registerForPush } from './push/webPush'
 import { installAuthFailureHandlers } from './api/authFailureRedirects'
@@ -82,8 +83,20 @@ installAuthFailureHandlers({
 // also means a session that has since been suspended is cleared promptly
 // rather than lingering in storage; what must not happen on these pages is the
 // *redirect*, and that is handled above.
+//
+// The cached username is refreshed too: another device may have renamed the
+// account (issue #594), and "is this me?" checks compare against the cache.
+// The old name keeps resolving for a while, so a stale cache is not urgent.
 void refreshRememberMeSession().finally(() => {
   void registerForPush()
+  if (getStoredSessionToken()) {
+    apiClient
+      .getCurrentUser()
+      .then(user => updateStoredUsername(user.username))
+      .catch(() => {
+        // Best-effort; an auth failure is handled by the handlers above.
+      })
+  }
 })
 
 createRoot(document.getElementById('root')!).render(

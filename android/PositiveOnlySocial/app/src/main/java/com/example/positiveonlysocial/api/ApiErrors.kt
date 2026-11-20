@@ -25,6 +25,21 @@ object ApiErrors {
 
     private val gson = Gson()
 
+    // Error codes from the username and email change endpoints (issue #594).
+    // The backend answers with stable codes rather than prose for these, so
+    // the copy lives here (see [codeMessages]).
+    const val USERNAME_TAKEN = "username_taken"
+    const val USERNAME_CHANGE_TOO_SOON = "username_change_too_soon"
+    const val EMAIL_IN_USE = "email_in_use"
+    const val REAUTHENTICATION_REQUIRED = "reauthentication_required"
+
+    val codeMessages: Map<String, String> = mapOf(
+        USERNAME_TAKEN to "That username is already taken.",
+        USERNAME_CHANGE_TOO_SOON to "You've changed your username recently. Please try again later.",
+        EMAIL_IN_USE to "Another account already uses that email address.",
+        REAUTHENTICATION_REQUIRED to "That didn't confirm it's you. Please check your password and try again.",
+    )
+
     /**
      * Maps backend raw field tokens to friendly display names.
      */
@@ -75,7 +90,7 @@ object ApiErrors {
         } catch (e: Exception) {
             null
         }
-        val sanitizedError = backendError?.let { sanitizeErrorMessage(it) }
+        val sanitizedError = backendError?.let { codeMessages[it] ?: sanitizeErrorMessage(it) }
         return sanitizedError ?: statusMessage(response.code(), fallback)
     }
 

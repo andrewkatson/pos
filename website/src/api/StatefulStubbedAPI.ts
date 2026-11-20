@@ -3,8 +3,15 @@
 // android/.../api/StatefulStubbedAPI.kt. Useful for tests and offline/demo
 // modes. Errors are surfaced by throwing ApiError, matching the real ApiClient.
 
-import { ApiError, INVALID_TWO_FACTOR_CHALLENGE } from './client'
-import { characterCount, MAX_BIO_LENGTH } from '../auth/requirements'
+import {
+  ApiError,
+  EMAIL_IN_USE,
+  INVALID_TWO_FACTOR_CHALLENGE,
+  REAUTHENTICATION_REQUIRED,
+  USERNAME_CHANGE_TOO_SOON,
+  USERNAME_TAKEN,
+} from './client'
+import { allMet, characterCount, getUsernameRequirements, MAX_BIO_LENGTH } from '../auth/requirements'
 import { extractTags } from '../utils/tags'
 import {
   INTEREST_OPTIONS,
@@ -24,6 +31,8 @@ import type {
   CommentOnPostResponse,
   CommentThreadRef,
   ChangePasswordRequest,
+  ChangeUsernameRequest,
+  ChangeUsernameResponse,
   ConfirmTotpRequest,
   ConfirmTotpResponse,
   CreatePostRequest,
@@ -59,6 +68,8 @@ import type {
   RemoveProfilePhotoResponse,
   SetNotificationPreferenceResponse,
   ReplyResponse,
+  RequestEmailChangeRequest,
+  RequestEmailChangeResponse,
   RequestResetRequest,
   ResendVerificationEmailRequest,
   ResetPasswordRequest,
@@ -189,7 +200,15 @@ interface UserMock {
   /** Google's `sub` claim once this account has been linked to a Google
    * identity (issue #10); null for password-only accounts. */
   googleSub: string | null
+  /** When the username last changed (issue #594), as epoch ms; absent if never. */
+  usernameChangedAt?: number
+  /** A new address waiting on its confirmation link (issue #594). */
+  pendingEmail?: string | null
+  pendingEmailToken?: string | null
 }
+
+/** Mirrors USERNAME_CHANGE_COOLDOWN_DAYS in backend/user_system/constants.py. */
+const USERNAME_CHANGE_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000
 
 interface TwoFactorChallengeMock {
   challengeToken: string
@@ -850,9 +869,91 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'User deleted successfully' }
   }
 
+  private nextUsernameChangeTime(user: UserMock): string | null {
+    if (user.usernameChangedAt === undefined) return null
+    const allowedAt = user.usernameChangedAt + USERNAME_CHANGE_COOLDOWN_MS
+    return allowedAt > Date.now() ? new Date(allowedAt).toISOString() : null
+  }
+
   async getCurrentUser(): Promise<CurrentUser> {
     const user = this.requireUser()
-    return { username: user.username, email: user.email, is_private: user.isPrivate }
+    return {
+      username: user.username,
+      email: user.email,
+      is_private: user.isPrivate,
+      pending_email: user.pendingEmail ?? null,
+      has_password: !user.passwordHash.startsWith('no-password-'),
+      next_username_change_time: this.nextUsernameChangeTime(user),
+    }
+  }
+
+  // The stub keeps no username holds (the backend reserves a given-up name
+  // for its former owner and still resolves it); it only renames.
+  async changeUsername(body: ChangeUsernameRequest): Promise<ChangeUsernameResponse> {
+    const user = this.requireUser()
+    if (!allMet(getUsernameRequirements(body.username))) {
+      throw new ApiError(400, "Invalid fields ['USERNAME']")
+    }
+    if (body.username === user.username) {
+      throw new ApiError(400, 'New username must be different from the current one')
+    }
+    if (this.nextUsernameChangeTime(user) !== null) {
+      throw new ApiError(400, USERNAME_CHANGE_TOO_SOON)
+    }
+    if (this.users.some((u) => u.username === body.username)) {
+      throw new ApiError(400, USERNAME_TAKEN)
+    }
+    if (body.username.toLowerCase().includes('negative')) {
+      throw new ApiError(400, 'Username is not positive because it is negative.')
+    }
+    user.username = body.username
+    user.usernameChangedAt = Date.now()
+    return {
+      username: user.username,
+      next_username_change_time: this.nextUsernameChangeTime(user),
+      message: 'Your username has been changed.',
+    }
+  }
+
+  async requestEmailChange(body: RequestEmailChangeRequest): Promise<RequestEmailChangeResponse> {
+    const user = this.requireUser()
+    if (!/^[^@]+@[^@]+\.[^@]+$/.test(body.email)) {
+      throw new ApiError(400, "Invalid fields ['EMAIL']")
+    }
+    const hasPassword = !user.passwordHash.startsWith('no-password-')
+    const reauthenticated = hasPassword ? body.password === user.passwordHash : Boolean(body.id_token)
+    if (!reauthenticated) {
+      throw new ApiError(400, REAUTHENTICATION_REQUIRED)
+    }
+    if (body.email.toLowerCase() === user.email.toLowerCase()) {
+      throw new ApiError(400, 'New email must be different from the current one')
+    }
+    if (this.users.some((u) => u.id !== user.id && u.email.toLowerCase() === body.email.toLowerCase())) {
+      throw new ApiError(400, EMAIL_IN_USE)
+    }
+    user.pendingEmail = body.email
+    user.pendingEmailToken = `stub_email_change_token_${user.username}`
+    return { pending_email: body.email, message: 'Check your new inbox for a link to confirm the change.' }
+  }
+
+  async cancelEmailChange(): Promise<MessageResponse> {
+    const user = this.requireUser()
+    user.pendingEmail = null
+    user.pendingEmailToken = null
+    return { message: 'Email change cancelled' }
+  }
+
+  async confirmEmailChange(body: VerifyEmailRequest): Promise<MessageResponse> {
+    const user = this.users.find(
+      (u) => u.pendingEmailToken != null && u.pendingEmailToken === body.verification_token,
+    )
+    if (!user || !user.pendingEmail) {
+      throw new ApiError(400, 'Invalid or expired verification token')
+    }
+    user.email = user.pendingEmail
+    user.pendingEmail = null
+    user.pendingEmailToken = null
+    return { message: 'Email changed' }
   }
 
   // ---------------------------------------------------------------------------

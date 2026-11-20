@@ -25,6 +25,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         // stub accepts, mirroring the fixed codes in the website/iOS stubs.
         const val STUB_TOTP_CODE = "123456"
 
+        /** Mirrors USERNAME_CHANGE_COOLDOWN_DAYS in backend/user_system/constants.py. */
+        const val USERNAME_CHANGE_COOLDOWN_MILLIS = 30L * 24 * 60 * 60 * 1000
+
         // Used for the credential-shaped stub values (TOTP secret), where
         // Kotlin's Random.Default would be an insecure generator.
         private val secureRandom = java.security.SecureRandom()
@@ -87,8 +90,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     private data class UserMock(
         val id: String = UUID.randomUUID().toString(),
-        val username: String,
-        val email: String,
+        // var: renaming and changing the email both rewrite these (issue #594).
+        var username: String,
+        var email: String,
         var passwordHash: String, // Storing plain text for stub simplicity, or simple hash
         var verificationToken: String? = null,
         var resetToken: String? = null,
@@ -135,7 +139,13 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val freeformInterests: MutableList<String> = mutableListOf(),
         // Google's `sub` claim once this account is linked to a Google identity
         // (issue #10); null for password-only accounts.
-        var googleSub: String? = null
+        var googleSub: String? = null,
+        // Changing the username or email (issue #594). The stub keeps no
+        // username holds; it renames, enforces the cooldown, and parks a
+        // requested address until confirmEmailChange.
+        var usernameChangedAtMillis: Long? = null,
+        var pendingEmail: String? = null,
+        var pendingEmailToken: String? = null
     )
 
     // A pending two-factor login, issued by loginUser when the account has
@@ -669,7 +679,83 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
     override suspend fun getCurrentUser(token: String): Response<CurrentUserResponse> {
         val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Invalid session")
         return Response.success(
-            CurrentUserResponse(username = user.username, email = user.email, isPrivate = user.isPrivate))
+            CurrentUserResponse(
+                username = user.username, email = user.email, isPrivate = user.isPrivate,
+                pendingEmail = user.pendingEmail,
+                hasPassword = !user.passwordHash.startsWith("no-password-"),
+                nextUsernameChangeTime = nextUsernameChangeTime(user)))
+    }
+
+    private fun nextUsernameChangeTime(user: UserMock): String? {
+        val changedAt = user.usernameChangedAtMillis ?: return null
+        val allowedAt = changedAt + USERNAME_CHANGE_COOLDOWN_MILLIS
+        return if (allowedAt > System.currentTimeMillis()) java.time.Instant.ofEpochMilli(allowedAt).toString() else null
+    }
+
+    override suspend fun changeUsername(token: String, request: ChangeUsernameRequest): Response<ChangeUsernameResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Invalid session")
+        // Patterns.username: 10–150 word characters (Unicode letters, digits, _).
+        if (!Regex("^[\\p{L}\\p{N}_]{10,150}$").matches(request.username)) {
+            return errorGeneric(400, "Invalid fields ['USERNAME']")
+        }
+        if (request.username == user.username) {
+            return errorGeneric(400, "New username must be different from the current one")
+        }
+        if (nextUsernameChangeTime(user) != null) {
+            return errorGeneric(400, ApiErrors.USERNAME_CHANGE_TOO_SOON)
+        }
+        if (users.any { it.username == request.username }) {
+            return errorGeneric(400, ApiErrors.USERNAME_TAKEN)
+        }
+        if (request.username.lowercase().contains("negative")) {
+            return errorGeneric(400, "Username is not positive because it is negative.")
+        }
+        user.username = request.username
+        user.usernameChangedAtMillis = System.currentTimeMillis()
+        return Response.success(ChangeUsernameResponse(user.username, nextUsernameChangeTime(user)))
+    }
+
+    override suspend fun requestEmailChange(
+        token: String,
+        request: RequestEmailChangeRequest
+    ): Response<RequestEmailChangeResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Invalid session")
+        if (!Regex("^[^@]+@[^@]+\\.[^@]+$").matches(request.email)) {
+            return errorGeneric(400, "Invalid fields ['EMAIL']")
+        }
+        val hasPassword = !user.passwordHash.startsWith("no-password-")
+        val reauthenticated = if (hasPassword) request.password == user.passwordHash else !request.idToken.isNullOrBlank()
+        if (!reauthenticated) {
+            return errorGeneric(400, ApiErrors.REAUTHENTICATION_REQUIRED)
+        }
+        if (request.email.equals(user.email, ignoreCase = true)) {
+            return errorGeneric(400, "New email must be different from the current one")
+        }
+        if (users.any { it.id != user.id && it.email.equals(request.email, ignoreCase = true) }) {
+            return errorGeneric(400, ApiErrors.EMAIL_IN_USE)
+        }
+        user.pendingEmail = request.email
+        user.pendingEmailToken = "stub_email_change_token_${user.username}"
+        return Response.success(RequestEmailChangeResponse(request.email))
+    }
+
+    override suspend fun cancelEmailChange(token: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Invalid session")
+        user.pendingEmail = null
+        user.pendingEmailToken = null
+        return Response.success(GenericResponse("Email change cancelled", null))
+    }
+
+    /** The emailed link's confirmation (issue #594). Not on the API interface:
+     * the link opens the website, so only tests drive this. Returns false for
+     * an unknown token. */
+    fun confirmEmailChange(token: String): Boolean {
+        val user = users.find { it.pendingEmailToken == token } ?: return false
+        val pending = user.pendingEmail ?: return false
+        user.email = pending
+        user.pendingEmail = null
+        user.pendingEmailToken = null
+        return true
     }
 
     override suspend fun changePassword(token: String, request: ChangePasswordRequest): Response<GenericResponse> {

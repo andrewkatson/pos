@@ -48,6 +48,20 @@ export function getCurrentUsername(): string | null {
   return readSessionValue('username')
 }
 
+/**
+ * Replaces the cached username after a rename (issue #594), in whichever store
+ * holds the session, so "is this me?" checks keep recognising the account. Also
+ * used to refresh a name another device changed. No-op without a session.
+ */
+export function updateStoredUsername(username: string): void {
+  for (const store of [localStorage, sessionStorage]) {
+    if (store.getItem('session_token') !== null) {
+      store.setItem('username', username)
+      return
+    }
+  }
+}
+
 export function getCurrentUserId(): string | null {
   return readSessionValue('user_id')
 }

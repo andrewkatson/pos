@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
-import { clearSession } from '../api/session'
+import { clearSession, updateStoredUsername } from '../api/session'
 import type { CurrentUser, NotificationPreference } from '../api/types'
 import { visibleNotificationRows } from '../api/notificationPreferences'
 import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
@@ -9,6 +9,8 @@ import { TERMS_OF_SERVICE_LAST_UPDATED, TERMS_OF_SERVICE_SECTIONS } from '../ter
 import { SUPPORT_EMAIL } from '../support'
 import Modal from './Modal'
 import InterestsModal from './InterestsModal'
+import { ChangeEmailModal, ChangeUsernameModal } from './AccountDetailsModals'
+import { formatChangeDate } from '../utils/formatChangeDate'
 import {
   ChangePasswordModal,
   DisableTwoFactorModal,
@@ -25,6 +27,8 @@ type ActiveModal =
   | 'disable2fa'
   | 'changePassword'
   | 'interests'
+  | 'changeUsername'
+  | 'changeEmail'
   | null
 
 /**
@@ -45,6 +49,7 @@ function SettingsTab() {
   const [savingTypes, setSavingTypes] = useState<string[]>([])
   // The private account setting (issue #96), saved as soon as it is toggled.
   const [savingPrivacy, setSavingPrivacy] = useState(false)
+  const [cancellingEmail, setCancellingEmail] = useState(false)
 
   // Load the signed-in account's own username + email for the Contact
   // Information section (load-on-mount, matching the rest of the app).
@@ -53,7 +58,11 @@ function SettingsTab() {
     apiClient
       .getCurrentUser()
       .then(user => {
-        if (!cancelled) setCurrentUser(user)
+        if (cancelled) return
+        setCurrentUser(user)
+        // Another device may have renamed the account (issue #594); keep the
+        // cached name that "is this me?" checks use in step with the server.
+        updateStoredUsername(user.username)
       })
       .catch(() => {
         // Non-fatal: the section falls back to a placeholder if this fails.
@@ -122,6 +131,26 @@ function SettingsTab() {
 
   const close = () => setActiveModal(null)
 
+  async function cancelEmailChange() {
+    if (cancellingEmail) return
+    setErrorMessage(null)
+    setCancellingEmail(true)
+    try {
+      await apiClient.cancelEmailChange()
+      setCurrentUser(user => (user ? { ...user, pending_email: null } : user))
+      setInfoMessage('Your email change was cancelled.')
+    } catch {
+      setErrorMessage('Could not cancel the email change. Please try again.')
+    } finally {
+      setCancellingEmail(false)
+    }
+  }
+
+  // Account-settings fields from a backend new enough to support changing the
+  // username and email (issue #594); an older one omits them.
+  const canChangeAccountDetails = currentUser?.has_password !== undefined
+  const nextRenameDate = formatChangeDate(currentUser?.next_username_change_time)
+
   async function handleLogout() {
     close()
     try {
@@ -177,12 +206,61 @@ function SettingsTab() {
 
       <div className="settings-group">
         <span className="settings-group__header">Contact Information</span>
-        <div className="settings-row settings-row--static">
-          {currentUser ? currentUser.username : '…'}
-        </div>
-        <div className="settings-row settings-row--static">
-          {currentUser ? currentUser.email : '…'}
-        </div>
+        {currentUser && canChangeAccountDetails ? (
+          <>
+            <button
+              type="button"
+              className="settings-row settings-row--toggle"
+              aria-label={`Username ${currentUser.username}. Change username`}
+              // One rename per cooldown (issue #594): the row says when the
+              // next one is allowed instead of opening a form that would fail.
+              disabled={nextRenameDate !== null}
+              onClick={() => setActiveModal('changeUsername')}
+            >
+              <span className="settings-row__label">{currentUser.username}</span>
+              <span className="settings-row__value">Change</span>
+            </button>
+            {nextRenameDate && (
+              <p className="settings-row__hint muted">
+                You can change your username again on {nextRenameDate}.
+              </p>
+            )}
+            <button
+              type="button"
+              className="settings-row settings-row--toggle"
+              aria-label={`Email ${currentUser.email}. Change email`}
+              onClick={() => setActiveModal('changeEmail')}
+            >
+              <span className="settings-row__label">{currentUser.email}</span>
+              <span className="settings-row__value">Change</span>
+            </button>
+            {currentUser.pending_email && (
+              <div className="settings-row__hint muted" role="status">
+                <p>
+                  Waiting for you to confirm {currentUser.pending_email} — open the link we sent
+                  there.
+                </p>
+                <button
+                  type="button"
+                  className="auth-link"
+                  disabled={cancellingEmail}
+                  onClick={() => void cancelEmailChange()}
+                >
+                  Cancel email change
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="settings-row settings-row--static">
+              {currentUser ? currentUser.username : '…'}
+            </div>
+            <div className="settings-row settings-row--static">
+              {currentUser ? currentUser.email : '…'}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="settings-group">
@@ -415,6 +493,33 @@ function SettingsTab() {
           onChanged={() => {
             close()
             setInfoMessage('Your password has been changed.')
+          }}
+        />
+      )}
+
+      {activeModal === 'changeUsername' && currentUser && (
+        <ChangeUsernameModal
+          currentUsername={currentUser.username}
+          onClose={close}
+          onChanged={(username, nextChangeTime) => {
+            close()
+            setCurrentUser(user =>
+              user ? { ...user, username, next_username_change_time: nextChangeTime } : user,
+            )
+            setInfoMessage(`Your username is now ${username}.`)
+          }}
+        />
+      )}
+
+      {activeModal === 'changeEmail' && currentUser && (
+        <ChangeEmailModal
+          currentEmail={currentUser.email}
+          hasPassword={currentUser.has_password ?? true}
+          onClose={close}
+          onRequested={pendingEmail => {
+            close()
+            setCurrentUser(user => (user ? { ...user, pending_email: pendingEmail } : user))
+            setInfoMessage(`We sent a confirmation link to ${pendingEmail}.`)
           }}
         />
       )}

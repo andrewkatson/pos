@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
+import { profilePathFor } from '../utils/profilePath'
 import ProfileView from '../components/ProfileView'
 import './MainApp.css'
 
@@ -52,6 +53,9 @@ function ProfilePage() {
           isOwnProfile={isSignedIn && currentUsername === username}
           currentUsername={currentUsername}
           isSignedIn={isSignedIn}
+          // An old link to a renamed account (issue #594): move to the current
+          // name, replacing the history entry so Back skips the stale one.
+          onCanonicalUsername={name => navigate(profilePathFor(name), { replace: true })}
         />
       </main>
     </div>

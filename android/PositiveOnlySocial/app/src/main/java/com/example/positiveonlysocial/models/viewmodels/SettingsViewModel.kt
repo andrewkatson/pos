@@ -12,6 +12,8 @@ import com.example.positiveonlysocial.data.model.ConfirmTotpRequest
 import com.example.positiveonlysocial.data.model.DisableTotpRequest
 import com.example.positiveonlysocial.data.model.TotpSetupResponse
 import com.example.positiveonlysocial.data.model.ChangePasswordRequest
+import com.example.positiveonlysocial.data.model.ChangeUsernameRequest
+import com.example.positiveonlysocial.data.model.RequestEmailChangeRequest
 import com.example.positiveonlysocial.data.model.CurrentUserResponse
 import com.example.positiveonlysocial.data.model.InterestOption
 import com.example.positiveonlysocial.data.model.InterestVocabulary
@@ -132,6 +134,22 @@ class SettingsViewModel(
     // show a confirmation; the UI resets it via clearInterestsSaved().
     private val _interestsSaved = MutableStateFlow(false)
     val interestsSaved: StateFlow<Boolean> = _interestsSaved.asStateFlow()
+
+    // Changing the username or email (issue #594). The account fields ride on
+    // currentUser (pendingEmail, hasPassword, nextUsernameChangeTime).
+    // `accountChangeError` shows inline in whichever dialog is open; a success
+    // closes it (`accountChangeDone`) and raises `accountChangeMessage`.
+    private val _accountChangeError = MutableStateFlow<String?>(null)
+    val accountChangeError: StateFlow<String?> = _accountChangeError.asStateFlow()
+
+    private val _isChangingAccountDetails = MutableStateFlow(false)
+    val isChangingAccountDetails: StateFlow<Boolean> = _isChangingAccountDetails.asStateFlow()
+
+    private val _accountChangeDone = MutableStateFlow(false)
+    val accountChangeDone: StateFlow<Boolean> = _accountChangeDone.asStateFlow()
+
+    private val _accountChangeMessage = MutableStateFlow<String?>(null)
+    val accountChangeMessage: StateFlow<String?> = _accountChangeMessage.asStateFlow()
 
     private val service = "positive-only-social.Positive-Only-Social"
 
@@ -385,6 +403,118 @@ class SettingsViewModel(
                 Log.w(TAG, "Could not load current user: ${e.message}")
             }
         }
+    }
+
+    // MARK: Changing the username or email (issue #594)
+
+    /**
+     * Renames the account. On success the stored session's username is
+     * replaced too — it's what every "is this me?" check compares against —
+     * and the AuthenticationManager republishes it.
+     */
+    fun changeUsername(newUsername: String) {
+        if (_isChangingAccountDetails.value) return
+        _isChangingAccountDetails.value = true
+        _accountChangeError.value = null
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _accountChangeError.value = "Session not found."
+                    return@launch
+                }
+                val response = api.changeUsername(userSession.sessionToken, ChangeUsernameRequest(newUsername))
+                val body = response.body()
+                if (response.isSuccessful && body != null) {
+                    val renamed = userSession.copy(username = body.username)
+                    keychainHelper.save(renamed, service, account)
+                    authenticationManager.login(renamed)
+                    _currentUser.value = _currentUser.value?.copy(
+                        username = body.username,
+                        nextUsernameChangeTime = body.nextUsernameChangeTime,
+                    )
+                    _accountChangeMessage.value = "Your username is now ${body.username}."
+                    _accountChangeDone.value = true
+                } else {
+                    _accountChangeError.value = ApiErrors.messageFor(response, fallback = "Could not change your username.")
+                }
+            } catch (e: Exception) {
+                _accountChangeError.value = ApiErrors.messageFor(e, fallback = "Could not change your username.")
+            } finally {
+                _isChangingAccountDetails.value = false
+            }
+        }
+    }
+
+    /**
+     * Asks to move the account to a new email. Nothing changes until the link
+     * sent there is followed; the pending address shows until then. Pass the
+     * password, or for a Google-only account a fresh Google ID token.
+     */
+    fun requestEmailChange(newEmail: String, password: String?, idToken: String?) {
+        if (_isChangingAccountDetails.value) return
+        _isChangingAccountDetails.value = true
+        _accountChangeError.value = null
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _accountChangeError.value = "Session not found."
+                    return@launch
+                }
+                val response = api.requestEmailChange(
+                    userSession.sessionToken,
+                    RequestEmailChangeRequest(email = newEmail, password = password, idToken = idToken)
+                )
+                val body = response.body()
+                if (response.isSuccessful && body != null) {
+                    _currentUser.value = _currentUser.value?.copy(pendingEmail = body.pendingEmail)
+                    _accountChangeMessage.value = "We sent a confirmation link to ${body.pendingEmail}."
+                    _accountChangeDone.value = true
+                } else {
+                    _accountChangeError.value = ApiErrors.messageFor(response, fallback = "Could not change your email.")
+                }
+            } catch (e: Exception) {
+                _accountChangeError.value = ApiErrors.messageFor(e, fallback = "Could not change your email.")
+            } finally {
+                _isChangingAccountDetails.value = false
+            }
+        }
+    }
+
+    /** Shows a Google re-sign-in failure inline in the email dialog. */
+    fun showAccountChangeError(message: String?) {
+        _accountChangeError.value = message
+    }
+
+    /** Withdraws a pending email change. */
+    fun cancelEmailChange() {
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account) ?: return@launch
+                val response = api.cancelEmailChange(userSession.sessionToken)
+                if (response.isSuccessful) {
+                    _currentUser.value = _currentUser.value?.copy(pendingEmail = null)
+                    _accountChangeMessage.value = "Your email change was cancelled."
+                } else {
+                    _errorMessage.value = ApiErrors.messageFor(response, fallback = "Could not cancel the email change.")
+                    _showingErrorAlert.value = true
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = ApiErrors.messageFor(e, fallback = "Could not cancel the email change.")
+                _showingErrorAlert.value = true
+            }
+        }
+    }
+
+    /** Called when a username or email dialog closes, either way. */
+    fun resetAccountChangeDialog() {
+        _accountChangeDone.value = false
+        _accountChangeError.value = null
+    }
+
+    fun clearAccountChangeMessage() {
+        _accountChangeMessage.value = null
     }
 
     /** Loads the per-type push toggles (load-on-mount). Non-fatal: the section

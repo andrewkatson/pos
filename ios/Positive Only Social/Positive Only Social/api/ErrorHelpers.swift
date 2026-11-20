@@ -89,7 +89,9 @@ extension APIError {
     var userFacingMessage: String {
         switch self {
         case .serverError(_, let message):
-            return message
+            // A few endpoints answer with stable codes rather than prose; the
+            // copy for those lives on the client.
+            return GVOAppConstants.accountChangeMessages[message] ?? message
         case .badServerResponse(let statusCode):
             return APIError.userFacingMessage(forStatusCode: statusCode)
         case .requestFailed(let underlying):

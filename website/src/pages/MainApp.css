@@ -1100,6 +1100,18 @@
   font-weight: 600;
 }
 
+/* The left side of a label/value row whose label is user data (a username or
+   email, #594): long values wrap rather than push the value off the row. */
+.settings-row__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-row:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 /* Explanatory line under a settings row (the Private account toggle, #96). */
 .settings-row__hint {
   font-size: 0.85rem;

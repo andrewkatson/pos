@@ -107,9 +107,11 @@ depends on the part:
   `cleanup_orphan_images` reclaims it once nothing references it. A
   photo upload still pending its own classification is a different picture and
   is left alone, along with its pending status.
-- **Username** — a username is fixed once chosen, so it cannot be removed: the
-  review escalates to the moderator queue, where a moderator can ban the
-  account from the user admin.
+- **Username** — a username can't simply be removed (every account needs one),
+  so the review escalates to the moderator queue, where a moderator can ban the
+  account from the user admin. The owner can rename themselves
+  ([issue #594](accounts.md#changing-the-username-issue-594)), and a rename
+  counts as a profile change like a new bio (below).
 
 Neither removal is appealable, for the same reason a rejected bio or photo is
 not: the remedy is to set another. Only the exact bio and photo that were judged
@@ -128,7 +130,7 @@ One difference from posts: a profile keeps changing. A decision about it must
 not bind the profile that replaces it — a dismissal would make a later,
 unacceptable bio unreportable, and a moderator's removal would leave the account
 deaf to reports forever. So when the owner saves a new bio or a new photo is
-approved (or clears the bio), a `cleared`, `hidden` or `dismissed` account review drops back to
+approved (or clears the bio), or the owner renames the account (issue #594), a `cleared`, `hidden` or `dismissed` account review drops back to
 `cleared` with its escalation count reset: reports from then on are about the
 profile as it now stands. A `pending` or `escalated` review is left alone, since
 the re-review and the moderator look at the profile as it is when they reach it.

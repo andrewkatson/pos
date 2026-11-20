@@ -79,6 +79,27 @@ interface PositiveOnlySocialAPI {
         @Body request: ChangePasswordRequest
     ): Response<GenericResponse>
 
+    // Rename the account (issue #594). Checked like a registration name, once
+    // per cooldown; the old name stays reserved for this account for a while
+    // and still resolves to it.
+    @POST("me/username/")
+    suspend fun changeUsername(
+        @Header("Authorization") token: String,
+        @Body request: ChangeUsernameRequest
+    ): Response<ChangeUsernameResponse>
+
+    // Ask to move to a new email (issue #594); it applies once the link sent to
+    // the new address is followed (on the website).
+    @POST("me/email/")
+    suspend fun requestEmailChange(
+        @Header("Authorization") token: String,
+        @Body request: RequestEmailChangeRequest
+    ): Response<RequestEmailChangeResponse>
+
+    // Withdraw a pending email change; its link stops working.
+    @POST("me/email/cancel/")
+    suspend fun cancelEmailChange(@Header("Authorization") token: String): Response<GenericResponse>
+
     // ============================================================================================
     // EMAIL VERIFICATION
     // ============================================================================================

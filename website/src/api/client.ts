@@ -19,6 +19,8 @@ import type {
   ConfirmTotpRequest,
   ConfirmTotpResponse,
   CreatePostRequest,
+  ChangeUsernameRequest,
+  ChangeUsernameResponse,
   CurrentUser,
   CreatePostResponse,
   CreateUploadUrlResponse,
@@ -53,6 +55,8 @@ import type {
   ReplyResponse,
   RequestResetRequest,
   ResendVerificationEmailRequest,
+  RequestEmailChangeRequest,
+  RequestEmailChangeResponse,
   ResetPasswordRequest,
   SetCommentsDisabledResponse,
   SetProfilePhotoRequest,
@@ -137,6 +141,21 @@ export const GOOGLE_SIGN_IN_MESSAGES: Readonly<Record<string, string>> = {
   [GOOGLE_EMAIL_AMBIGUOUS]: GOOGLE_EMAIL_AMBIGUOUS_MESSAGE,
   [INVALID_GOOGLE_TOKEN]: GOOGLE_SIGN_IN_FAILED_MESSAGE,
   [GOOGLE_SIGN_IN_UNAVAILABLE]: GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE,
+}
+
+/** Error codes the username and email change endpoints answer with (issue
+ * #594), and the copy each maps to. */
+export const USERNAME_TAKEN = 'username_taken'
+export const USERNAME_CHANGE_TOO_SOON = 'username_change_too_soon'
+export const EMAIL_IN_USE = 'email_in_use'
+export const REAUTHENTICATION_REQUIRED = 'reauthentication_required'
+
+export const ACCOUNT_CHANGE_MESSAGES: Readonly<Record<string, string>> = {
+  [USERNAME_TAKEN]: 'That username is already taken.',
+  [USERNAME_CHANGE_TOO_SOON]: "You've changed your username recently. Please try again later.",
+  [EMAIL_IN_USE]: 'Another account already uses that email address.',
+  [REAUTHENTICATION_REQUIRED]: "That didn't confirm it's you. Please check your password and try again.",
+  [GOOGLE_SIGN_IN_UNAVAILABLE]: "Google sign-in isn't available right now. Please try again later.",
 }
 
 /**
@@ -514,6 +533,26 @@ export class ApiClient implements PositiveOnlySocialAPI {
   /** The signed-in account's own username and registered email (Settings). */
   getCurrentUser(): Promise<CurrentUser> {
     return this.request<CurrentUser>('GET', '/me/', { auth: true })
+  }
+
+  /** Rename the signed-in account (issue #594). */
+  changeUsername(body: ChangeUsernameRequest): Promise<ChangeUsernameResponse> {
+    return this.request<ChangeUsernameResponse>('POST', '/me/username/', { body, auth: true })
+  }
+
+  /** Ask to move to a new email; it applies once the emailed link is followed. */
+  requestEmailChange(body: RequestEmailChangeRequest): Promise<RequestEmailChangeResponse> {
+    return this.request<RequestEmailChangeResponse>('POST', '/me/email/', { body, auth: true })
+  }
+
+  /** Withdraw a pending email change. */
+  cancelEmailChange(): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', '/me/email/cancel/', { auth: true })
+  }
+
+  /** Confirm a new email from the link sent to it. Needs no session. */
+  confirmEmailChange(body: VerifyEmailRequest): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', '/verify-email-change/', { body })
   }
 
   // ===========================================================================

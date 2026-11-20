@@ -259,6 +259,142 @@ struct Positive_Only_SocialTests_SettingsViewModel {
         #expect(stubAPI.findSession(byToken: currentToken) != nil, "The current device should stay signed in")
     }
 
+    // --- Changing the username and email (issue #594) ---
+
+    @Test func testLoadCurrentUser_PopulatesAccountChangeFields() async throws {
+        _ = try await setupLoggedInUser(username: "accountFieldsUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "accountFieldsUser_account")
+
+        sut.loadCurrentUser()
+        await yield()
+
+        #expect(sut.canChangeAccountDetails == true)
+        #expect(sut.hasPassword == true)
+        #expect(sut.pendingEmail == nil)
+        #expect(sut.canRenameNow == true)
+    }
+
+    @Test func testChangeUsername_Success_UpdatesSessionAndStartsCooldown() async throws {
+        _ = try await setupLoggedInUser(username: "renameUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "renameUser_account")
+        let authManager = makeAuthManager()
+
+        sut.changeUsername("renamed_user_one", authManager: authManager)
+        await yield()
+
+        #expect(sut.usernameChangeSucceeded == true)
+        #expect(sut.accountChangeErrorMessage == nil)
+        #expect(sut.currentUsername == "renamed_user_one")
+        #expect(sut.canRenameNow == false)
+        // The stored session follows the rename, since "is this me?" checks use it.
+        let stored = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "renameUser_account")
+        #expect(stored?.username == "renamed_user_one")
+        #expect(stubAPI.findUser(byUsername: "renamed_user_one") != nil)
+
+        sut.finishAccountChangeSheet()
+        #expect(sut.showingAccountChangeStatusAlert == true)
+        #expect(sut.usernameChangeSucceeded == false)
+    }
+
+    @Test func testChangeUsername_SecondRenameTooSoon_ShowsCopy() async throws {
+        _ = try await setupLoggedInUser(username: "renameTwiceUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "renameTwiceUser_account")
+        let authManager = makeAuthManager()
+
+        sut.changeUsername("renamed_twice_one", authManager: authManager)
+        await yield()
+        sut.changeUsername("renamed_twice_two", authManager: authManager)
+        await yield()
+
+        #expect(sut.accountChangeErrorMessage == GVOAppConstants.accountChangeMessages[GVOAppConstants.usernameChangeTooSoonError])
+        #expect(sut.currentUsername == "renamed_twice_one")
+    }
+
+    @Test func testChangeUsername_Taken_ShowsCopy() async throws {
+        _ = try await registerUserAndGetToken(username: "takenNameHolder")
+        _ = try await setupLoggedInUser(username: "renameTakenUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "renameTakenUser_account")
+
+        sut.changeUsername("takenNameHolder", authManager: makeAuthManager())
+        await yield()
+
+        #expect(sut.usernameChangeSucceeded == false)
+        #expect(sut.accountChangeErrorMessage == "That username is already taken.")
+    }
+
+    @Test func testRequestEmailChange_WrongPassword_ShowsCopy() async throws {
+        _ = try await setupLoggedInUser(username: "emailWrongPwUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "emailWrongPwUser_account")
+
+        sut.requestEmailChange("new@test.com", password: "wrong", idToken: nil)
+        await yield()
+
+        #expect(sut.emailChangeRequested == false)
+        #expect(sut.pendingEmail == nil)
+        #expect(sut.accountChangeErrorMessage == GVOAppConstants.accountChangeMessages[GVOAppConstants.reauthenticationRequiredError])
+    }
+
+    @Test func testRequestEmailChange_Success_ParksAddressUntilConfirmed() async throws {
+        _ = try await setupLoggedInUser(username: "emailChangeUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "emailChangeUser_account")
+
+        sut.requestEmailChange("brand.new@test.com", password: "123", idToken: nil)
+        await yield()
+
+        #expect(sut.emailChangeRequested == true)
+        #expect(sut.pendingEmail == "brand.new@test.com")
+        // Nothing changes until the emailed link is followed.
+        #expect(stubAPI.findUser(byUsername: "emailChangeUser")?.email == "emailChangeUser@test.com")
+
+        try stubAPI.confirmEmailChange(token: "stub_email_change_token_emailChangeUser")
+        sut.loadCurrentUser()
+        await yield()
+        #expect(sut.currentEmail == "brand.new@test.com")
+        #expect(sut.pendingEmail == nil)
+    }
+
+    @Test func testRequestEmailChange_AddressInUse_ShowsCopy() async throws {
+        _ = try await registerUserAndGetToken(username: "emailHolder")
+        _ = try await setupLoggedInUser(username: "emailClashUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "emailClashUser_account")
+
+        sut.requestEmailChange("EMAILHOLDER@test.com", password: "123", idToken: nil)
+        await yield()
+
+        #expect(sut.accountChangeErrorMessage == "Another account already uses that email address.")
+    }
+
+    @Test func testCancelEmailChange_ClearsPendingAddress() async throws {
+        _ = try await setupLoggedInUser(username: "emailCancelUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "emailCancelUser_account")
+        sut.requestEmailChange("brand.new@test.com", password: "123", idToken: nil)
+        await yield()
+
+        sut.cancelEmailChange()
+        await yield()
+
+        #expect(sut.pendingEmail == nil)
+        #expect(sut.showingAccountChangeStatusAlert == true)
+        #expect(throws: APIError.self) {
+            try stubAPI.confirmEmailChange(token: "stub_email_change_token_emailCancelUser")
+        }
+    }
+
+    @Test func testCurrentUserFields_DecodesWithoutAccountChangeFields() throws {
+        // An older backend omits the #594 fields; Settings then keeps the rows
+        // read-only instead of offering changes the backend can't make.
+        let json = #"{"username": "old", "email": "old@test.com"}"#.data(using: .utf8)!
+        let fields = try JSONDecoder().decode(CurrentUserFields.self, from: json)
+        #expect(fields.hasPassword == nil)
+        #expect(fields.pendingEmail == nil)
+    }
+
+    @Test func testParseChangeTime_AcceptsBackendFormats() {
+        #expect(SettingsViewModel.parseChangeTime("2099-01-01T00:00:00Z") != nil)
+        #expect(SettingsViewModel.parseChangeTime("2099-01-01T00:00:00.123456Z") != nil)
+        #expect(SettingsViewModel.parseChangeTime(nil) == nil)
+    }
+
     // --- Two-Factor Authentication Tests (issue #348) ---
 
     /// Helper to run setup + confirm through the view model, returning the SUT.
