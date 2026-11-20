@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
 import { getCurrentUsername } from '../api/session'
 import type { UserSearchResult } from '../api/types'
+import { focusableIn } from '../utils/focusable'
 import { profilePathFor } from '../utils/profilePath'
 import ProfileView from './ProfileView'
 import Avatar from './Avatar'
@@ -376,19 +377,6 @@ function ProfileTab() {
         </div>
       )}
     </div>
-  )
-}
-
-/** Tabbable descendants of `root`, in DOM order. */
-function focusableIn(root: HTMLElement | null): HTMLElement[] {
-  if (!root) {
-    return []
-  }
-
-  return Array.from(
-    root.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
   )
 }
 
