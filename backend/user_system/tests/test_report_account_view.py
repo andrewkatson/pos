@@ -78,6 +78,23 @@ class ReportAccountTests(PositiveOnlySocialTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(AccountReport.objects.exists())
 
+    def test_a_non_object_body_is_refused(self, text):
+        for body in ('[]', '42', 'true', '"a reason"'):
+            with self.subTest(body=body):
+                response = self.client.post(self.url, data=body, content_type='application/json',
+                                            **self.reporter_header)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json(), {'error': 'Invalid JSON data'})
+        self.assertFalse(AccountReport.objects.exists())
+
+    def test_a_non_string_reason_is_refused(self, text):
+        for reason in (42, ['spam'], {'a': 'b'}, True, '   '):
+            with self.subTest(reason=reason):
+                response = self.client.post(self.url, data={'reason': reason}, content_type='application/json',
+                                            **self.reporter_header)
+                self.assertEqual(response.status_code, 400)
+        self.assertFalse(AccountReport.objects.exists())
+
     def test_unknown_account(self, text):
         url = reverse('report_account', kwargs={'username': 'nobody_by_this_name'})
         response = self._report(url=url)

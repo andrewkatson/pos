@@ -339,6 +339,25 @@ class AccountReviewTests(TestCase):
             self._report(reporter)
         self.assertEqual(self._refresh(review).status, REVIEW_STATUS_ESCALATED)
 
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=ALLOWED)
+    def test_withdrawn_reports_from_before_a_reset_do_not_suppress_new_ones(self, text, image):
+        # Many reports standing when the profile changes, all withdrawn later.
+        many = REPORTS_AFTER_CLEAR_BEFORE_ESCALATION + 2
+        extra = [PositiveOnlySocialUser.objects.create(username=f'early_{i}', email=f'early{i}@test.com')
+                 for i in range(many)]
+        for reporter in extra:
+            AccountReport.objects.create(user=reporter, reported_user=self.account, reason='x')
+        review = ModerationReview.objects.create(account=self.account, status=REVIEW_STATUS_DISMISSED)
+        moderation.profile_content_changed(self.account)
+        self.account.account_reports.update(retracted_time='2026-01-01T00:00:00Z')
+
+        # Fresh reports about the new profile still reach a human.
+        for reporter in self.reporters[:REPORTS_AFTER_CLEAR_BEFORE_ESCALATION]:
+            self._report(reporter)
+
+        self.assertEqual(self._refresh(review).status, REVIEW_STATUS_ESCALATED)
+
     def test_a_profile_change_leaves_pending_and_escalated_reviews_alone(self):
         for status in (REVIEW_STATUS_PENDING, REVIEW_STATUS_ESCALATED):
             with self.subTest(status=status):

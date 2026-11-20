@@ -174,8 +174,8 @@ def withdraw_report(post=None, comment=None, account=None):
             return review
         if review.report_count() == 0:
             review.status = REVIEW_STATUS_CLEARED
-            review.reports_at_last_review = 0
-            review.save(update_fields=['status', 'reports_at_last_review', 'updated'])
+            fields = review.restart_escalation_count()
+            review.save(update_fields=['status', *fields, 'updated'])
             logger.info("withdraw_report: review %s de-escalated; every report was retracted.",
                         review.review_identifier)
     return review
@@ -355,7 +355,7 @@ def profile_content_changed(user):
     if review.status not in (REVIEW_STATUS_CLEARED, *TERMINAL_REVIEW_STATUSES):
         return
     review.status = REVIEW_STATUS_CLEARED
-    review.reports_at_last_review = review.report_count()
-    review.save(update_fields=['status', 'reports_at_last_review', 'updated'])
+    fields = review.restart_escalation_count()
+    review.save(update_fields=['status', *fields, 'updated'])
     logger.info("profile_content_changed: account review %s reset to cleared after a profile change.",
                 review.review_identifier)

@@ -860,7 +860,7 @@ def review_reported_content(review_identifier):
             claimed.status = REVIEW_STATUS_CLEARED
             # Reports counted from here decide whether a human takes a look, so
             # the ones this review already accounted for cannot escalate it too.
-            claimed.reports_at_last_review = claimed.report_count()
+            claimed.restart_escalation_count()
         else:
             claimed.status = REVIEW_STATUS_HIDDEN
             target.hidden = True
@@ -871,7 +871,8 @@ def review_reported_content(review_identifier):
                 target_fields.append('classification_reason_code')
         target.save(update_fields=target_fields)
         claimed.reviewed_time = now
-        claimed.save(update_fields=['status', 'reports_at_last_review', 'reviewed_time', 'updated'])
+        claimed.save(update_fields=['status', 'reports_at_last_review', 'escalation_counted_since',
+                                    'reviewed_time', 'updated'])
 
     # Side effects only after the one-time transition has committed.
     if allowed:
@@ -973,11 +974,11 @@ def _finish_account_review(review, account):
                          "escalated for a moderator")
         else:
             claimed.status = REVIEW_STATUS_CLEARED
-            claimed.reports_at_last_review = claimed.report_count()
+            claimed.restart_escalation_count()
         claimed.reviewed_time = now
         claimed.resolution_note = '; '.join(notes) or None
-        claimed.save(update_fields=['status', 'reports_at_last_review', 'reviewed_time',
-                                    'resolution_note', 'updated'])
+        claimed.save(update_fields=['status', 'reports_at_last_review', 'escalation_counted_since',
+                                    'reviewed_time', 'resolution_note', 'updated'])
 
     logger.info("review_reported_content: account review %s is %s (removed: %s).",
                 review_identifier, claimed.status, ', '.join(removed_parts) or 'nothing')

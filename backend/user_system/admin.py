@@ -220,7 +220,7 @@ class ModerationReviewAdmin(admin.ModelAdmin):
                        "target_summary", "account_bio", "account_photo",
                        "reported_reasons", "report_count",
                        "classifier_chain",
-                       "reports_at_last_review", "review_attempts", "created",
+                       "reports_at_last_review", "escalation_counted_since", "review_attempts", "created",
                        "updated", "reviewed_time", "resolved_time", "resolved_by",
                        "resolution_note")
     actions = ("hide_content", "dismiss_reports")

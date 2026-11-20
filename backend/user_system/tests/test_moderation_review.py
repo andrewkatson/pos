@@ -403,6 +403,24 @@ class ModerationReviewTests(TestCase):
 
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=ALLOWED)
+    def test_withdrawn_reports_from_before_the_clear_do_not_suppress_new_ones(self, _text, _image):
+        """Escalation counts reports filed after the clear, not the live count
+        minus the old one: otherwise reports the clear accounted for, once
+        withdrawn, would keep fresh ones from ever reaching a human."""
+        early = self.reporters[:3]
+        for reporter in early:
+            self.post.postreport_set.create(user=reporter, reason='early')
+        review = moderation.record_report(post=self.post)
+        self.assertEqual(self._refresh(review).status, REVIEW_STATUS_CLEARED)
+        self.post.postreport_set.update(retracted_time=timezone.now())
+
+        for reporter in self.reporters[3:3 + REPORTS_AFTER_CLEAR_BEFORE_ESCALATION]:
+            self._report_post(reporter)
+
+        self.assertEqual(self._refresh(review).status, REVIEW_STATUS_ESCALATED)
+
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=ALLOWED)
     def test_reports_never_re_run_the_review_of_dismissed_content(self, mock_text, _image):
         """A dismissal is terminal: piling on more reports neither reopens the
         case nor spends another provider call on it."""

@@ -1007,6 +1007,14 @@ class ModerationReview(models.Model):
     # than a second timestamped query. Reports that arrived before a verdict
     # cannot push the same content over the escalation bar twice.
     reports_at_last_review = models.IntegerField(default=0)
+    # When that count was taken. Escalation counts the standing reports filed
+    # AFTER this moment rather than subtracting the old count: subtraction let
+    # reports that were later withdrawn keep suppressing new ones (ten counted
+    # reports retracted, then three fresh ones, still read as zero). Null on
+    # rows from before the field, which fall back to the subtraction. Set under
+    # the content row lock that report inserts also take, so a report lands
+    # either before the count (and is in it) or after this timestamp.
+    escalation_counted_since = models.DateTimeField(null=True, blank=True, default=None)
     # Worker runs, so a re-review that keeps failing on an unreachable provider
     # escalates to a human instead of retrying forever (and never hides).
     review_attempts = models.IntegerField(default=0)
@@ -1093,9 +1101,21 @@ class ModerationReview(models.Model):
         return self.reports().count()
 
     def reports_since_last_review(self):
-        """Reports filed since the automated re-review last ran on this content
-        — what the escalation bar is measured against."""
+        """Standing reports filed since the escalation count last restarted (an
+        automated clear, a de-escalation, or a profile change) — what the
+        escalation bar is measured against."""
+        if self.escalation_counted_since is not None:
+            return self.reports().filter(creation_time__gt=self.escalation_counted_since).count()
         return max(self.report_count() - self.reports_at_last_review, 0)
+
+    def restart_escalation_count(self):
+        """Start counting reports toward escalation afresh from now: reports
+        already standing have been accounted for. Call with the content row
+        locked, so the count and the timestamp see the same set of reports.
+        Returns the fields to save."""
+        self.reports_at_last_review = self.report_count()
+        self.escalation_counted_since = timezone.now()
+        return ['reports_at_last_review', 'escalation_counted_since']
 
     def resolve(self, status, resolved_by=None, note=''):
         """Record a human decision on this review (see moderation.hide_reviewed_content

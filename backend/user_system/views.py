@@ -4999,11 +4999,16 @@ def report_account(request, username):
     """
     logger.info("Endpoint report_account invoked by IP or User")
     data = _get_json_body(request)
-    if data is None:
+    # Valid JSON need not be an object ([] or 42 parse fine), and only an object
+    # has a reason to read.
+    if not isinstance(data, dict):
         return log_and_return_json("report_account", {'error': "Invalid JSON data"}, status=400)
 
     reason = data.get(Fields.reason)
-    if not reason or not is_valid_pattern(reason, Patterns.alphanumeric_with_special_chars):
+    # A string check first: is_valid_pattern stringifies its input, so a number
+    # or list would otherwise pass as a "reason".
+    if not isinstance(reason, str) or not reason.strip() \
+            or not is_valid_pattern(reason, Patterns.alphanumeric_with_special_chars):
         return log_and_return_json("report_account", {'error': f"Invalid fields ['{Params.reason}']"}, status=400)
 
     account, error = _reportable_account(request, "report_account", username)
