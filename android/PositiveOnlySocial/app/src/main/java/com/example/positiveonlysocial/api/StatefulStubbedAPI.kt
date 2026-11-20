@@ -1461,7 +1461,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun deleteComment(token: String, postId: String, threadId: String, commentId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val thread = commentThreads.find { it.threadIdentifier == threadId } ?: return error(404, "Thread not found")
+        // Resolve all three ids together, as the backend does, so pairing a post
+        // you own with a thread from someone else's post grants nothing.
+        val thread = commentThreads.find { it.threadIdentifier == threadId && it.postId == postId }
+            ?: return error(404, "Thread not found")
         val comment = thread.comments.find { it.commentIdentifier == commentId } ?: return error(404, "Comment not found")
 
         // The comment's author may delete it, and so may the post's author

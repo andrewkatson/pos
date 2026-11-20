@@ -1901,7 +1901,12 @@ final class StatefulStubbedAPI: Networking {
         let postAuthorCanSee = isPostAuthor
             && visibleComments(inThread: commentThreadIdentifier, viewer: user, category: nil)
                 .contains { $0.commentIdentifier == commentIdentifier }
-        guard comment.threadId == commentThreadIdentifier, ownsComment || postAuthorCanSee else {
+        // Resolve all three ids together, as the backend does, so pairing a post
+        // you own with a thread from someone else's post grants nothing.
+        let threadOnPost = commentThreads.contains {
+            $0.commentThreadIdentifier == commentThreadIdentifier && $0.postId == postIdentifier
+        }
+        guard comment.threadId == commentThreadIdentifier, threadOnPost, ownsComment || postAuthorCanSee else {
             throw APIError.badServerResponse(statusCode: 400)
         }
 
