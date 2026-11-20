@@ -2522,6 +2522,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       ...sources('new_follower', true),
       { type: 'follow_request', label: 'Follow requests', parent: 'all' },
       ...sources('follow_request', true),
+      { type: 'follow_accepted', label: 'Accepted follow requests', parent: 'all' },
+      ...sources('follow_accepted', false),
     ]
     return tree.map(p => ({ ...p, enabled: this.notificationOverrides[p.type] ?? true }))
   }

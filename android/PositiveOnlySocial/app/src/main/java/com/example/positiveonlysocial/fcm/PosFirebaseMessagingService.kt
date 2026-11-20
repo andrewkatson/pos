@@ -102,13 +102,12 @@ class PosFirebaseMessagingService : FirebaseMessagingService() {
         // tap handler gates on these so a future type can't misroute.
         const val TYPE_POST_REJECTED = "post_rejected"
         val POST_TYPES = setOf(TYPE_POST_REJECTED, "new_post", "new_comment", "new_like")
-        // Follow activity (#604): a request opens the follow-request list, a
-        // new follower that follower's profile.
+        // Follow activity (#604): a request opens the follow-request list; a
+        // new follower, or an accepted request, the other person's profile.
         const val TYPE_FOLLOW_REQUEST = "follow_request"
-        const val TYPE_NEW_FOLLOWER = "new_follower"
+        val PROFILE_TYPES = setOf("new_follower", "follow_accepted")
         // Everything on the "Activity" channel rather than "Post moderation".
-        val ACTIVITY_TYPES = setOf(
-            "new_post", "new_comment", "new_like", TYPE_FOLLOW_REQUEST, TYPE_NEW_FOLLOWER)
+        val ACTIVITY_TYPES = setOf("new_post", "new_comment", "new_like", TYPE_FOLLOW_REQUEST) + PROFILE_TYPES
         // Must match the channel ids the backend names in FCM payloads
         // (user_system/push.ANDROID_CHANNEL_*): a message that arrives while the
         // app is in the background is shown by the system on that channel.

@@ -2,7 +2,7 @@
  *
  * Receives background push for FCM-for-web and routes a click to the payload's
  * deep link: a post (#342/#444), or for follow activity (#604) the
- * follow-request list or a new follower's profile. A service worker cannot read
+ * follow-request list or another person's profile. A service worker cannot read
  * the app's build-time env, so the (public) Firebase config is passed in this
  * worker's registration URL query string (see src/push/webPush.ts) and parsed
  * below.

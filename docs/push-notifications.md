@@ -11,7 +11,8 @@ Native push notifications tell a user about three things:
   comment on your post or a reply to your comment, and a like on your post or
   comment. See [Activity notifications](#activity-notifications-issue-444).
 - **Follow activity** (issue #604): a request to follow your private account,
-  and a new follower of your public one. See
+  a new follower of your public one, and the approval of a follow request you
+  sent. See
   [Follow notifications](#follow-notifications-issue-604).
 
 Push is a **nudge, never the source of truth.** Permissions get denied and
@@ -44,13 +45,18 @@ bring the user back to look.
       `_friend`, `_family` and `_other`.
     - `follow_request` — "Follow requests", with `follow_request_following`,
       `_friend`, `_family` and `_other`.
+    - `follow_accepted` — "Accepted follow requests", with
+      `follow_accepted_following`, `_friend` and `_family`.
 
   The source is the [relationship category](audience-and-relationships.md)
   the *recipient* gave the person who acted, on the recipient's own follow
   edge — "From people I follow", "From friends", "From family" — or "From
   everyone else" (`other`) when the recipient does not follow them. New posts
-  only ever reach followers, so they have no `other` source. For the follow
-  kinds, `other` is someone the recipient does not follow back.
+  only ever reach followers, so they have no `other` source, and neither does
+  an accepted follow request, which always leaves the recipient following the
+  owner (by the category they asked for). For follow requests and new
+  followers, `other` is someone the recipient does not follow back. Every type
+  name must fit the 32-character preference column.
 
   A user turns a type off in the app's Settings → **Notifications**: `GET/POST
   /notifications/preferences/` reads/writes them, returning one `{type, label,
@@ -71,15 +77,16 @@ bring the user back to look.
   a user's tokens, called by `classify_post` on a resolved rejection and by the
   activity jobs in `user_system.notifications` — off the request path, on the
   same durable queue, best-effort. The payload's `data` map carries a `type`
-  (`post_rejected`, `new_post`, `new_comment`, `new_like`, `follow_request` or
-  `new_follower` — the kind, not the per-source preference type) and a
+  (`post_rejected`, `new_post`, `new_comment`, `new_like`, `follow_request`,
+  `new_follower` or `follow_accepted` — the kind, not the per-source preference type) and a
   `deep_link`. The post kinds carry the `post_identifier` and deep-link to
   `<FRONTEND_BASE_URL>/post/<id>`; a rejection also says whether it is
   `appealable`. Each opens its post on tap: the rejected post and its appeal
   UI, the new post, or the post a comment or like landed on. The follow kinds
   carry the actor's `username` instead: a follow request opens the owner's
-  follow-request list (`<FRONTEND_BASE_URL>/follow-requests`), and a new
-  follower opens that follower's profile (`<FRONTEND_BASE_URL>/profile/<username>`).
+  follow-request list (`<FRONTEND_BASE_URL>/follow-requests`); a new follower,
+  or an accepted request, opens the other person's profile
+  (`<FRONTEND_BASE_URL>/profile/<username>`).
   Native clients route off `type` plus `post_identifier` / `username`, and only
   for the types they know, so a future kind is ignored rather than misrouted;
   the web opens the `deep_link`. **All `data` values are strings**
@@ -145,21 +152,29 @@ such message.
 
 - **Follow request** — following a private account files a request, and its
   owner is told ("sam asked to follow you"); tapping opens their follow-request
-  list, where they approve or deny it. Approving it tells nobody (the owner did
-  it themselves), and a denial is never announced to the requester.
+  list, where they approve or deny it. A denial is never announced to the
+  requester.
+- **Follow request accepted** — approving a request tells the requester ("sam
+  accepted your follow request"); tapping opens the owner's profile, whose
+  posts they can now see. The owner, who did it themselves, is told nothing.
 - **New follower** — following a public account outright tells its owner ("sam
   started following you"); tapping opens the follower's profile. A follow
-  created by approving a request, or by the backlog of pending requests that
-  converts when an account goes public, sends nothing: the owner just chose
-  that, and a going-public backlog would otherwise arrive as a burst.
+  created by approving a request (beyond the acceptance push above), or by the
+  backlog of pending requests that converts when an account goes public, sends
+  nothing: the owner just chose that, and a going-public backlog would
+  otherwise arrive as a burst.
 
 The same rules as activity notifications apply: nobody is told about a
 shadow-banned actor, across a block in either direction, or across age bands.
-The follow endpoint only enqueues the job (`notifications.notify_follow_request`
-/ `notify_new_follower`); the job re-reads the request or follow edge, so one
-cancelled, denied, approved, converted or unfollowed in the meantime sends
-nothing. Only the first follow (or request) by a given person within 24 hours
-notifies, so follow/unfollow/follow or request/cancel/request does not repeat
+The follow and approve endpoints only enqueue the job
+(`notifications.notify_follow_request` / `notify_new_follower` /
+`notify_follow_accepted`), passing the id of the exact request or follow edge
+it created. The job re-reads that row, so one cancelled, denied, approved,
+converted or unfollowed in the meantime sends nothing — and a later request or
+follow between the same two people is a different row that never revives it.
+A follow-request push is also skipped once the owner has gone public, even if
+the request is still waiting in the converting backlog. Only the first follow
+(or request) by a given person within 24 hours notifies, so follow/unfollow/follow or request/cancel/request does not repeat
 it.
 
 **Secrets** (all optional — an unconfigured provider is a logged no-op, so

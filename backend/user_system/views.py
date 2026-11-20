@@ -4787,11 +4787,12 @@ def follow_user(request, username_to_follow):
         FollowRequest.objects.filter(user_from=caller, user_to=user_to_follow_obj).delete()
         try:
             with transaction.atomic():
-                UserFollow.objects.create(user_from=request.user, user_to=user_to_follow_obj, category=category)
+                follow = UserFollow.objects.create(
+                    user_from=request.user, user_to=user_to_follow_obj, category=category)
         except IntegrityError:
             return log_and_return_json("follow_user", {'error': "Already following user"}, status=400)
     # Tell the followed account (issue #604), off the request path.
-    notifications.notify_new_follower(request.user, user_to_follow_obj)
+    notifications.notify_new_follower(follow)
     logger.info(f"Follow user successful: target_user_id: {user_to_follow_obj.id} by user_id: {request.user.id}")
     return log_and_return_json("follow_user", {
         'message': 'User followed',
@@ -4843,11 +4844,12 @@ def _request_to_follow(request, target_user, category):
 
     try:
         with transaction.atomic():
-            FollowRequest.objects.create(user_from=request.user, user_to=target_user, category=category)
+            follow_request = FollowRequest.objects.create(
+                user_from=request.user, user_to=target_user, category=category)
     except IntegrityError:
         return log_and_return_json("follow_user", {'error': "Follow already requested"}, status=400)
     # Tell the owner (issue #604). Enqueued on commit, so the job sees the request.
-    notifications.notify_follow_request(request.user, target_user)
+    notifications.notify_follow_request(follow_request)
     logger.info(f"Follow request filed: target_user_id: {target_user.id} by user_id: {request.user.id}")
     return log_and_return_json("follow_user", {
         'message': 'Follow requested',
@@ -5072,12 +5074,14 @@ def _incoming_follow_request(request, endpoint, username):
 def _approve_follow_request(follow_request):
     """Turn a pending request into the follow edge it asked for. get_or_create
     so an edge that somehow already exists (e.g. created before the account went
-    private) is kept rather than tripping the unique constraint."""
+    private) is kept rather than tripping the unique constraint. Returns the
+    follow edge."""
     with transaction.atomic():
-        UserFollow.objects.get_or_create(
+        follow, _ = UserFollow.objects.get_or_create(
             user_from=follow_request.user_from, user_to=follow_request.user_to,
             defaults={'category': follow_request.category})
         follow_request.delete()
+    return follow
 
 
 @csrf_exempt
@@ -5101,7 +5105,9 @@ def approve_follow_request(request, username):
         follow_request, error = _incoming_follow_request(request, "approve_follow_request", username)
         if error is not None:
             return error
-        _approve_follow_request(follow_request)
+        follow = _approve_follow_request(follow_request)
+    # Tell the requester (issue #604), off the request path.
+    notifications.notify_follow_accepted(follow)
     logger.info(f"Follow request approved: requester_id: {follow_request.user_from_id} by user_id: {request.user.id}")
     return log_and_return_json("approve_follow_request", {'message': 'Follow request approved'})
 

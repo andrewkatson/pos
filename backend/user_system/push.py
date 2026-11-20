@@ -29,7 +29,7 @@ from django.conf import settings
 from .constants import (
     DEVICE_PLATFORM_IOS, DEVICE_PLATFORM_ANDROID, DEVICE_PLATFORM_WEB,
     PUSH_TYPE_POST_REJECTED, PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE,
-    PUSH_TYPE_FOLLOW_REQUEST, PUSH_TYPE_NEW_FOLLOWER,
+    PUSH_TYPE_FOLLOW_REQUEST, PUSH_TYPE_NEW_FOLLOWER, PUSH_TYPE_FOLLOW_ACCEPTED,
     PUSH_TYPE_PARENTS,
 )
 from .models import DeviceToken, NotificationPreference
@@ -60,7 +60,7 @@ ANDROID_CHANNEL_POST_MODERATION = "post_moderation"
 ANDROID_CHANNEL_ACTIVITY = "activity"
 _ACTIVITY_PUSH_TYPES = frozenset({
     PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE,
-    PUSH_TYPE_FOLLOW_REQUEST, PUSH_TYPE_NEW_FOLLOWER,
+    PUSH_TYPE_FOLLOW_REQUEST, PUSH_TYPE_NEW_FOLLOWER, PUSH_TYPE_FOLLOW_ACCEPTED,
 })
 
 
@@ -140,12 +140,13 @@ def build_activity_payload(kind, post, title, body_text):
 
 def build_follow_payload(kind, actor, title, body):
     """Build the push payload for follow activity (issue #604): a follow request
-    to a private account, or a new follower.
+    to a private account, a new follower, or an accepted follow request.
 
     These are about a person, not a post, so ``data`` carries the actor's
     ``username`` rather than a post_identifier. A request deep-links to the
-    owner's follow-request list, where it can be approved or denied; a new
-    follower deep-links to the follower's profile. Every value is a string, as
+    owner's follow-request list, where it can be approved or denied; the other
+    kinds deep-link to the actor's profile (the new follower, or the owner who
+    accepted). Every value is a string, as
     with the other payloads.
     """
     if kind == PUSH_TYPE_FOLLOW_REQUEST:

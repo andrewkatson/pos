@@ -10,8 +10,9 @@ import Combine
 
 /// A tiny shared bus that writes "open this post" (or "open this profile", or
 /// "open your follow requests") requests to the UI. They come from tapping a
-/// push notification (a post's: issues #342/#343/#444; a new follower's
-/// profile or your follow requests: issue #604), opening a shared
+/// push notification (a post's: issues #342/#343/#444; the profile of a new
+/// follower or of someone who accepted your request, or your follow requests:
+/// issue #604), opening a shared
 /// `https://smiling.social/post/<id>` link as a Universal Link (issue #382), and
 /// opening a shared `/profile/<username>` link the same way (issue #510). Kept
 /// separate from all of that plumbing so views depend only on this, not on
