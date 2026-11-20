@@ -17,9 +17,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 private const val TAG = "HomeViewModel"
+private const val SEARCH_BATCH_SIZE = 10
 // Bound requests even if a server keeps returning full pages indefinitely.
 private const val MAX_SEARCH_BATCHES = 100
 
@@ -29,6 +32,10 @@ private const val MAX_SEARCH_BATCHES = 100
  * the shared profile body against [ProfileViewModel]; this view model owns only
  * the user-search bar above it, plus [currentUsername] so the screen knows whose
  * profile to show.
+ *
+ * The search endpoint is rate-limited (30 requests per minute per user), so
+ * "View all results" never loops over every batch: it shows what is already
+ * fetched and [loadMoreSearchResults] pages one further batch per press.
  */
 @OptIn(FlowPreview::class)
 class HomeViewModel(
@@ -53,6 +60,11 @@ class HomeViewModel(
     val isLoadingAllResults: StateFlow<Boolean> =
         _isLoadingAllResults.asStateFlow()
 
+    // Whether the "View all results" dialog can page in another batch.
+    private val _canLoadMoreResults = MutableStateFlow(false)
+    val canLoadMoreResults: StateFlow<Boolean> =
+        _canLoadMoreResults.asStateFlow()
+
     private val _searchText = MutableStateFlow("")
     val searchText: StateFlow<String> = _searchText.asStateFlow()
 
@@ -63,10 +75,16 @@ class HomeViewModel(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    // Bumped whenever the effective (trimmed) query changes. Requests capture it
+    // and only touch state while it is unchanged, so a cancelled or superseded
+    // request can never clear a newer query's loading state or results.
+    private var searchGeneration = 0
+
     private var prefetchedSecondBatch: List<User> = emptyList()
     private var prefetchedSecondBatchQuery: String? = null
     private var prefetchedSecondBatchRawSize: Int? = null
-    private var loadAllJob: Job? = null
+    private var nextResultsBatch = 1
+    private var loadMoreJob: Job? = null
 
     private val service = "positive-only-social.Positive-Only-Social"
 
@@ -84,6 +102,10 @@ class HomeViewModel(
 
         viewModelScope.launch {
             _searchText
+                .map { it.trim() }
+                // Trim-equivalent edits (e.g. a trailing space) keep the
+                // in-flight search instead of restarting it.
+                .distinctUntilChanged()
                 .debounce(500) // Wait 500ms after user stops typing.
                 .collectLatest { query ->
                     performSearch(query)
@@ -92,12 +114,17 @@ class HomeViewModel(
     }
 
     fun updateSearchText(text: String) {
-        loadAllJob?.cancel()
-        loadAllJob = null
-        _isLoadingAllResults.value = false
         val trimmedText = text.trim()
-
+        val queryChanged = trimmedText != _searchText.value.trim()
         _searchText.value = text
+
+        if (!queryChanged) return
+
+        searchGeneration++
+        loadMoreJob?.cancel()
+        loadMoreJob = null
+        _isLoadingAllResults.value = false
+        _canLoadMoreResults.value = false
         _searchedUsers.value = emptyList()
         _errorMessage.value = null
         _hasMoreResults.value = false
@@ -106,10 +133,15 @@ class HomeViewModel(
         prefetchedSecondBatch = emptyList()
         prefetchedSecondBatchQuery = null
         prefetchedSecondBatchRawSize = null
+        nextResultsBatch = 1
     }
 
-    private suspend fun performSearch(query: String) {
-        val trimmedQuery = query.trim()
+    private suspend fun performSearch(trimmedQuery: String) {
+        // A newer query is already on its way through the debounce.
+        if (_searchText.value.trim() != trimmedQuery) return
+
+        val generation = searchGeneration
+        fun isCurrent() = generation == searchGeneration
 
         if (trimmedQuery.length < 3) {
             _searchedUsers.value = emptyList()
@@ -137,7 +169,7 @@ class HomeViewModel(
                 0
             )
 
-            if (_searchText.value.trim() != trimmedQuery) return
+            if (!isCurrent()) return
 
             if (!response.isSuccessful) {
                 _searchedUsers.value = emptyList()
@@ -151,11 +183,11 @@ class HomeViewModel(
 
             val results = response.body() ?: emptyList()
             _searchedUsers.value = results
+            // Show the first batch now; the check for more results below must
+            // not hold it back.
+            _isSearching.value = false
 
-            if (results.size != 10) {
-                prefetchedSecondBatch = emptyList()
-                prefetchedSecondBatchQuery = null
-                prefetchedSecondBatchRawSize = null
+            if (results.size != SEARCH_BATCH_SIZE) {
                 _hasMoreResults.value = false
                 return
             }
@@ -167,12 +199,9 @@ class HomeViewModel(
                     1
                 )
 
-                if (_searchText.value.trim() != trimmedQuery) return
+                if (!isCurrent()) return
 
                 if (!nextResponse.isSuccessful) {
-                    prefetchedSecondBatch = emptyList()
-                    prefetchedSecondBatchQuery = null
-                    prefetchedSecondBatchRawSize = null
                     _hasMoreResults.value = true // Let View All retry this page.
                     return
                 }
@@ -193,10 +222,7 @@ class HomeViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (_searchText.value.trim() != trimmedQuery) return
-                prefetchedSecondBatch = emptyList()
-                prefetchedSecondBatchQuery = null
-                prefetchedSecondBatchRawSize = null
+                if (!isCurrent()) return
                 _hasMoreResults.value = true // Retry when View All opens.
                 Log.e(
                     TAG,
@@ -207,7 +233,7 @@ class HomeViewModel(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (_searchText.value.trim() != trimmedQuery) return
+            if (!isCurrent()) return
             _searchedUsers.value = emptyList()
             _hasMoreResults.value = false
             _errorMessage.value = ApiErrors.messageFor(
@@ -218,24 +244,65 @@ class HomeViewModel(
         } finally {
             // An older cancelled search must not clear a newer query's
             // loading state.
-            if (_searchText.value.trim() == trimmedQuery) {
+            if (isCurrent()) {
                 _isSearching.value = false
             }
         }
     }
 
+    /**
+     * Opens "View all results": shows the batches already fetched (the inline
+     * first batch plus the prefetched second one). Only when that prefetch
+     * failed does it request a batch, to retry it. Reopening the dialog for the
+     * same query keeps everything already paged in.
+     */
     fun loadAllSearchResults() {
         val query = _searchText.value.trim()
 
-        if (query.length < 3 || _isLoadingAllResults.value) {
+        if (query.length < 3 || _isLoadingAllResults.value) return
+        if (_allSearchResults.value.isNotEmpty()) return
+
+        val results = _searchedUsers.value.toMutableList()
+        val cachedSecondBatch =
+            if (prefetchedSecondBatchQuery == query) prefetchedSecondBatch else null
+
+        if (cachedSecondBatch != null) {
+            results.addAll(cachedSecondBatch)
+            nextResultsBatch = 2
+            _allSearchResults.value = results
+            _canLoadMoreResults.value =
+                prefetchedSecondBatchRawSize == SEARCH_BATCH_SIZE
+        } else {
+            nextResultsBatch = 1
+            _allSearchResults.value = results
+            _canLoadMoreResults.value = false
+            loadNextResultsBatch(query)
+        }
+    }
+
+    /** Pages one further batch into the "View all results" list. */
+    fun loadMoreSearchResults() {
+        val query = _searchText.value.trim()
+
+        if (
+            query.length < 3 ||
+            _isLoadingAllResults.value ||
+            !_canLoadMoreResults.value
+        ) {
             return
         }
 
-        _allSearchResults.value = emptyList()
+        loadNextResultsBatch(query)
+    }
 
-        loadAllJob = viewModelScope.launch {
-            _isLoadingAllResults.value = true
+    private fun loadNextResultsBatch(query: String) {
+        val generation = searchGeneration
+        fun isCurrent() = generation == searchGeneration
+        val batch = nextResultsBatch
 
+        _isLoadingAllResults.value = true
+
+        loadMoreJob = viewModelScope.launch {
             try {
                 val userSession = keychainHelper.load(
                     UserSession::class.java,
@@ -244,7 +311,9 @@ class HomeViewModel(
                 )
 
                 if (userSession == null) {
-                    if (_searchText.value.trim() == query) _errorMessage.value = Constants.SESSION_MISSING_MESSAGE
+                    if (isCurrent()) {
+                        _errorMessage.value = Constants.SESSION_MISSING_MESSAGE
+                    }
                     Log.e(
                         TAG,
                         "No active session found — cannot load search results"
@@ -252,84 +321,57 @@ class HomeViewModel(
                     return@launch
                 }
 
-                val results = _searchedUsers.value.toMutableList()
-                val cachedSecondBatch =
-                    if (prefetchedSecondBatchQuery == query) {
-                        prefetchedSecondBatch
-                    } else {
-                        null
-                    }
+                val response = api.searchUsers(
+                    userSession.sessionToken,
+                    query,
+                    batch
+                )
 
-                var batch = 1
+                if (!isCurrent()) return@launch
 
-                if (cachedSecondBatch != null) {
-                    results.addAll(cachedSecondBatch)
-                    batch = 2
-                }
-
-                val seenUsernames =
-                    results.mapTo(mutableSetOf()) { it.username }
-
-                val shouldLoadAnotherBatch =
-                    cachedSecondBatch == null ||
-                        prefetchedSecondBatchRawSize == 10
-
-                while (shouldLoadAnotherBatch && _searchText.value.trim() == query) {
-                    val response = api.searchUsers(
-                        userSession.sessionToken,
-                        query,
-                        batch
+                if (!response.isSuccessful) {
+                    // Keep the pages already shown; Load more retries this one.
+                    _canLoadMoreResults.value = true
+                    _errorMessage.value = ApiErrors.messageFor(
+                        response,
+                        fallback =
+                            "Unable to load more search results. Please try again."
                     )
-
-                    if (_searchText.value.trim() != query) return@launch
-                    if (!response.isSuccessful) {
-                        _errorMessage.value = ApiErrors.messageFor(
-                            response,
-                            fallback =
-                                "Unable to load all search results. Please try again."
-                        )
-                        return@launch
-                    }
-
-                    val nextBatch = response.body() ?: emptyList()
-                    val newUsers = nextBatch.filter { user ->
-                        seenUsernames.add(user.username)
-                    }
-
-                    results.addAll(newUsers)
-
-                    // Only the raw page size indicates the end of pagination;
-                    // a full page of known users can precede more new users.
-                    if (nextBatch.size < 10) {
-                        break
-                    }
-
-                    if (batch + 1 >= MAX_SEARCH_BATCHES) {
-                        _errorMessage.value =
-                            "Unable to finish loading all search results. Try a more specific search."
-                        return@launch
-                    }
-
-                    batch++
+                    return@launch
                 }
 
-                // Don't publish old results if the user changed the query
-                // while the remaining batches were loading.
-                if (_searchText.value.trim() == query) {
-                    _allSearchResults.value = results
+                val rawBatch = response.body() ?: emptyList()
+                val seenUsernames =
+                    _allSearchResults.value.mapTo(mutableSetOf()) { it.username }
+                val newUsers = rawBatch.filter { user ->
+                    seenUsernames.add(user.username)
+                }
+
+                _allSearchResults.value = _allSearchResults.value + newUsers
+                nextResultsBatch = batch + 1
+
+                // Only the raw page size indicates the end of pagination; a
+                // full page of known users can precede more new users.
+                val pageWasFull = rawBatch.size == SEARCH_BATCH_SIZE
+                if (pageWasFull && nextResultsBatch >= MAX_SEARCH_BATCHES) {
+                    _canLoadMoreResults.value = false
+                    _errorMessage.value =
+                        "Unable to load more search results. Try a more specific search."
+                } else {
+                    _canLoadMoreResults.value = pageWasFull
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (_searchText.value.trim() != query) return@launch
+                if (!isCurrent()) return@launch
+                _canLoadMoreResults.value = true
                 _errorMessage.value = ApiErrors.messageFor(
                     e,
-                    fallback =
-                        "Unable to load all search results. Try again."
+                    fallback = "Unable to load more search results. Try again."
                 )
-                Log.e(TAG, "Error loading all search results", e)
+                Log.e(TAG, "Error loading more search results", e)
             } finally {
-                if (_searchText.value.trim() == query) _isLoadingAllResults.value = false
+                if (isCurrent()) _isLoadingAllResults.value = false
             }
         }
     }

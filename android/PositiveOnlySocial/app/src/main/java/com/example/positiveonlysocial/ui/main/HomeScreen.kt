@@ -64,6 +64,7 @@ fun HomeScreen(
         val hasMoreResults by viewModel.hasMoreResults.collectAsState()
         val allSearchResults by viewModel.allSearchResults.collectAsState()
         val isLoadingAllResults by viewModel.isLoadingAllResults.collectAsState()
+        val canLoadMoreResults by viewModel.canLoadMoreResults.collectAsState()
 
         val errorMessage by viewModel.errorMessage.collectAsState()
 
@@ -190,16 +191,9 @@ fun HomeScreen(
                                     showAllResultsDialog = true
                                     viewModel.loadAllSearchResults()
                                 },
-                                enabled = !isLoadingAllResults,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    if (isLoadingAllResults) {
-                                        "Loading..."
-                                    } else {
-                                        "View all results"
-                                    }
-                                )
+                                Text("View all results")
                             }
                         }
                     }
@@ -242,26 +236,22 @@ fun HomeScreen(
                 }
             }
         }
+        // Dismissing an error returns to the results dialog if it was open, so
+        // the batches already paged in stay visible and Load more can retry.
         if (errorMessage != null) {
-    AlertDialog(
-        onDismissRequest = {
-            showAllResultsDialog = false
-            viewModel.clearError()
-        },
-        title = { Text("Search error") },
-        text = {
-            Text(errorMessage ?: "Something went wrong. Please try again.")
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    showAllResultsDialog = false
-                    viewModel.clearError() }) {
-                Text("OK")
-            }
+            AlertDialog(
+                onDismissRequest = { viewModel.clearError() },
+                title = { Text("Search error") },
+                text = {
+                    Text(errorMessage ?: "Something went wrong. Please try again.")
+                },
+                confirmButton = {
+                    Button(onClick = { viewModel.clearError() }) {
+                        Text("OK")
+                    }
+                }
+            )
         }
-    )
-}
         if (showAllResultsDialog && errorMessage == null) {
             AlertDialog(
                 onDismissRequest = {
@@ -271,7 +261,7 @@ fun HomeScreen(
                     Text("Search results")
                 },
                 text = {
-                    if (isLoadingAllResults) {
+                    if (isLoadingAllResults && allSearchResults.isEmpty()) {
                         Box(
                             modifier = Modifier.fillMaxWidth(),
                             contentAlignment = androidx.compose.ui.Alignment.Center
@@ -279,7 +269,7 @@ fun HomeScreen(
                             CircularProgressIndicator()
                         }
                     } else {
-                        LazyColumn {
+                        LazyColumn(modifier = Modifier.testTag("AllSearchResults")) {
                             lazyItems(allSearchResults) { user ->
                                 Row(
                                     modifier = Modifier
@@ -323,6 +313,30 @@ fun HomeScreen(
                                             tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(16.dp)
                                         )
+                                    }
+                                }
+                            }
+                            // One batch per press: the search endpoint is
+                            // rate-limited, so never fetch every page up front.
+                            if (isLoadingAllResults) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        contentAlignment =
+                                            androidx.compose.ui.Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator()
+                                    }
+                                }
+                            } else if (canLoadMoreResults) {
+                                item {
+                                    TextButton(
+                                        onClick = { viewModel.loadMoreSearchResults() },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Load more")
                                     }
                                 }
                             }

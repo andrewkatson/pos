@@ -45,15 +45,17 @@ takes no taps and is hidden from screen readers; the web banner is a
 case-insensitive prefix and returns them in deterministic batches of ten,
 ordered by username; `batch` defaults to 0, and a batch shorter than ten means
 there are no more. The search bar fires for queries of three or more characters
-(debounced) and shows the first batch inline. On the website, if that batch is
-full the client also fetches batch 1 to decide whether to offer a **View all
+(debounced) and shows the first batch inline. On the website and Android, if
+that batch is full the client also fetches batch 1 to decide whether to offer a **View all
 results** button; that button opens a dialog listing everything fetched so far
 with a **Load more** control that pages one further batch per press — never a
 loop over every batch, since the endpoint is rate-limited to 30 requests per
 minute per user. Retyping discards any in-flight page for the old query. The
 dialog is a proper modal: focus moves into it on open, Tab cycles within it,
-Escape closes it, and focus returns to the button that opened it. iOS and
-Android currently show the first batch only. Results run through
+Escape closes it, and focus returns to the button that opened it. On Android
+the first batch appears as soon as it arrives (the batch-1 check never holds it
+back), and an edit that only adds or removes surrounding whitespace keeps the
+in-flight search. iOS currently shows the first batch only. Results run through
 `searchable_users` and the block filters described under [Blocking](audience-and-relationships.md#blocking).
 
 Your **Followers** and **Following** counts are tappable on your own profile
