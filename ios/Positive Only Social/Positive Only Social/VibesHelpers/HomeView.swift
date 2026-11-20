@@ -104,7 +104,8 @@ struct HomeView: View {
         // A tapped follow-request notification (issue #604) opens the signed-in
         // user's incoming requests on the Profile tab, where they can approve
         // or deny it — the same screen the profile's "Follow requests" link
-        // pushes.
+        // pushes. Each destination value is unique, so a list already open
+        // there is rebuilt and reloaded rather than left stale.
         .onReceive(pushRouter.$pendingFollowRequests) { pending in
             guard pending else { return }
             currentTab = GVOAppConstants.profileTabIndex
