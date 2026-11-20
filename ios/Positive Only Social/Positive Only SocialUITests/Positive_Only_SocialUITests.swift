@@ -1882,7 +1882,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         deletePostAction.tap()
 
         // Delete asks for confirmation first, since it can't be undone.
-        let confirmDelete = app.alerts["Delete Post?"].buttons["Delete"]
+        // firstMatch: the alert's button is exposed twice, like the menu row's.
+        let confirmDelete = app.alerts["Delete Post?"].buttons["Delete"].firstMatch
         XCTAssertTrue(confirmDelete.waitForExistence(timeout: TestConstants.shortTimeout))
         confirmDelete.tap()
 
@@ -1926,7 +1927,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         deleteCommentAction.tap()
 
         // Delete asks for confirmation first, since it can't be undone.
-        let confirmDelete = app.alerts["Delete Comment?"].buttons["Delete"]
+        // firstMatch: the alert's button is exposed twice, like the menu row's.
+        let confirmDelete = app.alerts["Delete Comment?"].buttons["Delete"].firstMatch
         XCTAssertTrue(confirmDelete.waitForExistence(timeout: TestConstants.shortTimeout))
         confirmDelete.tap()
 
