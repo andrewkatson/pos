@@ -29,6 +29,7 @@ from django.conf import settings
 from .constants import (
     DEVICE_PLATFORM_IOS, DEVICE_PLATFORM_ANDROID, DEVICE_PLATFORM_WEB,
     PUSH_TYPE_POST_REJECTED, PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE,
+    PUSH_TYPE_FOLLOW_REQUEST, PUSH_TYPE_NEW_FOLLOWER, PUSH_TYPE_FOLLOW_ACCEPTED,
     PUSH_TYPE_PARENTS,
 )
 from .models import DeviceToken, NotificationPreference
@@ -50,13 +51,17 @@ _apns_jwt_cache = {"token": None, "minted_at": 0.0}
 _FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
 
 # Android notification channels, matching the ids the app registers at launch
-# (PosFirebaseMessagingService). Social activity (issue #444) has its own
-# channel so a user can mute it in system settings without muting rejections.
+# (PosFirebaseMessagingService). Social activity (issue #444) — follow activity
+# (#604) included — has its own channel so a user can mute it in system
+# settings without muting rejections.
 # Named in the FCM payload because a message arriving while the app is in the
 # background is displayed by the system, never reaching the app's own code.
 ANDROID_CHANNEL_POST_MODERATION = "post_moderation"
 ANDROID_CHANNEL_ACTIVITY = "activity"
-_ACTIVITY_PUSH_TYPES = frozenset({PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE})
+_ACTIVITY_PUSH_TYPES = frozenset({
+    PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE,
+    PUSH_TYPE_FOLLOW_REQUEST, PUSH_TYPE_NEW_FOLLOWER, PUSH_TYPE_FOLLOW_ACCEPTED,
+})
 
 
 def android_channel_for(data):
@@ -129,6 +134,32 @@ def build_activity_payload(kind, post, title, body_text):
             "type": kind,
             "post_identifier": post_id,
             "deep_link": f"{settings.FRONTEND_BASE_URL}/post/{post_id}",
+        },
+    }
+
+
+def build_follow_payload(kind, actor, title, body):
+    """Build the push payload for follow activity (issue #604): a follow request
+    to a private account, a new follower, or an accepted follow request.
+
+    These are about a person, not a post, so ``data`` carries the actor's
+    ``username`` rather than a post_identifier. A request deep-links to the
+    owner's follow-request list, where it can be approved or denied; the other
+    kinds deep-link to the actor's profile (the new follower, or the owner who
+    accepted). Every value is a string, as
+    with the other payloads.
+    """
+    if kind == PUSH_TYPE_FOLLOW_REQUEST:
+        deep_link = f"{settings.FRONTEND_BASE_URL}/follow-requests"
+    else:
+        deep_link = f"{settings.FRONTEND_BASE_URL}/profile/{quote(actor.username)}"
+    return {
+        "title": title,
+        "body": body,
+        "data": {
+            "type": kind,
+            "username": actor.username,
+            "deep_link": deep_link,
         },
     }
 
@@ -293,15 +324,7 @@ def _send_apns(tokens, payload):
         # is JSON so APNs never has to guess.
         "content-type": "application/json",
     }
-    # Custom keys go under "data" (not flattened to the top level) so iOS reads
-    # them at userInfo["data"], matching the FCM data map exactly — including
-    # coercing values to strings, so the "all-string data map" contract holds
-    # even if a future caller passes a non-string.
-    data = {k: str(v) for k, v in payload.get("data", {}).items()}
-    body = json.dumps({
-        "aps": {"alert": {"title": payload["title"], "body": payload["body"]}, "sound": "default"},
-        "data": data,
-    })
+    body = _apns_body(payload)
 
     dead = []
     with httpx.Client(http2=True, timeout=10.0) as client:
@@ -324,6 +347,31 @@ def _send_apns(tokens, payload):
             else:
                 logger.warning("APNs send failed (%s): %s", response.status_code, response.text[:200])
     return dead
+
+
+# APNs rejects a notification whose JSON body is larger than this many bytes.
+APNS_MAX_PAYLOAD_BYTES = 4096
+
+
+def _apns_body(payload):
+    """The UTF-8 JSON body APNs receives for ``payload``.
+
+    Custom keys go under "data" (not flattened to the top level) so iOS reads
+    them at userInfo["data"], matching the FCM data map exactly — including
+    coercing values to strings, so the "all-string data map" contract holds
+    even if a future caller passes a non-string.
+
+    Non-ASCII is written as UTF-8 rather than ``\\uXXXX`` escapes, and with no
+    padding after separators: a username may be up to 150 Unicode word
+    characters, and an astral one (U+10000 and up) escapes to 12 bytes against
+    4 raw, which would push a follow payload — the name in the title, the data
+    map and the percent-encoded deep link — past APNS_MAX_PAYLOAD_BYTES.
+    """
+    data = {k: str(v) for k, v in payload.get("data", {}).items()}
+    return json.dumps({
+        "aps": {"alert": {"title": payload["title"], "body": payload["body"]}, "sound": "default"},
+        "data": data,
+    }, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
 def _apns_token_is_dead(response):

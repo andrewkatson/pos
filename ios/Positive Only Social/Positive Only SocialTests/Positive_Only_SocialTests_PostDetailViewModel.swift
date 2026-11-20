@@ -832,6 +832,36 @@ struct Positive_Only_SocialTests_PostDetailViewModel {
         #expect(!sut.canEditComment(comment))
     }
 
+    // --- Post authors deleting comments on their post (issue #603) ---
+
+    @Test func testDeleteComment_OthersCommentOnOwnPost_IsOfferedAndDeletes() async throws {
+        let account = "deleteOthersCommentOnOwnPost_account"
+        let ownerToken = try await setupLoggedInUser(username: "owner", account: account)
+        let commenterToken = try await registerUserAndGetToken(username: "commenter")
+        let postID = try await makePostAndGetID(token: ownerToken, caption: "My own post")
+        let (_, commentID) = try await commentOnPostAndGetIDs(token: commenterToken, postID: postID, body: "Their comment")
+        let sut = PostDetailViewModel(postIdentifier: postID, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        await yield()
+
+        let comment = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(!sut.isOwnComment(comment))
+        #expect(sut.canDeleteComment(comment))
+        // Moderating the comment section doesn't make the comment yours to edit.
+        #expect(!sut.canEditComment(comment))
+
+        sut.deleteComment(comment)
+        await yield()
+
+        #expect(!sut.commentThreads.flatMap(\.comments).contains(where: { $0.id == commentID }))
+        #expect(sut.alertMessage == nil)
+    }
+
+    @Test func testDeleteComment_NotOfferedOnOthersCommentOnOthersPost() async throws {
+        let (sut, _, _, commentID) = try await setupTestEnvironment(account: "deleteOthersCommentOthersPost_account")
+        let comment = try #require(sut.commentThreads.flatMap(\.comments).first(where: { $0.id == commentID }))
+        #expect(!sut.canDeleteComment(comment))
+    }
+
     @Test func testEditComment_NotOfferedOnceCommentsAreLocked() async throws {
         let account = "editLockedComment_account"
         let (sut, postID, commentID) = try await setupOwnContentEnvironment(account: account)

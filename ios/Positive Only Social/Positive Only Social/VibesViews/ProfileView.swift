@@ -141,6 +141,32 @@ struct ProfileBodyView: View {
         .sheet(item: $viewModel.profileShareItem) { item in
             ShareActivityView(url: item.url)
         }
+        // Reporting this account (issue #602), opened from the options menu.
+        .sheet(isPresented: $viewModel.showReportAccountSheet) {
+            ReportView { reason in
+                viewModel.reportAccount(reason: reason)
+            }
+        }
+        .alert("Retract Report?", isPresented: $viewModel.showRetractAccountReportDialog) {
+            Button("Retract Report", role: .destructive) {
+                viewModel.retractAccountReport()
+            }
+            .accessibilityIdentifier("ConfirmRetractAccountReportButton")
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Withdraw your report of \(viewModel.user.username)?")
+        }
+        .alert(
+            "Report",
+            isPresented: Binding(
+                get: { viewModel.reportErrorMessage != nil },
+                set: { if !$0 { viewModel.reportErrorMessage = nil } }
+            )
+        ) {
+            Button("OK") { viewModel.reportErrorMessage = nil }
+        } message: {
+            Text(viewModel.reportErrorMessage ?? "")
+        }
     }
     
     /// A new sub-view for the profile header and follow button
@@ -320,27 +346,47 @@ struct ProfileBodyView: View {
     
     /// The profile's options (issue #510): Share Profile, offered on every
     /// profile — your own and everyone else's — since the link needs no
-    /// session to open. The row closes the popover before acting, since the
-    /// share flow presents a sheet of its own (see PostDetailView.menuRow).
+    /// session to open; and on anyone else's profile, Report / Retract Report
+    /// for the account (issue #602). Each row closes the popover before acting,
+    /// since its flow presents a sheet or alert of its own (see
+    /// PostDetailView.menuRow).
     @ViewBuilder
     private var profileMenu: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
-                showProfileMenu = false
-                DispatchQueue.main.async { viewModel.shareProfile() }
-            } label: {
-                Text("Share Profile")
-                    .foregroundColor(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .contentShape(Rectangle())
+            profileMenuRow("Share Profile", identifier: "ShareProfileActionButton") {
+                viewModel.shareProfile()
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("ShareProfileActionButton")
+            if !viewModel.isOwnProfile {
+                if viewModel.isAccountReported {
+                    profileMenuRow("Retract Report", identifier: "RetractReportAccountActionButton") {
+                        viewModel.showRetractAccountReportDialog = true
+                    }
+                } else {
+                    profileMenuRow("Report Account", identifier: "ReportAccountActionButton", destructive: true) {
+                        viewModel.showReportAccountSheet = true
+                    }
+                }
+            }
         }
         .padding(.vertical, 6)
         .frame(minWidth: 200, alignment: .leading)
+    }
+
+    private func profileMenuRow(_ title: String, identifier: String, destructive: Bool = false,
+                                action: @escaping () -> Void) -> some View {
+        Button {
+            showProfileMenu = false
+            DispatchQueue.main.async { action() }
+        } label: {
+            Text(title)
+                .foregroundColor(destructive ? .red : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
     }
     
     /// The owner's profile-photo controls (issue #7): pick a photo to upload and

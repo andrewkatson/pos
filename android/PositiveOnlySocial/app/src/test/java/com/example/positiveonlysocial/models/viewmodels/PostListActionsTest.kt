@@ -318,6 +318,23 @@ class PostListActionsTest {
     }
 
     @Test
+    fun `confirming a delete clears the pending confirmation`() = runTest {
+        loadFeed()
+        whenever(api.deletePost("token123", "2"))
+            .thenReturn(Response.success(GenericResponse("Deleted", null)))
+
+        // The menu's Delete only asks; nothing is deleted until it is confirmed.
+        actions.setPostToDelete(ownPost)
+        assertEquals("2", actions.postToDelete.value?.postIdentifier)
+        verify(api, never()).deletePost(any(), any())
+
+        actions.deletePost(ownPost)
+        advanceUntilIdle()
+
+        assertNull(actions.postToDelete.value)
+    }
+
+    @Test
     fun `deletePost failure leaves the post in place`() = runTest {
         loadFeed()
         whenever(api.deletePost("token123", "2"))

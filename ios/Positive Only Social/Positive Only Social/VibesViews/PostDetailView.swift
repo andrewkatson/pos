@@ -332,6 +332,34 @@ struct PostDetailView: View {
         } message: { comment in
             Text("You reported this comment with the reason: “\(comment.reportReason ?? "")”. Retracting removes your report.")
         }
+        // Deleting a post can't be undone, so the menu's Delete asks first.
+        .alert("Delete Post?", isPresented: $viewModel.showDeleteDialogForPost) {
+            Button("Delete", role: .destructive) {
+                viewModel.deletePost()
+            }
+            .accessibilityIdentifier("ConfirmDeletePostButton")
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This can’t be undone.")
+        }
+        // Deleting a comment can't be undone — and on your own post it may be
+        // someone else's (issue #603) — so the menu's Delete asks first.
+        .alert(
+            "Delete Comment?",
+            isPresented: Binding(
+                get: { viewModel.commentToDelete != nil },
+                set: { if !$0 { viewModel.commentToDelete = nil } }
+            ),
+            presenting: viewModel.commentToDelete
+        ) { comment in
+            Button("Delete", role: .destructive) {
+                viewModel.deleteComment(comment)
+            }
+            .accessibilityIdentifier("ConfirmDeleteCommentButton")
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("This can’t be undone.")
+        }
         // --- Modals and Sheets ---
         .sheet(isPresented: $viewModel.showReportSheetForPost) {
             ReportView { reason in
@@ -432,7 +460,7 @@ struct PostDetailView: View {
             }
             if viewModel.isOwnPost {
                 menuRow("Delete Post", identifier: "DeletePostActionButton", isDestructive: true) {
-                    viewModel.deletePost()
+                    viewModel.showDeleteDialogForPost = true
                 }
             } else if viewModel.isPostReported {
                 menuRow("Retract Report", identifier: "RetractReportPostActionButton") {

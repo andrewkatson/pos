@@ -108,6 +108,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var membershipNumber: Int? = null,
         val blocked: MutableList<String> = mutableListOf(),
         val blockedBy: MutableList<String> = mutableListOf(),
+        // Standing reports of this account (issue #602): reporter id → reason.
+        val accountReports: MutableMap<String, String> = mutableMapOf(),
         // Two-factor authentication (issue #348). A secret without the enabled
         // flag is a pending enrollment; recovery codes are removed as used.
         var totpSecret: String? = null,
@@ -1461,10 +1463,20 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
 
     override suspend fun deleteComment(token: String, postId: String, threadId: String, commentId: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
-        val thread = commentThreads.find { it.threadIdentifier == threadId } ?: return error(404, "Thread not found")
+        // Resolve all three ids together, as the backend does, so pairing a post
+        // you own with a thread from someone else's post grants nothing.
+        val thread = commentThreads.find { it.threadIdentifier == threadId && it.postId == postId }
+            ?: return error(404, "Thread not found")
         val comment = thread.comments.find { it.commentIdentifier == commentId } ?: return error(404, "Comment not found")
 
-        if (comment.authorId != user.id) return error(404, "Not authorized")
+        // The comment's author may delete it, and so may the post's author
+        // (issue #603) — but only a comment they are shown, as the backend's
+        // visible_comments check makes it.
+        val isPostAuthor = posts.find { it.postIdentifier == postId }?.authorId == user.id
+        val ownsComment = comment.authorId == user.id
+        if (!ownsComment && !(isPostAuthor && comment in visibleComments(thread, user, null))) {
+            return error(404, "Not authorized")
+        }
 
         thread.comments.remove(comment)
         return Response.success(GenericResponse("Comment deleted", null))
@@ -1746,6 +1758,26 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         return Response.success(GenericResponse("User unfollowed", null))
     }
 
+    override suspend fun reportAccount(token: String, username: String, request: ReportRequest): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
+        val target = users.find { it.username == username }?.takeIf { inSameAgeBand(user, it) }
+            ?: return error(400, "User does not exist")
+        if (target.id == user.id) return error(400, "Cannot report own account")
+        if (target.accountReports.containsKey(user.id)) return error(400, "Cannot report account twice")
+        // Like a post report, this hides nothing (issue #467); the stub has no
+        // classifier to re-review the profile with.
+        target.accountReports[user.id] = request.reason
+        return Response.success(GenericResponse("Account reported", null))
+    }
+
+    override suspend fun retractReportAccount(token: String, username: String): Response<GenericResponse> {
+        val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
+        val target = users.find { it.username == username }?.takeIf { inSameAgeBand(user, it) }
+            ?: return error(400, "User does not exist")
+        if (target.accountReports.remove(user.id) == null) return error(400, "Account not reported yet")
+        return Response.success(GenericResponse("Account report retracted", null))
+    }
+
     override suspend fun toggleBlock(token: String, username: String): Response<GenericResponse> {
         val user = getAuthorizedUser(token) ?: return error(401, "Unauthorized")
         val target = users.find { it.username == username } ?: return error(404, "User not found")
@@ -1835,7 +1867,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 // Redacted for a blocked requester, like the stats/avatar above.
                 bio = "",
                 isPrivate = target.isPrivate,
-                followRequestPending = false
+                followRequestPending = false,
+                isReported = user?.let { target.accountReports.containsKey(it.id) },
+                reportReason = user?.let { target.accountReports[it.id] }
             ))
         }
 
@@ -1867,7 +1901,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 target.followRequests.keys.count { id ->
                     users.find { it.id == id }?.let { inSameAgeBand(target, it) } == true
                 }
-            } else null
+            } else null,
+            // The viewer's own report only (issue #602), never on your own profile.
+            isReported = if (user != null && !isOwnProfile) target.accountReports.containsKey(user.id) else null,
+            reportReason = if (user != null && !isOwnProfile) target.accountReports[user.id] else null
         ))
     }
 
@@ -2050,7 +2087,10 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             Triple("new_post", "New posts", "all")
         ) + sources("new_post", false) +
             Triple("new_comment", "Comments and replies", "all") + sources("new_comment", true) +
-            Triple("new_like", "Likes", "all") + sources("new_like", true)
+            Triple("new_like", "Likes", "all") + sources("new_like", true) +
+            Triple("new_follower", "New followers", "all") + sources("new_follower", true) +
+            Triple("follow_request", "Follow requests", "all") + sources("follow_request", true) +
+            Triple("follow_accepted", "Accepted follow requests", "all") + sources("follow_accepted", false)
         val prefs = tree.map { (type, label, parent) ->
             NotificationPreference(
                 type = type, label = label, parent = parent,

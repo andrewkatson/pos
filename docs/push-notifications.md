@@ -1,6 +1,6 @@
 # Push notifications
 
-Native push notifications tell a user about two things:
+Native push notifications tell a user about three things:
 
 - **Post moderation** (issues #342 / #343). Because async classification
   decides a rejection *after* `make_post` has already returned `201`, the author
@@ -10,6 +10,10 @@ Native push notifications tell a user about two things:
 - **Social activity** (issue #444): a new post from someone you follow, a
   comment on your post or a reply to your comment, and a like on your post or
   comment. See [Activity notifications](#activity-notifications-issue-444).
+- **Follow activity** (issue #604): a request to follow your private account,
+  a new follower of your public one, and the approval of a follow request you
+  sent. See
+  [Follow notifications](#follow-notifications-issue-604).
 
 Push is a **nudge, never the source of truth.** Permissions get denied and
 tokens go stale, so a user who never receives the push must still see the
@@ -37,12 +41,22 @@ bring the user back to look.
       `_friend`, `_family` and `_other`.
     - `new_like` — "Likes", with `new_like_following`, `_friend`, `_family` and
       `_other`.
+    - `new_follower` — "New followers", with `new_follower_following`,
+      `_friend`, `_family` and `_other`.
+    - `follow_request` — "Follow requests", with `follow_request_following`,
+      `_friend`, `_family` and `_other`.
+    - `follow_accepted` — "Accepted follow requests", with
+      `follow_accepted_following`, `_friend` and `_family`.
 
   The source is the [relationship category](audience-and-relationships.md)
   the *recipient* gave the person who acted, on the recipient's own follow
   edge — "From people I follow", "From friends", "From family" — or "From
   everyone else" (`other`) when the recipient does not follow them. New posts
-  only ever reach followers, so they have no `other` source.
+  only ever reach followers, so they have no `other` source, and neither does
+  an accepted follow request, which always leaves the recipient following the
+  owner (by the category they asked for). For follow requests and new
+  followers, `other` is someone the recipient does not follow back. Every type
+  name must fit the 32-character preference column.
 
   A user turns a type off in the app's Settings → **Notifications**: `GET/POST
   /notifications/preferences/` reads/writes them, returning one `{type, label,
@@ -62,20 +76,29 @@ bring the user back to look.
   fans out to all of
   a user's tokens, called by `classify_post` on a resolved rejection and by the
   activity jobs in `user_system.notifications` — off the request path, on the
-  same durable queue, best-effort. The payload's `data` map carries the
-  `post_identifier`, a `type` (`post_rejected`, `new_post`, `new_comment` or
-  `new_like` — the kind, not the per-source preference type), and a `deep_link`
-  (`<FRONTEND_BASE_URL>/post/<id>`); a rejection also says whether it is
-  `appealable`. Every kind opens its post on tap: the rejected post and its
-  appeal UI, the new post, or the post a comment or like landed on. Clients
-  route only the types they know to a post, so a future kind is ignored rather
-  than misrouted. **All `data` values are strings**
+  same durable queue, best-effort. The payload's `data` map carries a `type`
+  (`post_rejected`, `new_post`, `new_comment`, `new_like`, `follow_request`,
+  `new_follower` or `follow_accepted` — the kind, not the per-source preference type) and a
+  `deep_link`. The post kinds carry the `post_identifier` and deep-link to
+  `<FRONTEND_BASE_URL>/post/<id>`; a rejection also says whether it is
+  `appealable`. Each opens its post on tap: the rejected post and its appeal
+  UI, the new post, or the post a comment or like landed on. The follow kinds
+  carry the actor's `username` instead: a follow request opens the owner's
+  follow-request list (`<FRONTEND_BASE_URL>/follow-requests`); a new follower,
+  or an accepted request, opens the other person's profile
+  (`<FRONTEND_BASE_URL>/profile/<username>`).
+  Native clients route off `type` plus `post_identifier` / `username`, and only
+  for the types they know, so a future kind is ignored rather than misrouted;
+  the web opens the `deep_link`. **All `data` values are strings**
   — FCM's data map only carries strings, so the shape is identical across
   providers (both APNs and FCM deliver it under a `data` key) and clients parse
   `appealable` as `"true"`/`"false"` rather than a boolean.
 - **Providers.** iOS delivers through **APNs** directly (token-based `.p8`
   auth); Android and web both go through **FCM** (web uses FCM-for-web, so it
   registers with `platform: web` and needs no separate Web Push/VAPID path).
+  APNs refuses a body over 4096 bytes, so the APNs body is compact UTF-8 JSON
+  (no `\uXXXX` escapes): even a 150-character username of 4-byte characters
+  keeps a follow payload, which carries the name three times, under the limit.
 - **Dead-token pruning.** When a provider reports a token as gone (`410` /
   `Unregistered` on APNs, `404` / `NOT_FOUND` / `UNREGISTERED` on FCM), the send
   path deletes that `DeviceToken` row so we neither leak rows nor keep paying to
@@ -120,13 +143,42 @@ followers with no registered device are skipped without a send.
 
 The title names who acted (for example "sam liked your comment") and the body
 quotes up to 100 characters of the caption or comment. On Android, activity
-arrives on its own "Activity" notification channel, separate from "Post
-moderation", so it can be muted in the system settings without silencing
-rejections. The FCM payload names the channel
+(follow activity included) arrives on its own "Activity" notification channel,
+separate from "Post moderation", so it can be muted in the system settings
+without silencing rejections. The FCM payload names the channel
 (`android.notification.channel_id`), because a message that arrives while the
 app is in the background is shown by the system without reaching the app's
 code. The app registers both channels at launch so they exist before the first
 such message.
+
+## Follow notifications (issue #604)
+
+- **Follow request** — following a private account files a request, and its
+  owner is told ("sam asked to follow you"); tapping opens their follow-request
+  list, where they approve or deny it. A denial is never announced to the
+  requester.
+- **Follow request accepted** — approving a request tells the requester ("sam
+  accepted your follow request"); tapping opens the owner's profile, whose
+  posts they can now see. The owner, who did it themselves, is told nothing.
+- **New follower** — following a public account outright tells its owner ("sam
+  started following you"); tapping opens the follower's profile. A follow
+  created by approving a request (beyond the acceptance push above), or by the
+  backlog of pending requests that converts when an account goes public, sends
+  nothing: the owner just chose that, and a going-public backlog would
+  otherwise arrive as a burst.
+
+The same rules as activity notifications apply: nobody is told about a
+shadow-banned actor, across a block in either direction, or across age bands.
+The follow and approve endpoints only enqueue the job
+(`notifications.notify_follow_request` / `notify_new_follower` /
+`notify_follow_accepted`), passing the id of the exact request or follow edge
+it created. The job re-reads that row, so one cancelled, denied, approved,
+converted or unfollowed in the meantime sends nothing — and a later request or
+follow between the same two people is a different row that never revives it.
+A follow-request push is also skipped once the owner has gone public, even if
+the request is still waiting in the converting backlog. Only the first follow
+(or request) by a given person within 24 hours notifies, so follow/unfollow/follow or request/cancel/request does not repeat
+it.
 
 **Secrets** (all optional — an unconfigured provider is a logged no-op, so
 local dev, tests, and a not-yet-provisioned deploy send nothing and still import

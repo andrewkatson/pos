@@ -4,7 +4,8 @@ from django.urls import reverse
 
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..classifiers.classifier_constants import POSITIVE_TEXT
-from ..constants import Fields
+from ..constants import BAN_TYPE_SHADOW, Fields, POST_AUDIENCE_FAMILY
+from ..models import Comment, UserBan
 from ..views import get_user_with_username
 
 invalid_session_management_token = '?'
@@ -132,3 +133,122 @@ class DeleteCommentTests(PositiveOnlySocialTestCase):
         # 2. Verify the comment is gone from the database
         self.comment_thread.refresh_from_db()
         self.assertEqual(self.comment_thread.comment_set.count(), 0)
+
+
+class PostAuthorDeletesCommentTests(PositiveOnlySocialTestCase):
+    """A post's author may delete other people's comments on their post so they
+    can moderate their own comment section (issue #603) — but only comments they
+    are actually shown there."""
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def setUp(self):
+        super().setUp()
+
+        # The post author, logged in as the local user.
+        self.post, self.post_identifier = super().make_post_and_login_user()
+        self.owner_header = {'HTTP_AUTHORIZATION': f'Bearer {self.session_management_token}'}
+
+        # Someone else who comments on that post.
+        commenter_data = self.make_user_with_prefix(prefix='post_author_delete_commenter')
+        self.commenter = get_user_with_username(commenter_data['username'])
+        self.commenter_header = {
+            'HTTP_AUTHORIZATION': f'Bearer {commenter_data[Fields.session_management_token]}'}
+
+        self.thread = self.post.commentthread_set.create()
+        self.comment = self._make_comment()
+
+    def _make_comment(self, **overrides):
+        """A live comment by the commenter, created directly so the classifier
+        is not involved."""
+        fields = {'author': self.commenter, 'body': POSITIVE_TEXT, 'hidden': False}
+        fields.update(overrides)
+        return self.thread.comment_set.create(**fields)
+
+    def _delete_url(self, comment):
+        return reverse('delete_comment', kwargs={
+            'post_identifier': self.post_identifier,
+            'comment_thread_identifier': self.thread.comment_thread_identifier,
+            'comment_identifier': comment.comment_identifier,
+        })
+
+    def _exists(self, comment):
+        return Comment.objects.filter(pk=comment.pk).exists()
+
+    def test_post_author_can_delete_someone_elses_comment(self):
+        response = self.client.post(self._delete_url(self.comment), **self.owner_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'message': 'Comment deleted'})
+        self.assertFalse(self._exists(self.comment))
+
+    def test_post_author_deleting_a_reply_leaves_the_rest_of_the_thread(self):
+        reply = self._make_comment()
+
+        response = self.client.post(self._delete_url(reply), **self.owner_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self._exists(reply))
+        self.assertTrue(self._exists(self.comment))
+
+    def test_commenter_can_still_delete_their_own_comment(self):
+        response = self.client.post(self._delete_url(self.comment), **self.commenter_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self._exists(self.comment))
+
+    def test_third_party_cannot_delete_a_comment_on_someone_elses_post(self):
+        """Neither the comment's author nor the post's author: refused, exactly
+        as before — even if they have posts of their own."""
+        stranger_data = self.make_user_with_prefix(prefix='post_author_delete_stranger')
+        stranger = get_user_with_username(stranger_data['username'])
+        stranger.post_set.create(caption=POSITIVE_TEXT, hidden=False)
+        stranger_header = {
+            'HTTP_AUTHORIZATION': f'Bearer {stranger_data[Fields.session_management_token]}'}
+
+        response = self.client.post(self._delete_url(self.comment), **stranger_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {'error': 'Not authorized to delete comment'})
+        self.assertTrue(self._exists(self.comment))
+
+    def test_commenter_cannot_delete_other_comments_on_the_post(self):
+        """Commenting on a post grants no say over its other comments."""
+        other_comment = self.thread.comment_set.create(
+            author=self.post.author, body=POSITIVE_TEXT, hidden=False)
+
+        response = self.client.post(self._delete_url(other_comment), **self.commenter_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(self._exists(other_comment))
+
+    def test_post_author_cannot_delete_a_hidden_comment(self):
+        """A hidden comment is out of the post author's sight (and may be under
+        appeal), so it is not theirs to remove."""
+        hidden = self._make_comment(hidden=True)
+
+        response = self.client.post(self._delete_url(hidden), **self.owner_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {'error': 'Not authorized to delete comment'})
+        self.assertTrue(self._exists(hidden))
+
+    def test_post_author_cannot_delete_a_shadow_banned_users_comment(self):
+        """A shadow-banned commenter's comments are invisible to the post author,
+        and the refusal matches a stranger's so it reveals nothing."""
+        UserBan.objects.create(user=self.commenter, ban_type=BAN_TYPE_SHADOW)
+
+        response = self.client.post(self._delete_url(self.comment), **self.owner_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json(), {'error': 'Not authorized to delete comment'})
+        self.assertTrue(self._exists(self.comment))
+
+    def test_post_author_cannot_delete_a_comment_whose_audience_excludes_them(self):
+        """A family-only comment from someone who has not labeled the post author
+        family is not shown to them, so they cannot delete it."""
+        family_only = self._make_comment(audience=POST_AUDIENCE_FAMILY)
+
+        response = self.client.post(self._delete_url(family_only), **self.owner_header)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(self._exists(family_only))

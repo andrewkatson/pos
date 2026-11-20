@@ -8,6 +8,7 @@ import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.model.FollowCategory
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.ProfileDetailsResponse
+import com.example.positiveonlysocial.data.model.ReportRequest
 import com.example.positiveonlysocial.data.model.SetBioRequest
 import com.example.positiveonlysocial.data.model.SetCategoryRequest
 import com.example.positiveonlysocial.data.model.SetProfilePhotoRequest
@@ -58,6 +59,17 @@ class ProfileViewModel(
 
     private val _isBlocked = MutableStateFlow(false)
     val isBlocked: StateFlow<Boolean> = _isBlocked.asStateFlow()
+
+    // The viewer's own standing report of this account (issue #602), and the
+    // reason they gave, so the menu offers Retract Report and shows it.
+    private val _isAccountReported = MutableStateFlow(false)
+    val isAccountReported: StateFlow<Boolean> = _isAccountReported.asStateFlow()
+
+    private val _accountReportReason = MutableStateFlow<String?>(null)
+    val accountReportReason: StateFlow<String?> = _accountReportReason.asStateFlow()
+
+    private val _reportErrorMessage = MutableStateFlow<String?>(null)
+    val reportErrorMessage: StateFlow<String?> = _reportErrorMessage.asStateFlow()
 
     // A follow / unfollow / cancel-request call is in flight (issue #96). The
     // Follow button is disabled meanwhile, and toggleFollow ignores taps, so a
@@ -236,6 +248,7 @@ class ProfileViewModel(
                 loadedUsername = username
 
                 // Fetch Profile Details
+                val reportGen = reportStateGeneration
                 val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
                 if (generation != loadGeneration) return@launch
                 if (profileResponse.isSuccessful) {
@@ -245,6 +258,7 @@ class ProfileViewModel(
                     _isFollowing.value = profile?.isFollowing ?: false
                     _followCategory.value = FollowCategory.from(profile?.followCategory)
                     _isBlocked.value = profile?.isBlocked ?: false
+                    applyReportState(profile, reportGen)
                 } else {
                     _errorMessage.value = ApiErrors.messageFor(profileResponse, fallback = "Failed to load this profile. Please try again.")
                 }
@@ -305,6 +319,8 @@ class ProfileViewModel(
                     return@launch
                 }
 
+                val reportGen = reportStateGeneration
+
                 val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
                 if (generation != loadGeneration) return@launch
                 if (profileResponse.isSuccessful) {
@@ -314,6 +330,7 @@ class ProfileViewModel(
                     _isFollowing.value = profile?.isFollowing ?: false
                     _followCategory.value = FollowCategory.from(profile?.followCategory)
                     _isBlocked.value = profile?.isBlocked ?: false
+                    applyReportState(profile, reportGen)
                 } else {
                     // Surface the failure instead of silently leaving follow/block
                     // state stale (mirrors fetchProfile()).
@@ -544,12 +561,14 @@ class ProfileViewModel(
      * without disturbing pagination.
      */
     private suspend fun reloadProfileDetails(username: String, token: String) {
+        val reportGen = reportStateGeneration
         val profileResponse = api.getProfileDetails(token, username)
         if (profileResponse.isSuccessful) {
             val profile = profileResponse.body()
             _profileDetails.value = profile
             _isFollowing.value = profile?.isFollowing ?: false
             _isBlocked.value = profile?.isBlocked ?: false
+            applyReportState(profile, reportGen)
         } else {
             // The set/remove itself succeeded but this refresh didn't, so the
             // header would keep showing the old avatar/state. Surface it as a
@@ -842,6 +861,75 @@ class ProfileViewModel(
             } catch (e: Exception) {
                 revertIfStillCurrent()
                 _errorMessage.value = ApiErrors.messageFor(e, fallback = "Something went wrong. Please try again.")
+            }
+        }
+    }
+
+    // Bumped by every confirmed report or retraction (issue #602). Each profile
+    // read captures it before its request and applies the report state only if
+    // it is unchanged, so a read that was already in flight cannot land after
+    // the mutation and restore the old menu action. Separate from
+    // loadGeneration so the posts load alongside it is not discarded.
+    private var reportStateGeneration = 0
+
+    private fun applyReportState(profile: ProfileDetailsResponse?, generation: Int) {
+        if (generation != reportStateGeneration) return
+        _isAccountReported.value = profile?.isReported ?: false
+        _accountReportReason.value = profile?.reportReason
+    }
+
+    fun clearReportError() {
+        _reportErrorMessage.value = null
+    }
+
+    /**
+     * Report this account — its username, bio or photo (issue #602). Like a post
+     * report it hides nothing by itself; it asks for a review. State only
+     * changes once the backend accepts it.
+     */
+    fun reportAccount(username: String, reason: String) {
+        val trimmed = reason.trim()
+        if (trimmed.isEmpty() || _isOwnProfile.value) return
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _reportErrorMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.reportAccount(userSession.sessionToken, username, ReportRequest(trimmed))
+                if (response.isSuccessful) {
+                    reportStateGeneration++
+                    _isAccountReported.value = true
+                    _accountReportReason.value = trimmed
+                } else {
+                    _reportErrorMessage.value = ApiErrors.messageFor(response, fallback = "Could not report this account. Please try again.")
+                }
+            } catch (e: Exception) {
+                _reportErrorMessage.value = ApiErrors.messageFor(e, fallback = "Could not report this account. Please try again.")
+            }
+        }
+    }
+
+    /** Withdraw the viewer's report of this account (issue #602). */
+    fun retractAccountReport(username: String) {
+        viewModelScope.launch {
+            try {
+                val userSession = keychainHelper.load(UserSession::class.java, service, account)
+                if (userSession == null) {
+                    _reportErrorMessage.value = "Not logged in."
+                    return@launch
+                }
+                val response = api.retractReportAccount(userSession.sessionToken, username)
+                if (response.isSuccessful) {
+                    reportStateGeneration++
+                    _isAccountReported.value = false
+                    _accountReportReason.value = null
+                } else {
+                    _reportErrorMessage.value = ApiErrors.messageFor(response, fallback = "Could not retract your report. Please try again.")
+                }
+            } catch (e: Exception) {
+                _reportErrorMessage.value = ApiErrors.messageFor(e, fallback = "Could not retract your report. Please try again.")
             }
         }
     }

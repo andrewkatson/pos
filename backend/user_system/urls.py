@@ -259,6 +259,12 @@ urlpatterns = [
     # POST /users/<str:username_to_toggle_block>/block/ (Token in header)
     path('users/<str:username_to_toggle_block>/block/', views.toggle_block, name='toggle_block'),
 
+    # POST /users/<str:username>/report/ (Token in header) — report an account (issue #602)
+    path('users/<str:username>/report/', views.report_account, name='report_account'),
+
+    # POST /users/<str:username>/report/retract/ (Token in header)
+    path('users/<str:username>/report/retract/', views.retract_report_account, name='retract_report_account'),
+
     # GET /users/blocked/ (Token in header)
     path('users/blocked/', views.get_blocked_users, name='get_blocked_users'),
     # Private accounts & follow requests (issue #96).

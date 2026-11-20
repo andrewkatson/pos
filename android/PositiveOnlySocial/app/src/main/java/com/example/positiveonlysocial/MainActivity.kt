@@ -83,19 +83,37 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Route to the post a tapped notification is about — a rejected post, a
-     * new post, or one that was commented on or liked (issues #342/#343/#444).
-     * FCM delivers the payload's data keys as string extras. */
+    /** Route to what a tapped notification is about: a rejected post, a new
+     * post, or one that was commented on or liked (issues #342/#343/#444), or
+     * for follow activity (#604) the follow-request list or the profile of a
+     * new follower or of someone who accepted a request. FCM delivers the payload's data keys as string extras. */
     private fun handleNotificationIntent(intent: Intent?) {
-        val postId = intent?.getStringExtra(PosFirebaseMessagingService.KEY_POST_IDENTIFIER)
-        val type = intent?.getStringExtra(PosFirebaseMessagingService.KEY_TYPE)
+        if (intent == null) return
+        val postId = intent.getStringExtra(PosFirebaseMessagingService.KEY_POST_IDENTIFIER)
+        val username = intent.getStringExtra(PosFirebaseMessagingService.KEY_USERNAME)
+        val type = intent.getStringExtra(PosFirebaseMessagingService.KEY_TYPE)
         // Gate on the payload's type (like iOS) so a future push kind that also
-        // carries post_identifier can't misroute to a post.
-        if (!postId.isNullOrEmpty() && type in PosFirebaseMessagingService.POST_TYPES) {
-            PushNavigator.openPost(postId)
+        // carries post_identifier or username can't misroute.
+        val routed = when {
+            !postId.isNullOrEmpty() && type in PosFirebaseMessagingService.POST_TYPES -> {
+                PushNavigator.openPost(postId)
+                true
+            }
+            type == PosFirebaseMessagingService.TYPE_FOLLOW_REQUEST -> {
+                PushNavigator.openFollowRequests()
+                true
+            }
+            !username.isNullOrEmpty() && type in PosFirebaseMessagingService.PROFILE_TYPES -> {
+                PushNavigator.openProfile(username)
+                true
+            }
+            else -> false
+        }
+        if (routed) {
             // Consume them so an Activity recreation (rotation / process death)
             // doesn't re-read the same extras and navigate again.
             intent.removeExtra(PosFirebaseMessagingService.KEY_POST_IDENTIFIER)
+            intent.removeExtra(PosFirebaseMessagingService.KEY_USERNAME)
             intent.removeExtra(PosFirebaseMessagingService.KEY_TYPE)
         }
     }

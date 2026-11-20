@@ -89,17 +89,32 @@ struct HomeView: View {
         // same way. Your own username lands on the Profile tab itself — the
         // profile already behind it — rather than pushing a copy of it, which
         // is where tapping your own name anywhere in the app goes too (#347).
-        // Anyone else is pushed as a User, the value the tab's stack already
-        // resolves to ProfileView for search results and feed rows.
+        // Anyone else is pushed as an OpenedProfileDestination, which resolves
+        // to the same ProfileView a search result opens but is unique per push,
+        // so a copy of that profile already open is rebuilt and reloaded (an
+        // accepted follow request, #604, must show the posts it unlocked).
         .onReceive(pushRouter.$pendingProfileUsername) { username in
             guard let username else { return }
             currentTab = GVOAppConstants.profileTabIndex
             var newPath = NavigationPath()
             if username != viewModel.currentUsername {
-                newPath.append(User(username: username, identityIsVerified: false))
+                newPath.append(OpenedProfileDestination(username: username))
             }
             profilePath = newPath
             pushRouter.pendingProfileUsername = nil
+        }
+        // A tapped follow-request notification (issue #604) opens the signed-in
+        // user's incoming requests on the Profile tab, where they can approve
+        // or deny it — the same screen the profile's "Follow requests" link
+        // pushes. Each destination value is unique, so a list already open
+        // there is rebuilt and reloaded rather than left stale.
+        .onReceive(pushRouter.$pendingFollowRequests) { pending in
+            guard pending else { return }
+            currentTab = GVOAppConstants.profileTabIndex
+            var newPath = NavigationPath()
+            newPath.append(FollowRequestsDestination())
+            profilePath = newPath
+            pushRouter.pendingFollowRequests = false
         }
     }
 }
@@ -214,6 +229,11 @@ struct MyProfileTabView: View {
             }
             .navigationDestination(for: User.self) { user in
                 ProfileView(user: user, api: api, keychainHelper: keychainHelper)
+            }
+            // A profile opened from a shared link or a follow notification.
+            .navigationDestination(for: OpenedProfileDestination.self) { destination in
+                ProfileView(user: User(username: destination.username, identityIsVerified: false),
+                            api: api, keychainHelper: keychainHelper)
             }
             // Tapping your own Followers / Following count opens that list —
             // only your own, since the endpoints take no username (issue #8).
@@ -371,7 +391,7 @@ struct PostActionBar: View {
                     }
                 }
                 menuRow("Delete Post", identifier: "DeletePostListActionButton", isDestructive: true) {
-                    postActions.delete(post)
+                    postActions.postToDelete = post
                 }
             } else if postActions.state(for: post).isReported {
                 menuRow("Retract Report", identifier: "RetractReportPostListActionButton") {
@@ -443,6 +463,23 @@ struct PostActionDialogs: ViewModifier {
                 Button("Cancel", role: .cancel) {}
             } message: { post in
                 Text("You reported this post with the reason: “\(postActions.state(for: post).reportReason ?? "")”. Retracting removes your report.")
+            }
+            // Deleting a post can't be undone, so the menu's Delete asks first.
+            .alert(
+                "Delete Post?",
+                isPresented: Binding(
+                    get: { postActions.postToDelete != nil },
+                    set: { if !$0 { postActions.postToDelete = nil } }
+                ),
+                presenting: postActions.postToDelete
+            ) { post in
+                Button("Delete", role: .destructive) {
+                    postActions.delete(post)
+                }
+                .accessibilityIdentifier("ConfirmDeletePostListButton")
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("This can’t be undone.")
             }
             // The same report sheet the post detail view uses.
             .sheet(item: $postActions.postToReport) { post in

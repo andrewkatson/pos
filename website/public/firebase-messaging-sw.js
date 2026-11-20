@@ -1,9 +1,11 @@
 /* Firebase Cloud Messaging service worker (issues #342/#343).
  *
- * Receives background push for FCM-for-web and routes a click to the rejected
- * post's deep link. A service worker cannot read the app's build-time env, so
- * the (public) Firebase config is passed in this worker's registration URL
- * query string (see src/push/webPush.ts) and parsed below.
+ * Receives background push for FCM-for-web and routes a click to the payload's
+ * deep link: a post (#342/#444), or for follow activity (#604) the
+ * follow-request list or another person's profile. A service worker cannot read
+ * the app's build-time env, so the (public) Firebase config is passed in this
+ * worker's registration URL query string (see src/push/webPush.ts) and parsed
+ * below.
  *
  * The compat SDK is loaded from gstatic and must match the `firebase` dependency
  * in package.json, which is pinned to an exact version (not a ^range) for that
@@ -60,7 +62,7 @@ function safeTarget(rawLink) {
   }
 }
 
-// Open (or focus) the rejected post when a notification is tapped.
+// Open (or focus) the notification's deep link when it is tapped.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const data = event.notification.data || {}

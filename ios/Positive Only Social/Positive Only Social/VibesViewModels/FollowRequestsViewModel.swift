@@ -12,8 +12,13 @@ import Combine
 
 /// The navigation value the profile header pushes to open the follow requests
 /// list. Hashable so it can ride the Profile tab's NavigationPath alongside
-/// `FollowListMode`.
-struct FollowRequestsDestination: Hashable {}
+/// `FollowListMode`. Each value is distinct, so pushing one — as a tapped
+/// follow-request notification does (issue #604) — always builds a fresh view
+/// that loads the list again, instead of SwiftUI keeping an already-open,
+/// equal destination whose list predates the request.
+struct FollowRequestsDestination: Hashable {
+    let id = UUID()
+}
 
 @MainActor
 final class FollowRequestsViewModel: ObservableObject {
