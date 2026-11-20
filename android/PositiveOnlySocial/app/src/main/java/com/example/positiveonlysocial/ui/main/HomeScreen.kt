@@ -90,6 +90,7 @@ fun HomeScreen(
                 // Search Results
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(1),
+                    modifier = Modifier.testTag("SearchResults"),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
