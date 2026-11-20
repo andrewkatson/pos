@@ -637,6 +637,10 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Report Post").assertDoesNotExist()
         composeTestRule.onNodeWithText("Delete Post").performClick()
 
+        // Delete asks for confirmation first, since it can't be undone.
+        composeTestRule.onNodeWithText("Delete Post?").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("ConfirmDeletePostButton").performClick()
+
         // Deleting pops the Post Detail screen back to the feed.
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             composeTestRule.onAllNodesWithText("Add a comment...").fetchSemanticsNodes().isEmpty()
@@ -813,6 +817,10 @@ class PositiveOnlySocialIntegrationTests {
 
         composeTestRule.onNodeWithText("Report Post").assertDoesNotExist()
         composeTestRule.onNodeWithText("Delete Post").performClick()
+
+        // Delete asks for confirmation first, since it can't be undone.
+        composeTestRule.onNodeWithText("Delete Post?").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("ConfirmDeletePostButton").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             composeTestRule.onAllNodesWithContentDescription("Options for post by $testUsername")

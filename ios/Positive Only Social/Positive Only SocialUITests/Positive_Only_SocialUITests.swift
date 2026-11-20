@@ -1881,6 +1881,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(deletePostAction.waitForExistence(timeout: TestConstants.shortTimeout))
         deletePostAction.tap()
 
+        // Delete asks for confirmation first, since it can't be undone.
+        let confirmDelete = app.alerts["Delete Post?"].buttons["Delete"]
+        XCTAssertTrue(confirmDelete.waitForExistence(timeout: TestConstants.shortTimeout))
+        confirmDelete.tap()
+
         // Deleting pops the Post Detail view back to the Home grid it was
         // opened from. The deletion round-trips through the API before the
         // pop, so wait for the view to go away rather than asserting instantly.

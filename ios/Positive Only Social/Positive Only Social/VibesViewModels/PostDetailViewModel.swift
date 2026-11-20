@@ -56,6 +56,9 @@ final class PostDetailViewModel: ObservableObject {
     /// on your own post it may be someone else's comment (issue #603), so the
     /// menu asks first instead of deleting on the tap.
     @Published var commentToDelete: CommentViewData?
+    /// Drives the "Delete Post?" confirmation: deleting a post can't be undone,
+    /// so the menu asks first instead of deleting on the tap.
+    @Published var showDeleteDialogForPost = false
 
     /// Drives the native share sheet for the post / a comment (issue #34). Set
     /// by the action menu's "Share" button and presented as a `.sheet(item:)`;

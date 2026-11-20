@@ -76,6 +76,11 @@ class PostDetailViewModel(
     private val _showRetractDialogForPost = MutableStateFlow(false)
     val showRetractDialogForPost: StateFlow<Boolean> = _showRetractDialogForPost.asStateFlow()
 
+    // Drives the "Delete Post?" confirmation: deleting a post can't be undone,
+    // so the menu asks first instead of deleting on the tap.
+    private val _showDeleteDialogForPost = MutableStateFlow(false)
+    val showDeleteDialogForPost: StateFlow<Boolean> = _showDeleteDialogForPost.asStateFlow()
+
     private val _commentToRetract = MutableStateFlow<CommentViewData?>(null)
     val commentToRetract: StateFlow<CommentViewData?> = _commentToRetract.asStateFlow()
 
@@ -224,6 +229,10 @@ class PostDetailViewModel(
 
     fun setCommentForAction(comment: CommentViewData?) {
         _commentForAction.value = comment
+    }
+
+    fun setShowDeleteDialogForPost(show: Boolean) {
+        _showDeleteDialogForPost.value = show
     }
 
     fun setShowRetractDialogForPost(show: Boolean) {

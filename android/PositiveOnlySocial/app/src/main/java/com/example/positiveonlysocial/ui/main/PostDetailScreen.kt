@@ -159,30 +159,22 @@ fun PostDetailScreen(
             )
         }
 
-        // Deleting a comment can't be undone — and on your own post it may be
-        // someone else's (issue #603) — so the menu's Delete asks first.
+        // Deleting can't be undone — and a comment on your own post may be
+        // someone else's (issue #603) — so the menus' Delete asks first.
+        val showDeleteDialogForPost by viewModel.showDeleteDialogForPost.collectAsState()
+        if (showDeleteDialogForPost) {
+            DeleteConfirmDialog(
+                itemLabel = "Post",
+                onDismiss = { viewModel.setShowDeleteDialogForPost(false) },
+                onDelete = { viewModel.deletePost() }
+            )
+        }
         val commentToDelete by viewModel.commentToDelete.collectAsState()
         commentToDelete?.let { comment ->
-            AlertDialog(
-                onDismissRequest = { viewModel.setCommentToDelete(null) },
-                title = { Text("Delete Comment?") },
-                text = { Text("This can’t be undone.") },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            viewModel.setCommentToDelete(null)
-                            viewModel.deleteComment(comment, comment.threadId)
-                        },
-                        modifier = Modifier.testTag("ConfirmDeleteCommentButton")
-                    ) {
-                        Text("Delete")
-                    }
-                },
-                dismissButton = {
-                    Button(onClick = { viewModel.setCommentToDelete(null) }) {
-                        Text("Cancel")
-                    }
-                }
+            DeleteConfirmDialog(
+                itemLabel = "Comment",
+                onDismiss = { viewModel.setCommentToDelete(null) },
+                onDelete = { viewModel.deleteComment(comment, comment.threadId) }
             )
         }
 
@@ -390,7 +382,8 @@ fun PostDetailScreen(
                                         },
                                         onReport = { viewModel.setShowReportSheetForPost(true) },
                                         onRetract = { viewModel.setShowRetractDialogForPost(true) },
-                                        onDelete = { viewModel.deletePost() },
+                                        // Asks first: see the "Delete Post?" dialog below.
+                                        onDelete = { viewModel.setShowDeleteDialogForPost(true) },
                                         commentsDisabled = post.commentsDisabled == true,
                                         onToggleCommentsLock = {
                                             if (post.commentsDisabled == true) viewModel.unlockComments()
@@ -920,6 +913,33 @@ fun ActionMenu(
             )
         }
     }
+}
+
+/**
+ * "Delete Post?" / "Delete Comment?" — the confirmation every Delete in a post or
+ * comment menu goes through, since deleting can't be undone. The Delete button
+ * carries the test tag `ConfirmDelete<itemLabel>Button`.
+ */
+@Composable
+fun DeleteConfirmDialog(itemLabel: String, onDismiss: () -> Unit, onDelete: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete $itemLabel?") },
+        text = { Text("This can’t be undone.") },
+        confirmButton = {
+            Button(
+                onClick = { onDismiss(); onDelete() },
+                modifier = Modifier.testTag("ConfirmDelete${itemLabel}Button")
+            ) {
+                Text("Delete")
+            }
+        },
+        dismissButton = {
+            Button(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 /**

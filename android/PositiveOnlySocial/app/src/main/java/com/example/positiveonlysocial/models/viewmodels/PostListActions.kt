@@ -69,6 +69,11 @@ class PostListActions(
     private val _postToRetract = MutableStateFlow<Post?>(null)
     val postToRetract: StateFlow<Post?> = _postToRetract.asStateFlow()
 
+    // The post whose "Delete Post?" confirmation is showing: deleting can't be
+    // undone, so the menu asks first instead of deleting on the tap.
+    private val _postToDelete = MutableStateFlow<Post?>(null)
+    val postToDelete: StateFlow<Post?> = _postToDelete.asStateFlow()
+
     // The post whose caption the edit composer is open for (issue #462).
     private val _postToEdit = MutableStateFlow<Post?>(null)
     val postToEdit: StateFlow<Post?> = _postToEdit.asStateFlow()
@@ -170,6 +175,10 @@ class PostListActions(
 
     fun setPostToRetract(post: Post?) {
         _postToRetract.value = post?.let { currentVersionOf(it) ?: it }
+    }
+
+    fun setPostToDelete(post: Post?) {
+        _postToDelete.value = post
     }
 
     fun setPostToEdit(post: Post?) {
@@ -482,5 +491,6 @@ class PostListActions(
         if (_postToReport.value?.postIdentifier == postIdentifier) _postToReport.value = null
         if (_postToRetract.value?.postIdentifier == postIdentifier) _postToRetract.value = null
         if (_postToEdit.value?.postIdentifier == postIdentifier) _postToEdit.value = null
+        if (_postToDelete.value?.postIdentifier == postIdentifier) _postToDelete.value = null
     }
 }

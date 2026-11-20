@@ -371,7 +371,7 @@ struct PostActionBar: View {
                     }
                 }
                 menuRow("Delete Post", identifier: "DeletePostListActionButton", isDestructive: true) {
-                    postActions.delete(post)
+                    postActions.postToDelete = post
                 }
             } else if postActions.state(for: post).isReported {
                 menuRow("Retract Report", identifier: "RetractReportPostListActionButton") {
@@ -443,6 +443,23 @@ struct PostActionDialogs: ViewModifier {
                 Button("Cancel", role: .cancel) {}
             } message: { post in
                 Text("You reported this post with the reason: “\(postActions.state(for: post).reportReason ?? "")”. Retracting removes your report.")
+            }
+            // Deleting a post can't be undone, so the menu's Delete asks first.
+            .alert(
+                "Delete Post?",
+                isPresented: Binding(
+                    get: { postActions.postToDelete != nil },
+                    set: { if !$0 { postActions.postToDelete = nil } }
+                ),
+                presenting: postActions.postToDelete
+            ) { post in
+                Button("Delete", role: .destructive) {
+                    postActions.delete(post)
+                }
+                .accessibilityIdentifier("ConfirmDeletePostListButton")
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("This can’t be undone.")
             }
             // The same report sheet the post detail view uses.
             .sheet(item: $postActions.postToReport) { post in
