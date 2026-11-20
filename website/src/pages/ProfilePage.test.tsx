@@ -23,6 +23,8 @@ vi.mock('../api/client', () => ({
     retractReportPost: vi.fn(),
     deletePost: vi.fn(),
     setBio: vi.fn(),
+    reportAccount: vi.fn(),
+    retractReportAccount: vi.fn(),
   },
   ApiError: class ApiError extends Error {
     status: number
@@ -47,6 +49,8 @@ const mockLikePost = vi.mocked(apiClient.likePost)
 const mockUnlikePost = vi.mocked(apiClient.unlikePost)
 const mockReportPost = vi.mocked(apiClient.reportPost)
 const mockRetractReport = vi.mocked(apiClient.retractReportPost)
+const mockReportAccount = vi.mocked(apiClient.reportAccount)
+const mockRetractReportAccount = vi.mocked(apiClient.retractReportAccount)
 
 const baseProfile: ProfileDetails = {
   username: 'bob',
@@ -86,6 +90,8 @@ beforeEach(() => {
   mockUnlikePost.mockReset().mockResolvedValue({ message: 'ok' })
   mockReportPost.mockReset().mockResolvedValue({ message: 'ok' })
   mockRetractReport.mockReset().mockResolvedValue({ message: 'ok' })
+  mockReportAccount.mockReset().mockResolvedValue({ message: 'Account reported' })
+  mockRetractReportAccount.mockReset().mockResolvedValue({ message: 'Account report retracted' })
 })
 
 test('renders profile stats and follow button', async () => {
@@ -757,4 +763,64 @@ test('the counts return once the reload after an unfollow succeeds', async () =>
 
   expect(await screen.findByText('9')).toBeInTheDocument()
   expect(screen.getByText('Followers')).toBeInTheDocument()
+})
+
+test('reports the account from the profile options menu (#602)', async () => {
+  renderProfile()
+  await screen.findByText('10')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Profile options' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Report' }))
+  const dialog = screen.getByRole('dialog', { name: 'Report account' })
+  const submit = within(dialog).getByRole('button', { name: 'Submit Report' })
+  expect(submit).toBeDisabled()
+  await userEvent.type(within(dialog).getByLabelText('Reason for reporting'), 'Unkind bio')
+  await userEvent.click(submit)
+
+  await waitFor(() => expect(mockReportAccount).toHaveBeenCalledWith('bob', 'Unkind bio'))
+  expect(screen.queryByRole('dialog', { name: 'Report account' })).not.toBeInTheDocument()
+
+  // Now the menu offers to take the report back instead.
+  await userEvent.click(screen.getByRole('button', { name: 'Profile options' }))
+  expect(screen.queryByRole('menuitem', { name: 'Report' })).not.toBeInTheDocument()
+  expect(screen.getByRole('menuitem', { name: 'Retract Report' })).toBeInTheDocument()
+})
+
+test('an account the viewer already reported offers Retract Report (#602)', async () => {
+  mockGetProfile.mockResolvedValue({ ...baseProfile, is_reported: true, report_reason: 'Unkind bio' })
+  renderProfile()
+  await screen.findByText('10')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Profile options' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Retract Report' }))
+
+  await waitFor(() => expect(mockRetractReportAccount).toHaveBeenCalledWith('bob'))
+  await userEvent.click(screen.getByRole('button', { name: 'Profile options' }))
+  expect(screen.getByRole('menuitem', { name: 'Report' })).toBeInTheDocument()
+})
+
+test('a failed account report shows the error (#602)', async () => {
+  mockReportAccount.mockRejectedValue(new Error('Daily report limit reached'))
+  renderProfile()
+  await screen.findByText('10')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Profile options' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Report' }))
+  await userEvent.type(screen.getByLabelText('Reason for reporting'), 'Unkind bio')
+  await userEvent.click(screen.getByRole('button', { name: 'Submit Report' }))
+
+  expect(await screen.findByText('Daily report limit reached')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Profile options' }))
+  expect(screen.getByRole('menuitem', { name: 'Report' })).toBeInTheDocument()
+})
+
+test('a signed-out visitor cannot report the account (#602)', async () => {
+  mockGetPublicProfile.mockResolvedValue(publicProfile)
+  mockGetPublicPosts.mockResolvedValue([])
+  renderSignedOut()
+  await screen.findByText('10')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Profile options' }))
+  expect(screen.getByRole('menuitem', { name: 'Share' })).toBeInTheDocument()
+  expect(screen.queryByRole('menuitem', { name: 'Report' })).not.toBeInTheDocument()
 })

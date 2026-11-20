@@ -145,6 +145,38 @@ fun ProfileBody(
     // Whether the profile's options menu (Share Profile, issue #510) is open.
     var showProfileMenu by remember { mutableStateOf(false) }
 
+    // Reporting this account (issue #602), from the options menu.
+    val isAccountReported by viewModel.isAccountReported.collectAsState()
+    val accountReportReason by viewModel.accountReportReason.collectAsState()
+    val reportErrorMessage by viewModel.reportErrorMessage.collectAsState()
+    var showReportAccountDialog by remember { mutableStateOf(false) }
+    var showRetractAccountReportDialog by remember { mutableStateOf(false) }
+
+    if (showReportAccountDialog) {
+        ReportDialog(
+            onDismiss = { showReportAccountDialog = false },
+            onSubmit = { reason -> viewModel.reportAccount(username, reason) }
+        )
+    }
+    if (showRetractAccountReportDialog) {
+        RetractReportDialog(
+            reason = accountReportReason ?: "",
+            onDismiss = { showRetractAccountReportDialog = false },
+            onRetract = { viewModel.retractAccountReport(username) }
+        )
+    }
+    reportErrorMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = { viewModel.clearReportError() },
+            title = { Text("Report") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearReportError() }) { Text("OK") }
+            },
+            modifier = Modifier.testTag("reportAccountError")
+        )
+    }
+
     val postActions = viewModel.postActions
     val currentUsername by postActions.currentUsername.collectAsState()
     // Which post's action menu is open, collected once here rather than in every
@@ -308,6 +340,29 @@ fun ProfileBody(
                                 },
                                 modifier = Modifier.testTag("shareProfileMenuItem")
                             )
+                            // Report / Retract Report for anyone's account but
+                            // your own (issue #602).
+                            if (!isOwnProfile) {
+                                if (isAccountReported) {
+                                    DropdownMenuItem(
+                                        text = { Text("Retract Report") },
+                                        onClick = {
+                                            showProfileMenu = false
+                                            showRetractAccountReportDialog = true
+                                        },
+                                        modifier = Modifier.testTag("retractReportAccountMenuItem")
+                                    )
+                                } else {
+                                    DropdownMenuItem(
+                                        text = { Text("Report Account", color = MaterialTheme.colorScheme.error) },
+                                        onClick = {
+                                            showProfileMenu = false
+                                            showReportAccountDialog = true
+                                        },
+                                        modifier = Modifier.testTag("reportAccountMenuItem")
+                                    )
+                                }
+                            }
                         }
                     }
                 }

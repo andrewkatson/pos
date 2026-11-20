@@ -30,8 +30,8 @@ changes.
 
 - [Post classification](post-classification.md) — the async AI classifier
   cascade, pre-filters, model chain, and the classification worker.
-- [Reporting and user moderation](reporting.md) — how a report triggers
-  automated re-review and, if needed, human review.
+- [Reporting and user moderation](reporting.md) — how a report on a post,
+  comment or account triggers automated re-review and, if needed, human review.
 - [Bans and appeals](bans-and-appeals.md) — outright vs. shadow bans, and
   appealing hidden content or a ban.
 - [Age and identity](age-and-identity.md) — the 16+ floor, adult/minor

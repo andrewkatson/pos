@@ -27,6 +27,8 @@ struct MockUser {
     var membershipNumber: Int? = nil
     var blocked: [UUID] = []
     var blockedBy: [UUID] = []
+    // Standing reports of this account (issue #602): reporter id → reason.
+    var accountReports: [UUID: String] = [:]
     // Two-factor authentication (issue #348). A secret without the enabled
     // flag is a pending enrollment; recovery codes are removed as they are used.
     var totpSecret: String? = nil
@@ -2376,6 +2378,37 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
+    func reportAccount(sessionManagementToken: String, username: String, reason: String) async throws -> Data {
+        await simulateNetwork()
+        guard let reporter = findUser(bySessionToken: sessionManagementToken),
+              let target = findUser(byUsername: username),
+              inSameAgeBand(reporter, target),
+              let targetIndex = users.firstIndex(where: { $0.id == target.id }) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        // Not your own account, and not twice.
+        if reporter.id == target.id || target.accountReports[reporter.id] != nil {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        // Like a post report, this hides nothing (issue #467); the stub has no
+        // classifier to re-review the profile with.
+        users[targetIndex].accountReports[reporter.id] = reason
+        return try createEmptySuccessResponse()
+    }
+
+    func retractReportAccount(sessionManagementToken: String, username: String) async throws -> Data {
+        await simulateNetwork()
+        guard let reporter = findUser(bySessionToken: sessionManagementToken),
+              let target = findUser(byUsername: username),
+              inSameAgeBand(reporter, target),
+              let targetIndex = users.firstIndex(where: { $0.id == target.id }),
+              target.accountReports[reporter.id] != nil else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        users[targetIndex].accountReports[reporter.id] = nil
+        return try createEmptySuccessResponse()
+    }
+
     func toggleBlock(sessionManagementToken: String, username: String) async throws -> Data {
         await simulateNetwork()
         guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
@@ -2492,6 +2525,10 @@ final class StatefulStubbedAPI: Networking {
             let is_private: Bool
             let follow_request_pending: Bool
             let follow_request_count: Int?
+            // The viewer's own report of the account (issue #602); omitted
+            // (nil) on your own profile.
+            var is_reported: Bool? = nil
+            var report_reason: String? = nil
         }
 
         if isBlockedBy {
@@ -2515,7 +2552,9 @@ final class StatefulStubbedAPI: Networking {
                 bio: "",
                 is_private: profileUser.isPrivate,
                 follow_request_pending: false,
-                follow_request_count: nil
+                follow_request_count: nil,
+                is_reported: profileUser.accountReports[requestingUser.id] != nil,
+                report_reason: profileUser.accountReports[requestingUser.id]
             )
             return try createSerializedResponse(fields: fields)
         }
@@ -2545,7 +2584,9 @@ final class StatefulStubbedAPI: Networking {
                     request.userToId == profileUser.id
                         && users.first(where: { $0.id == request.userFromId })
                             .map { inSameAgeBand(profileUser, $0) } == true
-                }.count : nil
+                }.count : nil,
+            is_reported: isOwnProfile ? nil : profileUser.accountReports[requestingUser.id] != nil,
+            report_reason: isOwnProfile ? nil : profileUser.accountReports[requestingUser.id]
         )
 
         // 6. Return the data using your existing helper

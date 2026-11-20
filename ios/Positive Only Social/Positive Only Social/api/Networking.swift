@@ -103,6 +103,13 @@ protocol Networking {
 
     /// Block or unblock a user
     func toggleBlock(sessionManagementToken: String, username: String) async throws -> Data
+
+    /// Report an account — its username, bio or profile photo (issue #602).
+    /// Like a post report, it opens a moderation review and hides nothing.
+    func reportAccount(sessionManagementToken: String, username: String, reason: String) async throws -> Data
+
+    /// Withdraw the current user's report of an account (issue #602).
+    func retractReportAccount(sessionManagementToken: String, username: String) async throws -> Data
     
     // MARK: - Post Management
 

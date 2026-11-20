@@ -653,6 +653,21 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun reportAccount(
+        token: String,
+        username: String,
+        request: ReportRequest
+    ): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "Account reported", error = null))
+    }
+
+    override suspend fun retractReportAccount(
+        token: String,
+        username: String
+    ): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "Account report retracted", error = null))
+    }
+
     override suspend fun toggleBlock(
         token: String,
         username: String

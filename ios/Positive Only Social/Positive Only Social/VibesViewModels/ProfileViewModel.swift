@@ -80,6 +80,55 @@ class ProfileViewModel: ObservableObject {
         profileShareItem = ShareURLItem(url: url)
     }
 
+    // Reporting this account — its username, bio or photo (issue #602). Like a
+    // post report it hides nothing by itself; it asks for a review. Offered
+    // from the options menu on anyone's profile but your own.
+    @Published var isAccountReported = false
+    @Published var showReportAccountSheet = false
+    @Published var showRetractAccountReportDialog = false
+    @Published var reportErrorMessage: String?
+
+    func reportAccount(reason: String) {
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isOwnProfile, !isBusy else { return }
+        isBusy = true
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    isBusy = false
+                    return
+                }
+                _ = try await api.reportAccount(sessionManagementToken: userSession.sessionToken,
+                                                username: user.username, reason: trimmed)
+                isAccountReported = true
+            } catch {
+                NSLog("%@", "Error reporting account \(user.username): \(error)")
+                reportErrorMessage = "Could not report this account. Please try again."
+            }
+            isBusy = false
+        }
+    }
+
+    func retractAccountReport() {
+        guard isAccountReported, !isBusy else { return }
+        isBusy = true
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    isBusy = false
+                    return
+                }
+                _ = try await api.retractReportAccount(sessionManagementToken: userSession.sessionToken,
+                                                       username: user.username)
+                isAccountReported = false
+            } catch {
+                NSLog("%@", "Error retracting report of \(user.username): \(error)")
+                reportErrorMessage = "Could not retract your report. Please try again."
+            }
+            isBusy = false
+        }
+    }
+
     // Private state for pagination and API
     private var batch = 0
     private let api: Networking
@@ -441,6 +490,7 @@ class ProfileViewModel: ObservableObject {
             self.followCategory = details.followCategory.flatMap(FollowCategory.init(rawValue:)) ?? .following
             self.isBlocked = details.isBlocked
             self.followRequestPending = details.followRequestPending ?? false
+            self.isAccountReported = details.isReported ?? false
         } catch {
             NSLog("%@", "Error refreshing profile details for \(user.username): \(error)")
         }
@@ -477,6 +527,7 @@ class ProfileViewModel: ObservableObject {
                 self.followCategory = details.followCategory.flatMap(FollowCategory.init(rawValue:)) ?? .following
                 self.isBlocked = details.isBlocked // Set initial block state
                 self.followRequestPending = details.followRequestPending ?? false
+                self.isAccountReported = details.isReported ?? false
             } catch {
                 NSLog("%@", "Error fetching profile details: \(error)")
                 // Handle error (e.g., show alert)

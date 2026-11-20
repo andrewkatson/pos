@@ -16,6 +16,7 @@ from .constants import (
     POST_STATUS_REJECTED_FINAL,
     APPEAL_STATUS_PENDING, APPEAL_STATUS_APPROVED, APPEAL_STATUS_DENIED,
     APPEAL_TARGET_POST, APPEAL_TARGET_COMMENT, APPEAL_TARGET_BAN,
+    REVIEW_TARGET_ACCOUNT,
     REVIEW_STATUS_PENDING, REVIEW_STATUS_CLEARED, REVIEW_STATUS_ESCALATED,
     REVIEW_STATUS_HIDDEN, REVIEW_STATUS_DISMISSED, TERMINAL_REVIEW_STATUSES,
     FOLLOW_CATEGORY_CHOICES, FOLLOW_CATEGORY_FOLLOWING,
@@ -737,6 +738,27 @@ class CommentReport(models.Model):
     objects = ReportQuerySet.as_manager()
 
 
+# A report on an account (issue #602): a complaint about who someone presents
+# themselves as — their username, bio and profile photo — rather than about any
+# one thing they posted. Reviewed through the same ModerationReview pipeline as
+# post and comment reports.
+class AccountReport(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='account_reports_filed',
+                             on_delete=models.CASCADE)
+    reported_user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='account_reports',
+                                      on_delete=models.CASCADE)
+    creation_time = models.DateTimeField(auto_now_add=True, null=True,
+                                         blank=True)
+    reason = models.TextField(null=True)
+    # As on PostReport: retraction stamps this rather than deleting the row.
+    retracted_time = models.DateTimeField(null=True, blank=True, default=None)
+
+    objects = ReportQuerySet.as_manager()
+
+    class Meta:
+        app_label = 'user_system'
+
+
 # A like on a comment
 class CommentLike(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL,
@@ -954,6 +976,11 @@ class ModerationReviewManager(models.Manager):
 # review lifetime, so the row *is* the current state: see the REVIEW_STATUS_*
 # constants. A terminal status (hidden/dismissed) is never reopened by further
 # reports, which is what makes piling on pointless.
+#
+# An account (issue #602) is reviewed the same way, as its username, bio and
+# approved profile photo together. Unlike a post, a profile keeps changing, so a
+# decision about it only holds until its owner changes the bio or photo — see
+# moderation.profile_content_changed.
 class ModerationReview(models.Model):
     REVIEW_STATUS_CHOICES = [
         (REVIEW_STATUS_PENDING, 'Pending automated review'),
@@ -970,6 +997,8 @@ class ModerationReview(models.Model):
     # is nothing left to review and the row goes with it.
     post = models.ForeignKey(Post, related_name='reviews', null=True, blank=True, on_delete=models.CASCADE)
     comment = models.ForeignKey(Comment, related_name='reviews', null=True, blank=True, on_delete=models.CASCADE)
+    account = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='account_reviews', null=True, blank=True,
+                                on_delete=models.CASCADE)
 
     status = models.TextField(choices=REVIEW_STATUS_CHOICES, default=REVIEW_STATUS_PENDING)
 
@@ -1003,8 +1032,9 @@ class ModerationReview(models.Model):
             models.CheckConstraint(
                 name='moderation_review_has_exactly_one_target',
                 condition=(
-                    (Q(post__isnull=False) & Q(comment__isnull=True))
-                    | (Q(post__isnull=True) & Q(comment__isnull=False))
+                    (Q(post__isnull=False) & Q(comment__isnull=True) & Q(account__isnull=True))
+                    | (Q(post__isnull=True) & Q(comment__isnull=False) & Q(account__isnull=True))
+                    | (Q(post__isnull=True) & Q(comment__isnull=True) & Q(account__isnull=False))
                 ),
             ),
             # One review per post/comment, enforced at the DB level so two
@@ -1017,16 +1047,31 @@ class ModerationReview(models.Model):
                 fields=['comment'], condition=Q(comment__isnull=False),
                 name='unique_review_per_comment',
             ),
+            models.UniqueConstraint(
+                fields=['account'], condition=Q(account__isnull=False),
+                name='unique_review_per_account',
+            ),
         ]
 
     @property
     def target(self):
-        """The post or comment this review is about."""
-        return self.post or self.comment
+        """The post, comment or account this review is about."""
+        return self.post or self.comment or self.account
 
     @property
     def target_kind(self):
-        return APPEAL_TARGET_POST if self.post_id else APPEAL_TARGET_COMMENT
+        if self.post_id:
+            return APPEAL_TARGET_POST
+        if self.comment_id:
+            return APPEAL_TARGET_COMMENT
+        return REVIEW_TARGET_ACCOUNT
+
+    @property
+    def target_author(self):
+        """Whose content this is: the post or comment author, or the account itself."""
+        if self.account_id:
+            return self.account
+        return self.target.author
 
     @property
     def is_terminal(self):
@@ -1040,7 +1085,9 @@ class ModerationReview(models.Model):
         should escalate on."""
         if self.post_id:
             return self.post.postreport_set.active().order_by('-creation_time')
-        return self.comment.commentreport_set.active().order_by('-creation_time')
+        if self.comment_id:
+            return self.comment.commentreport_set.active().order_by('-creation_time')
+        return self.account.account_reports.active().order_by('-creation_time')
 
     def report_count(self):
         return self.reports().count()

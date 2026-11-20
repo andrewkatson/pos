@@ -95,6 +95,10 @@ function ProfileView({
   const [followRequestPending, setFollowRequestPending] = useState(false)
   const [followCategory, setFollowCategory] = useState<FollowCategory>('following')
   const [isBlocked, setIsBlocked] = useState(false)
+  // The viewer's own standing report of this account (issue #602).
+  const [isReported, setIsReported] = useState(false)
+  const [reportDialogOpen, setReportDialogOpen] = useState(false)
+  const [reportReason, setReportReason] = useState('')
   const [isBusy, setIsBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -170,6 +174,7 @@ function ProfileView({
     setFollowRequestPending(details.follow_request_pending ?? false)
     setFollowCategory(details.follow_category ?? 'following')
     setIsBlocked(details.is_blocked ?? false)
+    setIsReported(details.is_reported ?? false)
   }, [])
 
   // Bumped by every refresh (issue #96): each profile/posts load remembers the
@@ -446,6 +451,46 @@ function ProfileView({
     if (result === 'failed') setErrorMessage('Could not share this profile.')
   }
 
+  // Report this account — its username, bio or photo (issue #602). Like a post
+  // report it hides nothing by itself; it asks for a review.
+  function openReportDialog() {
+    setMenuAnchor(null)
+    setReportReason('')
+    setReportDialogOpen(true)
+  }
+
+  async function submitAccountReport() {
+    const reason = reportReason.trim()
+    if (!reason || isBusy) return
+    setReportDialogOpen(false)
+    setReportReason('')
+    setIsBusy(true)
+    setErrorMessage(null)
+    try {
+      await apiClient.reportAccount(username, reason)
+      if (isMounted.current) setIsReported(true)
+    } catch (err) {
+      if (isMounted.current) setErrorMessage(err instanceof Error ? err.message : 'Failed to report.')
+    } finally {
+      if (isMounted.current) setIsBusy(false)
+    }
+  }
+
+  async function retractAccountReport() {
+    setMenuAnchor(null)
+    if (isBusy) return
+    setIsBusy(true)
+    setErrorMessage(null)
+    try {
+      await apiClient.retractReportAccount(username)
+      if (isMounted.current) setIsReported(false)
+    } catch (err) {
+      if (isMounted.current) setErrorMessage(err instanceof Error ? err.message : 'Failed to retract report.')
+    } finally {
+      if (isMounted.current) setIsBusy(false)
+    }
+  }
+
   async function toggleFollow() {
     if (isBusy) return
     setIsBusy(true)
@@ -720,7 +765,8 @@ function ProfileView({
           </div>
           {/* The profile's options menu (issue #510). Offered on every
               profile — your own and everyone else's, signed in or not — since
-              Share, its one item, needs no session. */}
+              Share needs no session. A signed-in viewer of someone else's
+              profile can also report the account there (issue #602). */}
           <button
             type="button"
             className="profile-menu-button"
@@ -982,7 +1028,55 @@ function ProfileView({
           onDismiss={() => setMenuAnchor(null)}
         >
           <AnchoredMenuItem onClick={() => void shareProfile()}>Share</AnchoredMenuItem>
+          {isSignedIn && !isOwnProfile && (
+            isReported ? (
+              <AnchoredMenuItem onClick={() => void retractAccountReport()}>
+                Retract Report
+              </AnchoredMenuItem>
+            ) : (
+              <AnchoredMenuItem onClick={openReportDialog}>Report</AnchoredMenuItem>
+            )
+          )}
         </AnchoredMenu>
+      )}
+
+      {reportDialogOpen && (
+        <div className="modal-overlay">
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Report account">
+            <h2 className="modal__title">Report {username}</h2>
+            <p className="muted">
+              Tell us what's wrong with this account's username, bio or profile photo.
+            </p>
+            <input
+              className="search-bar"
+              type="text"
+              placeholder="Reason for reporting..."
+              aria-label="Reason for reporting"
+              value={reportReason}
+              onChange={e => setReportReason(e.target.value)}
+            />
+            <div className="modal__actions">
+              <button
+                type="button"
+                className="modal__cancel"
+                onClick={() => {
+                  setReportDialogOpen(false)
+                  setReportReason('')
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="modal__confirm"
+                disabled={reportReason.trim().length === 0}
+                onClick={() => void submitAccountReport()}
+              >
+                Submit Report
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {shareCopiedOpen && (

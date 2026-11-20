@@ -184,6 +184,14 @@ struct MockedAPI: Networking {
     func toggleBlock(sessionManagementToken: String, username: String) async throws -> Data {
         return try encodeGenericSuccess()
     }
+
+    func reportAccount(sessionManagementToken: String, username: String, reason: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
+
+    func retractReportAccount(sessionManagementToken: String, username: String) async throws -> Data {
+        return try encodeGenericSuccess()
+    }
     
     // MARK: - Post Management
 
