@@ -63,7 +63,7 @@ from .google_auth import GoogleTokenError, is_google_sign_in_configured, verify_
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
     PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode, \
-    InterestCategory, UserFreeformInterest, DeviceToken, NotificationPreference, FollowRequest
+    InterestCategory, UserFreeformInterest, DeviceToken, NotificationPreference, FollowRequest, AccountReport
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
@@ -540,7 +540,7 @@ def _issue_email_verification_token(user):
     user.email_verification_token_expires = timezone.now() + timedelta(
         hours=EMAIL_VERIFICATION_TOKEN_HOURS
     )
-    user.save()
+    user.save(update_fields=['email_verified', 'email_verification_token', 'email_verification_token_expires'])
     return token
 def _email_verification_link(token):
     return f"{settings.FRONTEND_BASE_URL}/verify-email?token={token}"
@@ -945,7 +945,7 @@ def verify_identity(request):
 
         request.user.identity_is_verified = True
         request.user.is_adult = age >= ADULT_AGE
-        request.user.save()
+        request.user.save(update_fields=['identity_is_verified', 'is_adult'])
 
         logger.info(f"Identity verification successful for user_id: {request.user.id}")
         return log_and_return_json("verify_identity", {'message': 'Identity verified'})
@@ -1706,7 +1706,7 @@ def verify_email(request):
         user.email_verified = True
         user.email_verification_token = None
         user.email_verification_token_expires = None
-        user.save()
+        user.save(update_fields=['email_verified', 'email_verification_token', 'email_verification_token_expires'])
 
     logger.info(f"Email verification successful for user_id: {user.id}")
     return log_and_return_json("verify_email", {'message': 'Email verified'})
@@ -1794,7 +1794,7 @@ def request_reset(request):
         user.reset_token_expires = None
         user.verification_failed_attempts = 0
         user.verification_lockout_until = None
-        user.save()
+        user.save(update_fields=['verification_token', 'verification_token_expires', 'reset_token', 'reset_token_expires', 'verification_failed_attempts', 'verification_lockout_until'])
         logger.info(f"Password reset request successful for user_id: {user.id}")
         return log_and_return_json("request_reset", {'message': 'Reset email sent'})
     else:
@@ -1865,7 +1865,7 @@ def verify_reset(request):
                 user.reset_token_expires = timezone.now() + timedelta(minutes=15)
                 user.verification_failed_attempts = 0
                 user.verification_lockout_until = None
-                user.save()
+                user.save(update_fields=['verification_token', 'verification_token_expires', 'reset_token', 'reset_token_expires', 'verification_failed_attempts', 'verification_lockout_until'])
                 logger.info(f"Password reset verification successful for user_id: {user.id}")
                 response = log_and_return_json("verify_reset", {'message': 'Verification successful', 'reset_token': reset_token})
                 response['Cache-Control'] = 'no-store'
@@ -1875,7 +1875,7 @@ def verify_reset(request):
                 if user.verification_failed_attempts >= VERIFY_RESET_MAX_ATTEMPTS:
                     user.verification_lockout_until = timezone.now() + timedelta(minutes=VERIFY_RESET_LOCKOUT_MINUTES)
                     user.verification_failed_attempts = 0
-                    user.save()
+                    user.save(update_fields=['verification_failed_attempts', 'verification_lockout_until'])
                     logger.warning(
                         f"Password reset verification locked out after {VERIFY_RESET_MAX_ATTEMPTS} "
                         f"attempts for user_id: {user.id}"
@@ -1883,7 +1883,7 @@ def verify_reset(request):
                     return log_and_return_json("verify_reset", {
                         'error': "Too many failed attempts. Try again later."
                     }, status=429)
-                user.save()
+                user.save(update_fields=['verification_failed_attempts'])
                 logger.warning(f"Password reset verification failed for user_id: {user.id}")
                 return log_and_return_json("verify_reset", {'error': "Invalid or expired verification token"}, status=400)
     except get_user_model().DoesNotExist:
@@ -1938,7 +1938,7 @@ def reset_password(request):
             user.set_password(password)
             user.reset_token = None
             user.reset_token_expires = None
-            user.save()
+            user.save(update_fields=['password', 'reset_token', 'reset_token_expires'])
             Session.objects.filter(management_user=user).delete()
             LoginCookie.objects.filter(cookie_user=user).delete()
     except get_user_model().DoesNotExist:
@@ -2001,7 +2001,7 @@ def change_password(request):
             )
 
         user.set_password(new_password)
-        user.save()
+        user.save(update_fields=['password'])
         # Evict other devices but keep the session that made this request, so the
         # caller isn't logged out of the device they just changed the password on.
         Session.objects.filter(management_user=user).exclude(management_token=request.token).delete()
@@ -4986,6 +4986,101 @@ def toggle_block(request, username_to_toggle_block):
     return log_and_return_json("toggle_block", {'message': 'User blocked'})
 
 
+def _reportable_account(request, endpoint, username):
+    """Resolve the account `username` names for a report endpoint, or an error
+    response. A cross-age-band account is treated as absent (issue #329), as
+    everywhere else, so the report endpoints cannot confirm it exists."""
+    if not is_valid_pattern(username, Patterns.username):
+        return None, log_and_return_json(endpoint, {'error': f"Invalid fields ['{Params.username}']"}, status=400)
+    account = get_user_with_username(username)
+    if account is None or not in_same_age_band(request.user, account):
+        return None, log_and_return_json(endpoint, {'error': "User does not exist"}, status=400)
+    return account, None
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def report_account(request, username):
+    """Report an account (issue #602) — its username, bio or profile photo.
+
+    Exactly like reporting a post, a report hides nothing by itself: the first
+    one opens a moderation review, whose automated re-review classifies the
+    account's username, bio and approved photo (never the reports), and enough
+    further reports after a clear escalate it to a human. See moderation.py.
+    Reporting is open to anyone who can see the account's name, including a
+    requester the account has blocked — blocking hides a profile's details, not
+    the fact of who someone is — and counts against the same daily budget as
+    post and comment reports.
+    """
+    logger.info("Endpoint report_account invoked by IP or User")
+    data = _get_json_body(request)
+    # Valid JSON need not be an object ([] or 42 parse fine), and only an object
+    # has a reason to read.
+    if not isinstance(data, dict):
+        return log_and_return_json("report_account", {'error': "Invalid JSON data"}, status=400)
+
+    reason = data.get(Fields.reason)
+    # A string check first: is_valid_pattern stringifies its input, so a number
+    # or list would otherwise pass as a "reason".
+    if not isinstance(reason, str) or not reason.strip() \
+            or not is_valid_pattern(reason, Patterns.alphanumeric_with_special_chars):
+        return log_and_return_json("report_account", {'error': f"Invalid fields ['{Params.reason}']"}, status=400)
+
+    account, error = _reportable_account(request, "report_account", username)
+    if error is not None:
+        return error
+    if account == request.user:
+        return log_and_return_json("report_account", {'error': "Cannot report own account"}, status=400)
+
+    with transaction.atomic():
+        # The account's row first (issue #462's protocol): the report and the
+        # review it opens or advances commit together under the lock set_bio
+        # and the profile-photo worker take before changing the profile.
+        if moderation.lock_reviewed_content(account=account) is None:
+            return log_and_return_json("report_account", {'error': "User does not exist"}, status=400)
+
+        if account.account_reports.active().filter(user=request.user).exists():
+            logger.warning(f"Report account failed: already reported by user_id: {request.user.id}")
+            return log_and_return_json("report_account", {'error': "Cannot report account twice"}, status=400)
+
+        if moderation.daily_report_limit_reached(request.user):
+            logger.warning(f"Report account failed: Daily report limit reached by user_id: {request.user.id}")
+            return log_and_return_json("report_account", {'error': "Daily report limit reached"}, status=400)
+
+        AccountReport.objects.create(user=request.user, reported_user=account, reason=reason)
+        review, opened = moderation.advance_review(account=account)
+    logger.info(f"Report account successful: target_user_id: {account.id} by user_id: {request.user.id}")
+    moderation.queue_opened_review(review, opened)
+
+    return log_and_return_json("report_account", {'message': 'Account reported'})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def retract_report_account(request, username):
+    """Withdraw the caller's report of an account. As for posts, the row is
+    stamped rather than deleted (it still counts against the daily budget), and
+    a retraction never undoes anything a review did — it can only take an
+    escalation nobody is still reporting back off the moderator's queue."""
+    logger.info("Endpoint retract_report_account invoked by IP or User")
+    account, error = _reportable_account(request, "retract_report_account", username)
+    if error is not None:
+        return error
+
+    retracted_count = account.account_reports.active().filter(user=request.user).update(
+        retracted_time=timezone.now())
+    if retracted_count == 0:
+        return log_and_return_json("retract_report_account", {'error': "Account not reported yet"}, status=400)
+
+    logger.info(f"Account report retracted: target_user_id: {account.id} by user_id: {request.user.id}")
+    moderation.withdraw_report(account=account)
+    return log_and_return_json("retract_report_account", {'message': 'Account report retracted'})
+
+
 @api_login_required
 @ratelimit(key='user', rate='30/m', block=True)
 @require_GET
@@ -5366,10 +5461,15 @@ def set_bio(request):
 
     user = request.user
 
-    # A blank bio just clears it — nothing to classify.
+    # A blank bio just clears it — nothing to classify. Still a profile change,
+    # so it releases any report-review decision exactly like a new bio does
+    # (see moderation.profile_content_changed).
     if not bio.strip():
-        user.bio = ""
-        user.save(update_fields=['bio'])
+        with transaction.atomic():
+            moderation.lock_reviewed_content(account=user)
+            user.bio = ""
+            user.save(update_fields=['bio'])
+            moderation.profile_content_changed(user)
         logger.info(f"Bio cleared for user_id: {user.id}")
         return log_and_return_json("set_bio", {
             Fields.bio: "",
@@ -5400,8 +5500,15 @@ def set_bio(request):
             Fields.appealable: False,
         }, status=400)
 
-    user.bio = bio
-    user.save(update_fields=['bio'])
+    with transaction.atomic():
+        # The user's row is the content row of any report review of this
+        # account (issue #602), locked before the review it may release.
+        moderation.lock_reviewed_content(account=user)
+        user.bio = bio
+        user.save(update_fields=['bio'])
+        # A new bio is a new profile: a decision a report review made about
+        # the old one must not bind it (see moderation.profile_content_changed).
+        moderation.profile_content_changed(user)
     logger.info(f"Bio updated for user_id: {user.id}")
     return log_and_return_json("set_bio", {
         Fields.bio: user.bio,
@@ -5991,6 +6098,14 @@ def get_profile_details(request, username):
         # blocked; see visible_bio above).
         Fields.bio: visible_bio,
     }
+
+    # The viewer's own standing report of this account (issue #602), so their
+    # client can offer "Retract report" instead of "Report". Never anyone
+    # else's: who reported an account is nobody's business but the reporter's.
+    if profile_user.pk != request.user.pk:
+        my_report = profile_user.account_reports.active().filter(user=request.user).first()
+        data[Fields.is_reported] = my_report is not None
+        data[Fields.report_reason] = my_report.reason if my_report is not None else None
 
     # Owner-only: the moderation state of a photo still under async review (or
     # the last rejected upload), so the owner's own client can show a

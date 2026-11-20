@@ -2,6 +2,9 @@ from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
 from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
+from django.utils.html import format_html
+
+from .cloudfront import sign_original_url
 
 from . import moderation
 from .constants import BAN_TYPE_OUTRIGHT, BAN_TYPE_SHADOW, APPEAL_STATUS_PENDING
@@ -210,13 +213,14 @@ class ModerationReviewAdmin(admin.ModelAdmin):
                     "report_count", "created", "resolved_time", "resolved_by")
     list_filter = ("status",)
     search_fields = ("post__caption", "comment__body", "post__author__username",
-                     "comment__author__username")
+                     "comment__author__username", "account__username", "account__bio")
     # Reviews are written by the report pipeline and resolved via the actions
     # below, so nothing here is hand-edited — admins act, they don't type.
-    readonly_fields = ("review_identifier", "post", "comment", "status", "author",
-                       "target_summary", "reported_reasons", "report_count",
+    readonly_fields = ("review_identifier", "post", "comment", "account", "status", "author",
+                       "target_summary", "account_bio", "account_photo",
+                       "reported_reasons", "report_count",
                        "classifier_chain",
-                       "reports_at_last_review", "review_attempts", "created",
+                       "reports_at_last_review", "escalation_counted_since", "review_attempts", "created",
                        "updated", "reviewed_time", "resolved_time", "resolved_by",
                        "resolution_note")
     actions = ("hide_content", "dismiss_reports")
@@ -237,13 +241,15 @@ class ModerationReviewAdmin(admin.ModelAdmin):
         # its author's daily budget) but is not a complaint standing against the
         # content, so a moderator must not see it in the queue's tally.
         return super().get_queryset(request).select_related(
-            'post', 'post__author', 'comment', 'comment__author', 'resolved_by',
+            'post', 'post__author', 'comment', 'comment__author', 'account', 'resolved_by',
         ).annotate(
             _report_count=(
                 Count('post__postreport', distinct=True,
                       filter=Q(post__postreport__retracted_time__isnull=True))
                 + Count('comment__commentreport', distinct=True,
-                        filter=Q(comment__commentreport__retracted_time__isnull=True))),
+                        filter=Q(comment__commentreport__retracted_time__isnull=True))
+                + Count('account__account_reports', distinct=True,
+                        filter=Q(account__account_reports__retracted_time__isnull=True))),
         )
 
     @admin.display(description="Target")
@@ -255,14 +261,41 @@ class ModerationReviewAdmin(admin.ModelAdmin):
         """The reported text, truncated. Returned as a plain string so the admin
         escapes it — never mark_safe on user-authored content."""
         target = review.target
+        if review.account_id:
+            # What an account report is about (issue #602): the username, bio
+            # and approved photo. Moderators open the photo from the user admin.
+            bio = target.bio or '—'
+            bio = (bio[:60] + '…') if len(bio) > 60 else bio
+            photo = 'photo' if target.profile_image_url else 'no photo'
+            return f"@{target.username} · {photo} · bio: {bio}"
         text = (target.caption if review.post_id else target.body) or ''
         if review.post_id and target.image_url and not text:
             return "(image only)"
         return (text[:80] + '…') if len(text) > 80 else (text or '—')
 
+    @admin.display(description="Bio")
+    def account_bio(self, review):
+        """An account review's full bio (issue #602): the list summary is
+        truncated, and a complaint can be about any part of it. Plain string,
+        so the admin escapes it."""
+        if not review.account_id:
+            return '—'
+        return review.account.bio or '—'
+
+    @admin.display(description="Profile photo")
+    def account_photo(self, review):
+        """A signed link to an account review's approved photo (issue #602), so
+        a moderator can see what was reported. format_html escapes the URL."""
+        if not review.account_id or not review.account.profile_image_url:
+            return '—'
+        url = sign_original_url(review.account.profile_image_url)
+        if not url:
+            return '—'
+        return format_html('<a href="{}" target="_blank" rel="noopener noreferrer">Open photo</a>', url)
+
     @admin.display(description="Author")
     def author(self, review):
-        return review.target.author
+        return review.target_author
 
     @admin.display(description="Reports", ordering='_report_count')
     def report_count(self, review):
@@ -277,7 +310,10 @@ class ModerationReviewAdmin(admin.ModelAdmin):
         """Which cascade tiers have judged this content (issue #511): every
         tier consulted, and the ones whose score settled a verdict — the last
         of those being the final determiner of the latest automated decision.
-        Shown to the moderator only; model identities never reach users."""
+        Shown to the moderator only; model identities never reach users.
+        Profiles keep no chain, so an account review shows none."""
+        if review.account_id:
+            return '—'
         target = review.target
         chain = ', '.join(target.classification_model_chain) or '—'
         tried = ', '.join(target.classification_models_tried) or '—'
@@ -316,7 +352,7 @@ class ModerationReviewAdmin(admin.ModelAdmin):
             message += f" {reversed_count} of those reversed an earlier decision."
         self.message_user(request, message)
 
-    @admin.action(description="Hide the reported content")
+    @admin.action(description="Hide the reported content (for an account: remove its bio and profile photo)")
     def hide_content(self, request, queryset):
         self._resolve(request, queryset, hide=True)
 

@@ -44,6 +44,12 @@ owner's own profile-details response carries the pending/rejected state
 `pending_profile_image_url`); no one else ever sees it. `POST /profile/photo/remove/`
 clears the photo entirely.
 
+An approved photo can still be **reported** along with the rest of the account,
+and removed if a re-review or a moderator finds it unacceptable — see
+[Reporting an account](reporting.md#reporting-an-account-issue-602). A removal
+sets `profile_image_status = "rejected"` with a reason code, so the owner's
+client explains why their avatar went away, exactly as for a rejected upload.
+
 Reconciliation mirrors posts: `sweep_classifications` re-enqueues a photo stuck
 in `pending` past the threshold, or — once its retry budget is spent — leaves it
 pending (fail closed, never shown) and alerts an operator exactly once.
@@ -65,4 +71,6 @@ pending/approved lifecycle: a bio that fails the positivity check is rejected
 with a `400` (carrying a `reason_code`) and **never stored**, leaving any
 existing bio untouched. The remedy is simply to edit it, so a rejection is **not
 appealable**. Bios are capped at `MAX_BIO_LENGTH` (500) characters, counted as
-unicode code points like captions and comments.
+unicode code points like captions and comments. A bio can also be removed after
+the account is reported — see
+[Reporting an account](reporting.md#reporting-an-account-issue-602).

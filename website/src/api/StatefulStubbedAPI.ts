@@ -162,6 +162,8 @@ interface UserMock {
   isAdult: boolean
   blocked: Set<string>
   blockedBy: Set<string>
+  /** Standing reports of this account (issue #602), reporter id → reason. */
+  accountReports: Map<string, string>
   totpSecret: string | null
   totpEnabled: boolean
   /** Unused recovery codes; consumed codes are removed. */
@@ -460,6 +462,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       isAdult: age !== null && age >= 18,
       blocked: new Set(),
       blockedBy: new Set(),
+      accountReports: new Map(),
       totpSecret: null,
       totpEnabled: false,
       recoveryCodes: new Set(),
@@ -621,6 +624,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         isAdult: false,
         blocked: new Set(),
         blockedBy: new Set(),
+        accountReports: new Map(),
         totpSecret: null,
         totpEnabled: false,
         recoveryCodes: new Set(),
@@ -2256,6 +2260,37 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return { message: 'User blocked' }
   }
 
+  async reportAccount(username: string, reason: string): Promise<MessageResponse> {
+    const user = this.requireUser()
+    const target = this.findUserByName(username)
+    if (!target || !this.inSameAgeBand(user, target)) {
+      throw new ApiError(400, 'User does not exist')
+    }
+    if (user.id === target.id) {
+      throw new ApiError(400, 'Cannot report own account')
+    }
+    if (target.accountReports.has(user.id)) {
+      throw new ApiError(400, 'Cannot report account twice')
+    }
+    // Like a post report, this hides nothing (issue #467); the stub has no
+    // classifier to re-review the profile with.
+    target.accountReports.set(user.id, reason)
+    return { message: 'Account reported' }
+  }
+
+  async retractReportAccount(username: string): Promise<MessageResponse> {
+    const user = this.requireUser()
+    const target = this.findUserByName(username)
+    if (!target || !this.inSameAgeBand(user, target)) {
+      throw new ApiError(400, 'User does not exist')
+    }
+    if (!target.accountReports.has(user.id)) {
+      throw new ApiError(400, 'Account not reported yet')
+    }
+    target.accountReports.delete(user.id)
+    return { message: 'Account report retracted' }
+  }
+
   async getBlockedUsers(): Promise<UserSearchResult[]> {
     const user = this.requireUser()
     return this.users
@@ -2333,6 +2368,10 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         const requester = this.users.find((u) => u.id === id)
         return requester !== undefined && this.inSameAgeBand(target, requester)
       }).length
+    } else {
+      // The viewer's own report only (issue #602), never anyone else's.
+      details.is_reported = target.accountReports.has(user.id)
+      details.report_reason = target.accountReports.get(user.id) ?? null
     }
     return details
   }

@@ -86,13 +86,13 @@ class ModerationReviewTests(TestCase):
         real_lock = moderation.lock_reviewed_content
         real_get_or_create = moderation._get_or_create_review
 
-        def lock(post=None, comment=None):
+        def lock(post=None, comment=None, account=None):
             calls.append('content')
-            return real_lock(post, comment)
+            return real_lock(post, comment, account)
 
-        def get_or_create(post, comment):
+        def get_or_create(post, comment, account=None):
             calls.append('review')
-            return real_get_or_create(post, comment)
+            return real_get_or_create(post, comment, account)
 
         return calls, patch.object(moderation, 'lock_reviewed_content', side_effect=lock), \
             patch.object(moderation, '_get_or_create_review', side_effect=get_or_create)
@@ -117,7 +117,7 @@ class ModerationReviewTests(TestCase):
                           wraps=moderation.lock_reviewed_content) as lock:
             self.comment.commentreport_set.update(retracted_time=timezone.now())
             moderation.withdraw_report(comment=self.comment)
-        lock.assert_called_once_with(None, self.comment)
+        lock.assert_called_once_with(None, self.comment, None)
 
     def test_the_content_lock_does_not_block_foreign_key_checks(self):
         # FOR NO KEY UPDATE, not FOR UPDATE: likes, saves and reports lock the
@@ -144,9 +144,9 @@ class ModerationReviewTests(TestCase):
                 real_lock = moderation.lock_reviewed_content
                 real_filter = moderation.ModerationReview.objects.select_for_update
 
-                def lock(post=None, comment=None):
+                def lock(post=None, comment=None, account=None):
                     calls.append('content')
-                    return real_lock(post=post, comment=comment)
+                    return real_lock(post=post, comment=comment, account=account)
 
                 def review_lock(*args, **kwargs):
                     calls.append('review')
@@ -400,6 +400,24 @@ class ModerationReviewTests(TestCase):
         self._report_post(self.reporters[REPORTS_AFTER_CLEAR_BEFORE_ESCALATION])
         review.refresh_from_db()
         self.assertEqual(review.status, REVIEW_STATUS_ESCALATED)
+
+    @patch(IMAGE, return_value=ALLOWED)
+    @patch(TEXT, return_value=ALLOWED)
+    def test_withdrawn_reports_from_before_the_clear_do_not_suppress_new_ones(self, _text, _image):
+        """Escalation counts reports filed after the clear, not the live count
+        minus the old one: otherwise reports the clear accounted for, once
+        withdrawn, would keep fresh ones from ever reaching a human."""
+        early = self.reporters[:3]
+        for reporter in early:
+            self.post.postreport_set.create(user=reporter, reason='early')
+        review = moderation.record_report(post=self.post)
+        self.assertEqual(self._refresh(review).status, REVIEW_STATUS_CLEARED)
+        self.post.postreport_set.update(retracted_time=timezone.now())
+
+        for reporter in self.reporters[3:3 + REPORTS_AFTER_CLEAR_BEFORE_ESCALATION]:
+            self._report_post(reporter)
+
+        self.assertEqual(self._refresh(review).status, REVIEW_STATUS_ESCALATED)
 
     @patch(IMAGE, return_value=ALLOWED)
     @patch(TEXT, return_value=ALLOWED)

@@ -505,7 +505,11 @@ data class ProfileDetailsResponse(
     // answer (issue #96).
     @SerializedName("follow_request_pending") val followRequestPending: Boolean? = null,
     // Owner-only: incoming follow requests awaiting a decision (issue #96).
-    @SerializedName("follow_request_count") val followRequestCount: Int? = null
+    @SerializedName("follow_request_count") val followRequestCount: Int? = null,
+    // The viewer's own standing report of this account, and their reason
+    // (issue #602). Absent on your own profile and on older backends.
+    @SerializedName("is_reported") val isReported: Boolean? = null,
+    @SerializedName("report_reason") val reportReason: String? = null
 )
 
 // --- Private accounts (issue #96) ---

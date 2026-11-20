@@ -593,6 +593,26 @@ final class RealAPI: Networking {
             authToken: sessionManagementToken
         )
     }
+
+    /// Reports an account (issue #602): POST users/<username>/report/.
+    func reportAccount(sessionManagementToken: String, username: String, reason: String) async throws -> Data {
+        let requestBody = try encode(ReportBody(reason: reason))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, username, GVOAppConstants.pathSegmentReport],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Retracts the current user's report of an account (issue #602).
+    func retractReportAccount(sessionManagementToken: String, username: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentUsers, username, GVOAppConstants.pathSegmentReport, GVOAppConstants.pathSegmentRetract],
+            method: .post,
+            authToken: sessionManagementToken
+        )
+    }
     
     // MARK: - Post Management
 

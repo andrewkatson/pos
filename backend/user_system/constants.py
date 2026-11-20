@@ -696,14 +696,19 @@ REVIEW_STATUS_DISMISSED = "dismissed"
 # about this content, so piling on more reports achieves nothing.
 TERMINAL_REVIEW_STATUSES = (REVIEW_STATUS_HIDDEN, REVIEW_STATUS_DISMISSED)
 
+# What a ModerationReview is about. A post or a comment reuses the appeal target
+# names; an account (issue #602) is reviewed as its username, bio and approved
+# profile photo together.
+REVIEW_TARGET_ACCOUNT = "account"
+
 # How many reports arriving AFTER an automated re-review cleared the content
 # escalate it to a human moderator. Deliberately small: escalating costs a queue
 # entry, never a hide, so there is no harm in a low bar — and no benefit to a
 # brigade in crossing it, since the outcome is a person looking at the content.
 REPORTS_AFTER_CLEAR_BEFORE_ESCALATION = 3
 
-# Most reports one account may file per rolling 24 hours, counted across posts
-# and comments together. Well above what a genuine user files and far below what
+# Most reports one account may file per rolling 24 hours, counted across posts,
+# comments and accounts together. Well above what a genuine user files and far below what
 # mass-reporting needs, so one account cannot flood the review queue. Enforced
 # on top of the per-endpoint rate limits.
 MAX_REPORTS_PER_USER_PER_DAY = 30

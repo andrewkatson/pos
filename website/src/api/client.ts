@@ -877,6 +877,17 @@ export class ApiClient implements PositiveOnlySocialAPI {
     return this.request<MessageResponse>('POST', `/users/${username}/block/`, { auth: true })
   }
 
+  reportAccount(username: string, reason: string): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/users/${username}/report/`, {
+      auth: true,
+      body: { reason },
+    })
+  }
+
+  retractReportAccount(username: string): Promise<MessageResponse> {
+    return this.request<MessageResponse>('POST', `/users/${username}/report/retract/`, { auth: true })
+  }
+
   getBlockedUsers(): Promise<UserSearchResult[]> {
     return this.request<UserSearchResult[]>('GET', '/users/blocked/', { auth: true })
   }

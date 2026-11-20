@@ -9,9 +9,12 @@ Like or Delete it has no ownership condition.
 
 A **profile** can be shared the same way (issue #510). Every profile — your own
 and everyone else's — carries a three-dots (⋯) options menu at the top of its
-header whose one item is **Share**, handing off the website's profile page,
+header offering **Share**, handing off the website's profile page,
 `https://smiling.social/profile/<username>`. Like a post link it works signed
-out: see [What a recipient sees](#what-a-recipient-sees-issue-381) below.
+out: see [What a recipient sees](#what-a-recipient-sees-issue-381) below. On
+someone else's profile, a signed-in viewer's menu also offers **Report** (or
+**Retract report**) for the account — see
+[Reporting an account](reporting.md#reporting-an-account-issue-602).
 
 Each client uses its native mechanism: iOS presents the system share sheet,
 Android fires an `ACTION_SEND` chooser, and the website uses the Web Share API
