@@ -94,7 +94,9 @@ profile grid, and the Feed — without opening the post first:
   itself, however many people report the same post (see
   [Reporting and user moderation](reporting.md)).
 - **Retract report**, which shows the reason you originally gave.
-- **Delete**, offered only on your own posts.
+- **Delete**, offered only on your own posts. On comments, Delete is offered on
+  your own comments and on anyone's comment on your own post (see
+  [Deleting comments on your post](#deleting-comments-on-your-post-issue-603)).
 - **Edit caption**, offered only on your own posts (see
   [Editing captions and comments](#editing-captions-and-comments-issue-462)).
 - **Share**, offered on every post (see [Sharing](sharing.md)).
@@ -192,6 +194,29 @@ can hide its comment composer and "Reply" controls and show a plain "Comments
 are turned off for this post" notice instead. Every client also offers a
 "Turn on/off commenting" action in the post's own three-dots menu, right next
 to Delete, alongside a toggle in the post-creation form.
+
+## Deleting comments on your post (issue #603)
+
+A post's author can delete other people's comments and replies on their post,
+so they can moderate their own comment section. The comment's own author can
+still delete it too. On the post-detail screen, someone else's comment on your
+post shows both **Report** (or **Retract Report**) and **Delete** in its menu,
+going through the same "can't be undone" confirmation as deleting your own.
+Owning the post does not make the comment yours to edit: Edit stays
+author-only.
+
+It is the same endpoint,
+`POST /posts/<post_identifier>/threads/<thread_identifier>/comments/<comment_identifier>/delete/`,
+which now admits the post's author as well as the comment's. The post author
+may delete only a comment they are actually shown on the post, using the same
+`visible_comments` rule as the thread listing. A hidden comment (which may be
+under appeal), a comment from a shadow-banned account, or one whose audience
+excludes the post author is refused with the same `400 Not authorized to delete
+comment` a stranger gets, so the endpoint reveals nothing the listing hides.
+Deleting a comment removes just that comment. Its replies stay, as when an
+author deletes their own comment. Locking comments
+([issue #492](#disabling--locking-comments-issue-492)) does not stop the post's
+author from deleting them.
 
 ## Editing captions and comments (issue #462)
 

@@ -3835,7 +3835,7 @@ def delete_comment(request, post_identifier, comment_thread_identifier, comment_
         return log_and_return_json("delete_comment", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
     try:
-        comment = Comment.objects.get(
+        comment = Comment.objects.select_related('comment_thread__post').get(
             comment_identifier=comment_identifier,
             comment_thread__comment_thread_identifier=comment_thread_identifier,
             comment_thread__post__post_identifier=post_identifier
@@ -3844,12 +3844,23 @@ def delete_comment(request, post_identifier, comment_thread_identifier, comment_
         logger.warning(f"Delete comment failed: Comment {comment_identifier} not found")
         return log_and_return_json("delete_comment", {'error': "Comment not found"}, status=400)
 
-    if comment.author != request.user:
+    # A comment's author may always delete it. A post's author may also delete
+    # other people's comments on their post (issue #603) so they can moderate
+    # their own comment section — but only comments they can actually see there.
+    # A hidden comment (possibly under appeal) or one from a shadow-banned or
+    # audience-excluded commenter is not theirs to remove, and refusing it the
+    # same way as a stranger's keeps this from probing what they are not shown.
+    is_comment_author = comment.author_id == request.user.id
+    is_post_author = comment.comment_thread.post.author_id == request.user.id
+    if not is_comment_author and not (
+            is_post_author
+            and visible_comments(Comment.objects.filter(pk=comment.pk), request.user).exists()):
         logger.warning(f"Delete comment failed: Unauthorized for user_id: {request.user.id} on comment: {comment_identifier}")
         return log_and_return_json("delete_comment", {'error': "Not authorized to delete comment"}, status=400)
 
     comment.delete()
-    logger.info(f"Delete comment successful: comment_id: {comment_identifier} for user_id: {request.user.id}")
+    logger.info(f"Delete comment successful: comment_id: {comment_identifier} for user_id: {request.user.id} "
+                f"({'author' if is_comment_author else 'post author'})")
     return log_and_return_json("delete_comment", {'message': 'Comment deleted'})
 
 

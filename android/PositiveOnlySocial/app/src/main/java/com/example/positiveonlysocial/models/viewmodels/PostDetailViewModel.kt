@@ -188,6 +188,11 @@ class PostDetailViewModel(
     fun canEditComment(comment: CommentViewData): Boolean =
         isOwnComment(comment) && _postDetail.value?.commentsDisabled != true
 
+    /** Delete is offered on the user's own comments and — so they can moderate
+     * their own comment section (issue #603) — on anyone's comment on their post. */
+    fun canDeleteComment(comment: CommentViewData): Boolean =
+        isOwnComment(comment) || isOwnPost()
+
     fun setShowAddCommentDialog(show: Boolean) {
         _showAddCommentDialog.value = show
     }
@@ -585,8 +590,9 @@ class PostDetailViewModel(
     }
 
     /**
-     * Deletes one of the user's own comments, then reloads so it disappears from
-     * the thread. Only reachable from the action menu on an own comment.
+     * Deletes one of the user's own comments, or any comment on their own post
+     * (issue #603), then reloads so it disappears from the thread. Only
+     * reachable from the action menu where [canDeleteComment] allows it.
      */
     fun deleteComment(comment: CommentViewData, threadId: String) {
         viewModelScope.launch {

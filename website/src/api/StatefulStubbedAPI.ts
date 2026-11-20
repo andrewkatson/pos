@@ -1940,7 +1940,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (!thread || !comment) {
       throw new ApiError(400, 'Comment not found')
     }
-    if (comment.authorId !== user.id) {
+    // The comment's author may delete it, and so may the post's author (issue
+    // #603) — but only a comment they are shown, as the backend's
+    // visible_comments check makes it.
+    const isPostAuthor = this.posts.find((p) => p.postIdentifier === postIdentifier)?.authorId === user.id
+    const ownsComment = comment.authorId === user.id
+    if (!ownsComment && !(isPostAuthor && this.visibleComments(thread, user).includes(comment))) {
       throw new ApiError(400, 'Not authorized to delete comment')
     }
     thread.comments = thread.comments.filter((c) => c.commentIdentifier !== commentIdentifier)

@@ -306,7 +306,8 @@ struct CommentRowView: View {
 
     /// This comment's options, shown in the popover anchored to its ⋯ button
     /// (issue #477). Mirrors the post menu: Delete for the user's own comments,
-    /// Report / Retract Report for everyone else's (issues #304, #176). Each row
+    /// Report / Retract Report for everyone else's (issues #304, #176), plus
+    /// Delete on any comment on the user's own post (issue #603). Each row
     /// closes the popover before acting, since report and share present sheets.
     @ViewBuilder
     private var commentMenu: some View {
@@ -321,17 +322,22 @@ struct CommentRowView: View {
                     viewModel.commentToEdit = comment
                 }
             }
-            if viewModel.isOwnComment(comment) {
+            if !viewModel.isOwnComment(comment) {
+                if viewModel.isCommentReported(comment) {
+                    menuRow("Retract Report", identifier: "RetractReportCommentActionButton") {
+                        viewModel.commentToRetract = comment
+                    }
+                } else {
+                    menuRow("Report Comment", identifier: "ReportCommentActionButton") {
+                        viewModel.commentToReport = comment
+                    }
+                }
+            }
+            // Your own comments, and anyone's comment on your own post (issue
+            // #603) — so someone else's comment there offers Report and Delete.
+            if viewModel.canDeleteComment(comment) {
                 menuRow("Delete Comment", identifier: "DeleteCommentActionButton", isDestructive: true) {
                     viewModel.deleteComment(comment)
-                }
-            } else if viewModel.isCommentReported(comment) {
-                menuRow("Retract Report", identifier: "RetractReportCommentActionButton") {
-                    viewModel.commentToRetract = comment
-                }
-            } else {
-                menuRow("Report Comment", identifier: "ReportCommentActionButton") {
-                    viewModel.commentToReport = comment
                 }
             }
         }

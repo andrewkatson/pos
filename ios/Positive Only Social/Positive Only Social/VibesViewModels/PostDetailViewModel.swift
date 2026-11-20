@@ -92,6 +92,12 @@ final class PostDetailViewModel: ObservableObject {
         isOwnComment(comment) && postDetail?.commentsDisabled == false
     }
 
+    /// Delete is offered on the user's own comments and — so they can moderate
+    /// their own comment section (issue #603) — on anyone's comment on their post.
+    func canDeleteComment(_ comment: CommentViewData) -> Bool {
+        isOwnComment(comment) || isOwnPost
+    }
+
     /// The active comment-list filter — the followed-feed toggle applied to
     /// comments (issue #445). `nil` means no filter (all visible comments).
     @Published private(set) var selectedCommentCategory: FollowCategory?
@@ -614,8 +620,9 @@ final class PostDetailViewModel: ObservableObject {
         }
     }
 
-    /// Deletes one of the user's own comments, then reloads so it disappears from
-    /// the thread. Only reachable from the action menu on an own comment.
+    /// Deletes one of the user's own comments, or any comment on their own post
+    /// (issue #603), then reloads so it disappears from the thread. Only
+    /// reachable from the action menu where `canDeleteComment` allows it.
     func deleteComment(_ comment: CommentViewData) {
         NSLog("%@", "ACTION: Delete comment \(comment.id)")
         Task {

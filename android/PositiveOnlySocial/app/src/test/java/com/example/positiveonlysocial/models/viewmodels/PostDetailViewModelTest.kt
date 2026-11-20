@@ -24,6 +24,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -424,6 +425,34 @@ class PostDetailViewModelTest {
         val othersComment = CommentViewData("c1", "t1", "someoneelse", "body", 0, false, Date())
         assertFalse(viewModel.canEditPost())
         assertFalse(viewModel.canEditComment(othersComment))
+    }
+
+    @Test
+    fun `delete is offered on someone else's comment on your own post, but not edit (issue 603)`() = runTest {
+        val own = ownPostViewModel()
+        val othersComment = CommentViewData("c2", "t1", "someoneelse", "body", 0, false, Date())
+        assertTrue(own.canDeleteComment(othersComment))
+        assertFalse(own.canEditComment(othersComment))
+    }
+
+    @Test
+    fun `delete is not offered on someone else's comment on someone else's post`() = runTest {
+        val othersComment = CommentViewData("c1", "t1", "someoneelse", "body", 0, false, Date())
+        assertFalse(viewModel.canDeleteComment(othersComment))
+    }
+
+    @Test
+    fun `deleting someone else's comment on your own post calls the API and reloads`() = runTest {
+        val own = ownPostViewModel()
+        val othersComment = CommentViewData("c2", "t1", "someoneelse", "body", 0, false, Date())
+        whenever(api.deleteComment("token123", postIdentifier, "t1", "c2")).thenReturn(
+            Response.success(GenericResponse("Comment deleted", null))
+        )
+
+        own.deleteComment(othersComment, "t1")
+
+        verify(api).deleteComment("token123", postIdentifier, "t1", "c2")
+        assertNull(own.alertMessage.value)
     }
 
     @Test

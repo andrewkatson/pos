@@ -565,6 +565,8 @@ fun CommentThreadView(
             onReport = { viewModel.setCommentToReport(comment) },
             onRetract = { viewModel.setCommentToRetract(comment) },
             onDelete = { viewModel.deleteComment(comment, comment.threadId) },
+            // Your own comments, and anyone's comment on your own post (issue #603).
+            canDelete = viewModel.canDeleteComment(comment),
             // Edit your own comment (issue #462) while the post accepts comments.
             onEdit = if (viewModel.canEditComment(comment)) ({ viewModel.setCommentToEdit(comment) }) else null
         )
@@ -839,7 +841,11 @@ fun ActionMenu(
     // Edit your own caption or comment (issue #462). A null `onEdit` hides the
     // row — someone else's content, or content that can't be edited right now.
     editLabel: String = "Edit $itemLabel",
-    onEdit: (() -> Unit)? = null
+    onEdit: (() -> Unit)? = null,
+    // Whether Delete is offered. Your own items by default; a post's author can
+    // also delete other people's comments on it (issue #603), so someone else's
+    // comment there shows Report and Delete.
+    canDelete: Boolean = isOwn
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         // Share is offered for any post or comment, own or not (issue #34);
@@ -866,20 +872,23 @@ fun ActionMenu(
                 onClick = { onToggleCommentsLock(); onDismiss() }
             )
         }
-        if (isOwn) {
+        if (!isOwn) {
+            if (isReported) {
+                DropdownMenuItem(
+                    text = { Text("Retract Report") },
+                    onClick = { onRetract(); onDismiss() }
+                )
+            } else {
+                DropdownMenuItem(
+                    text = { Text("Report $itemLabel") },
+                    onClick = { onReport(); onDismiss() }
+                )
+            }
+        }
+        if (canDelete) {
             DropdownMenuItem(
                 text = { Text("Delete $itemLabel") },
                 onClick = { onDelete(); onDismiss() }
-            )
-        } else if (isReported) {
-            DropdownMenuItem(
-                text = { Text("Retract Report") },
-                onClick = { onRetract(); onDismiss() }
-            )
-        } else {
-            DropdownMenuItem(
-                text = { Text("Report $itemLabel") },
-                onClick = { onReport(); onDismiss() }
             )
         }
     }

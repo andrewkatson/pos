@@ -1464,7 +1464,14 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         val thread = commentThreads.find { it.threadIdentifier == threadId } ?: return error(404, "Thread not found")
         val comment = thread.comments.find { it.commentIdentifier == commentId } ?: return error(404, "Comment not found")
 
-        if (comment.authorId != user.id) return error(404, "Not authorized")
+        // The comment's author may delete it, and so may the post's author
+        // (issue #603) — but only a comment they are shown, as the backend's
+        // visible_comments check makes it.
+        val isPostAuthor = posts.find { it.postIdentifier == postId }?.authorId == user.id
+        val ownsComment = comment.authorId == user.id
+        if (!ownsComment && !(isPostAuthor && comment in visibleComments(thread, user, null))) {
+            return error(404, "Not authorized")
+        }
 
         thread.comments.remove(comment)
         return Response.success(GenericResponse("Comment deleted", null))

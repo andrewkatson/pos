@@ -573,6 +573,39 @@ test('own comment: the options menu offers Delete, and deleting reloads', async 
   await waitFor(() => expect(mockDeleteComment).toHaveBeenCalledWith('p1', 't1', 'c1'))
 })
 
+test("someone else's comment on your own post: the menu offers both Report and Delete (issue #603)", async () => {
+  // ada wrote the post; bob wrote the comment.
+  localStorage.setItem('username', 'ada')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  renderDetail()
+  await screen.findByText('love this')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
+  const menu = screen.getByRole('menu', { name: 'Comment options' })
+  expect(within(menu).getByRole('menuitem', { name: 'Report' })).toBeInTheDocument()
+  // Moderating your own comment section doesn't make the comment yours to edit.
+  expect(within(menu).queryByRole('menuitem', { name: 'Edit' })).not.toBeInTheDocument()
+
+  await userEvent.click(within(menu).getByRole('menuitem', { name: 'Delete' }))
+  const deleteDialog = screen.getByRole('dialog', { name: 'Delete item' })
+  await userEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete' }))
+  await waitFor(() => expect(mockDeleteComment).toHaveBeenCalledWith('p1', 't1', 'c1'))
+})
+
+test("someone else's comment on someone else's post: no Delete", async () => {
+  localStorage.setItem('username', 'someone-else')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  renderDetail()
+  await screen.findByText('love this')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Options for comment by bob' }))
+  const menu = screen.getByRole('menu', { name: 'Comment options' })
+  expect(within(menu).getByRole('menuitem', { name: 'Report' })).toBeInTheDocument()
+  expect(within(menu).queryByRole('menuitem', { name: 'Delete' })).not.toBeInTheDocument()
+})
+
 test('already-reported comment: the menu offers Retract Report with the reason pre-filled', async () => {
   localStorage.setItem('username', 'someone-else')
   mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])

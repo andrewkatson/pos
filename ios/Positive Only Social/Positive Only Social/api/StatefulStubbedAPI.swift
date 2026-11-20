@@ -1891,8 +1891,20 @@ final class StatefulStubbedAPI: Networking {
     func deleteComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier && $0.authorUsername == user.username }) else { throw APIError.badServerResponse(statusCode: 400) }
-        
+        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // The comment's author may delete it, and so may the post's author
+        // (issue #603) — but only a comment they are shown, as the backend's
+        // visible_comments check makes it.
+        let comment = comments[commentIndex]
+        let ownsComment = comment.authorUsername == user.username
+        let isPostAuthor = findPost(byIdentifier: postIdentifier)?.authorId == user.id
+        let postAuthorCanSee = isPostAuthor
+            && visibleComments(inThread: commentThreadIdentifier, viewer: user, category: nil)
+                .contains { $0.commentIdentifier == commentIdentifier }
+        guard comment.threadId == commentThreadIdentifier, ownsComment || postAuthorCanSee else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+
         comments.remove(at: commentIndex)
         // Also remove from the thread's comment list
         if let threadIndex = commentThreads.firstIndex(where: { $0.commentThreadIdentifier == commentThreadIdentifier }) {
