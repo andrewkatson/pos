@@ -1,17 +1,37 @@
 """Push notifications for follow requests and new followers (issue #604)."""
+import json
 from unittest.mock import patch
 
 from django.test import override_settings
 
 from .. import notifications, push
 from ..constants import (
-    BAN_TYPE_SHADOW, FOLLOW_CATEGORY_FAMILY, FOLLOW_CATEGORY_FRIEND, PUSH_TYPE_ALL,
+    BAN_TYPE_SHADOW, FOLLOW_CATEGORY_FAMILY, FOLLOW_CATEGORY_FRIEND, MAX_USERNAME_LENGTH, PUSH_TYPE_ALL,
     PUSH_TYPE_FOLLOW_ACCEPTED, PUSH_TYPE_FOLLOW_REQUEST, PUSH_TYPE_NEW_FOLLOWER, PUSH_TYPE_PARENTS,
-    PUSH_TYPE_TREE,
+    PUSH_TYPE_TREE, Patterns,
 )
+from ..input_validator import is_valid_pattern
 from ..models import FollowRequest, NotificationPreference, UserBan, UserBlock, UserFollow
 from .test_activity_push import SEND_PUSH, ActivityPushTestCase, _sent
 from .test_private_accounts import PrivateAccountTestBase
+
+
+class FollowPayloadSizeTests(ActivityPushTestCase):
+    """The longest valid username keeps every follow payload inside APNs' limit."""
+
+    def test_longest_astral_username_fits_apns(self):
+        # 150 Deseret letters: valid \w characters, 4 bytes each in UTF-8 and
+        # 12 as JSON \u escapes.
+        name = '\U00010400' * MAX_USERNAME_LENGTH
+        self.assertTrue(is_valid_pattern(name, Patterns.username))
+        actor = self._user('placeholder')
+        actor.username = name
+        for kind, title in ((PUSH_TYPE_FOLLOW_REQUEST, f'{name} asked to follow you'),
+                            (PUSH_TYPE_NEW_FOLLOWER, f'{name} started following you'),
+                            (PUSH_TYPE_FOLLOW_ACCEPTED, f'{name} accepted your follow request')):
+            body = push._apns_body(push.build_follow_payload(kind, actor, title, 'Tap to see.'))
+            self.assertLessEqual(len(body), push.APNS_MAX_PAYLOAD_BYTES, kind)
+            self.assertEqual(json.loads(body)['data']['username'], name)
 
 
 class FollowPushTypeTests(ActivityPushTestCase):

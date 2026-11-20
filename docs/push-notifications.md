@@ -96,6 +96,9 @@ bring the user back to look.
 - **Providers.** iOS delivers through **APNs** directly (token-based `.p8`
   auth); Android and web both go through **FCM** (web uses FCM-for-web, so it
   registers with `platform: web` and needs no separate Web Push/VAPID path).
+  APNs refuses a body over 4096 bytes, so the APNs body is compact UTF-8 JSON
+  (no `\uXXXX` escapes): even a 150-character username of 4-byte characters
+  keeps a follow payload, which carries the name three times, under the limit.
 - **Dead-token pruning.** When a provider reports a token as gone (`410` /
   `Unregistered` on APNs, `404` / `NOT_FOUND` / `UNREGISTERED` on FCM), the send
   path deletes that `DeviceToken` row so we neither leak rows nor keep paying to
