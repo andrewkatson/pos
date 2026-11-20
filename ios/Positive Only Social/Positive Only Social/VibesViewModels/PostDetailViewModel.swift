@@ -52,6 +52,14 @@ final class PostDetailViewModel: ObservableObject {
     @Published var showRetractDialogForPost = false
     @Published var commentToRetract: CommentViewData?
 
+    /// Drives the "Delete Comment?" confirmation. Deleting can't be undone, and
+    /// on your own post it may be someone else's comment (issue #603), so the
+    /// menu asks first instead of deleting on the tap.
+    @Published var commentToDelete: CommentViewData?
+    /// Drives the "Delete Post?" confirmation: deleting a post can't be undone,
+    /// so the menu asks first instead of deleting on the tap.
+    @Published var showDeleteDialogForPost = false
+
     /// Drives the native share sheet for the post / a comment (issue #34). Set
     /// by the action menu's "Share" button and presented as a `.sheet(item:)`;
     /// `nil` when no share sheet is showing. Sharing is offered for any post or
@@ -90,6 +98,12 @@ final class PostDetailViewModel: ObservableObject {
     /// comments: turning commenting off (issue #492) freezes existing ones too.
     func canEditComment(_ comment: CommentViewData) -> Bool {
         isOwnComment(comment) && postDetail?.commentsDisabled == false
+    }
+
+    /// Delete is offered on the user's own comments and — so they can moderate
+    /// their own comment section (issue #603) — on anyone's comment on their post.
+    func canDeleteComment(_ comment: CommentViewData) -> Bool {
+        isOwnComment(comment) || isOwnPost
     }
 
     /// The active comment-list filter — the followed-feed toggle applied to
@@ -614,8 +628,9 @@ final class PostDetailViewModel: ObservableObject {
         }
     }
 
-    /// Deletes one of the user's own comments, then reloads so it disappears from
-    /// the thread. Only reachable from the action menu on an own comment.
+    /// Deletes one of the user's own comments, or any comment on their own post
+    /// (issue #603), then reloads so it disappears from the thread. Only
+    /// reachable from the action menu where `canDeleteComment` allows it.
     func deleteComment(_ comment: CommentViewData) {
         NSLog("%@", "ACTION: Delete comment \(comment.id)")
         Task {

@@ -176,6 +176,23 @@ test('comment then reply builds a thread', async () => {
   expect(comments.map((c) => c.body)).toEqual(['love this', 'agreed'])
 })
 
+test("a post's author may delete someone else's comment on it, a stranger may not (issue #603)", async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'author')
+  const post = await api.createPost({ image_url: 'https://example.com/a.jpg', caption: 'nice' })
+
+  await register(api, 'commenter')
+  const comment = await api.commentOnPost(post.post_identifier, 'love this')
+  const ids = [post.post_identifier, comment.comment_thread_identifier, comment.comment_identifier] as const
+
+  await register(api, 'stranger')
+  await expect(api.deleteComment(...ids)).rejects.toThrow('Not authorized to delete comment')
+
+  await api.login({ username_or_email: 'author', password: 'password123' })
+  await expect(api.deleteComment(...ids)).resolves.toEqual({ message: 'Comment deleted' })
+  expect(await api.getCommentsForThread(comment.comment_thread_identifier, 0)).toEqual([])
+})
+
 test('follow then followed-feed surfaces the followed user posts', async () => {
   const api = new StatefulStubbedAPI()
 

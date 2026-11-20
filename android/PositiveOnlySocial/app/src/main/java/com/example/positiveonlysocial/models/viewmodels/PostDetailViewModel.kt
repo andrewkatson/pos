@@ -76,8 +76,19 @@ class PostDetailViewModel(
     private val _showRetractDialogForPost = MutableStateFlow(false)
     val showRetractDialogForPost: StateFlow<Boolean> = _showRetractDialogForPost.asStateFlow()
 
+    // Drives the "Delete Post?" confirmation: deleting a post can't be undone,
+    // so the menu asks first instead of deleting on the tap.
+    private val _showDeleteDialogForPost = MutableStateFlow(false)
+    val showDeleteDialogForPost: StateFlow<Boolean> = _showDeleteDialogForPost.asStateFlow()
+
     private val _commentToRetract = MutableStateFlow<CommentViewData?>(null)
     val commentToRetract: StateFlow<CommentViewData?> = _commentToRetract.asStateFlow()
+
+    // Drives the "Delete Comment?" confirmation. Deleting can't be undone, and on
+    // your own post it may be someone else's comment (issue #603), so the menu
+    // asks first instead of deleting on the tap.
+    private val _commentToDelete = MutableStateFlow<CommentViewData?>(null)
+    val commentToDelete: StateFlow<CommentViewData?> = _commentToDelete.asStateFlow()
 
     // Set once the post has been deleted so the screen can pop back — the post
     // no longer exists to display.
@@ -188,6 +199,11 @@ class PostDetailViewModel(
     fun canEditComment(comment: CommentViewData): Boolean =
         isOwnComment(comment) && _postDetail.value?.commentsDisabled != true
 
+    /** Delete is offered on the user's own comments and — so they can moderate
+     * their own comment section (issue #603) — on anyone's comment on their post. */
+    fun canDeleteComment(comment: CommentViewData): Boolean =
+        isOwnComment(comment) || isOwnPost()
+
     fun setShowAddCommentDialog(show: Boolean) {
         _showAddCommentDialog.value = show
     }
@@ -215,8 +231,16 @@ class PostDetailViewModel(
         _commentForAction.value = comment
     }
 
+    fun setShowDeleteDialogForPost(show: Boolean) {
+        _showDeleteDialogForPost.value = show
+    }
+
     fun setShowRetractDialogForPost(show: Boolean) {
         _showRetractDialogForPost.value = show
+    }
+
+    fun setCommentToDelete(comment: CommentViewData?) {
+        _commentToDelete.value = comment
     }
 
     fun setCommentToRetract(comment: CommentViewData?) {
@@ -585,8 +609,9 @@ class PostDetailViewModel(
     }
 
     /**
-     * Deletes one of the user's own comments, then reloads so it disappears from
-     * the thread. Only reachable from the action menu on an own comment.
+     * Deletes one of the user's own comments, or any comment on their own post
+     * (issue #603), then reloads so it disappears from the thread. Only
+     * reachable from the action menu where [canDeleteComment] allows it.
      */
     fun deleteComment(comment: CommentViewData, threadId: String) {
         viewModelScope.launch {
