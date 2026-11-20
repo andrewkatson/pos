@@ -89,14 +89,16 @@ struct HomeView: View {
         // same way. Your own username lands on the Profile tab itself — the
         // profile already behind it — rather than pushing a copy of it, which
         // is where tapping your own name anywhere in the app goes too (#347).
-        // Anyone else is pushed as a User, the value the tab's stack already
-        // resolves to ProfileView for search results and feed rows.
+        // Anyone else is pushed as an OpenedProfileDestination, which resolves
+        // to the same ProfileView a search result opens but is unique per push,
+        // so a copy of that profile already open is rebuilt and reloaded (an
+        // accepted follow request, #604, must show the posts it unlocked).
         .onReceive(pushRouter.$pendingProfileUsername) { username in
             guard let username else { return }
             currentTab = GVOAppConstants.profileTabIndex
             var newPath = NavigationPath()
             if username != viewModel.currentUsername {
-                newPath.append(User(username: username, identityIsVerified: false))
+                newPath.append(OpenedProfileDestination(username: username))
             }
             profilePath = newPath
             pushRouter.pendingProfileUsername = nil
@@ -227,6 +229,11 @@ struct MyProfileTabView: View {
             }
             .navigationDestination(for: User.self) { user in
                 ProfileView(user: user, api: api, keychainHelper: keychainHelper)
+            }
+            // A profile opened from a shared link or a follow notification.
+            .navigationDestination(for: OpenedProfileDestination.self) { destination in
+                ProfileView(user: User(username: destination.username, identityIsVerified: false),
+                            api: api, keychainHelper: keychainHelper)
             }
             // Tapping your own Followers / Following count opens that list —
             // only your own, since the endpoints take no username (issue #8).
