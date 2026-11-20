@@ -27,6 +27,8 @@ struct MockUser {
     var membershipNumber: Int? = nil
     var blocked: [UUID] = []
     var blockedBy: [UUID] = []
+    // Standing reports of this account (issue #602): reporter id → reason.
+    var accountReports: [UUID: String] = [:]
     // Two-factor authentication (issue #348). A secret without the enabled
     // flag is a pending enrollment; recovery codes are removed as they are used.
     var totpSecret: String? = nil
@@ -1891,8 +1893,25 @@ final class StatefulStubbedAPI: Networking {
     func deleteComment(sessionManagementToken: String, postIdentifier: String, commentThreadIdentifier: String, commentIdentifier: String) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 400) }
-        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier && $0.authorUsername == user.username }) else { throw APIError.badServerResponse(statusCode: 400) }
-        
+        guard let commentIndex = comments.firstIndex(where: { $0.commentIdentifier == commentIdentifier }) else { throw APIError.badServerResponse(statusCode: 400) }
+        // The comment's author may delete it, and so may the post's author
+        // (issue #603) — but only a comment they are shown, as the backend's
+        // visible_comments check makes it.
+        let comment = comments[commentIndex]
+        let ownsComment = comment.authorUsername == user.username
+        let isPostAuthor = findPost(byIdentifier: postIdentifier)?.authorId == user.id
+        let postAuthorCanSee = isPostAuthor
+            && visibleComments(inThread: commentThreadIdentifier, viewer: user, category: nil)
+                .contains { $0.commentIdentifier == commentIdentifier }
+        // Resolve all three ids together, as the backend does, so pairing a post
+        // you own with a thread from someone else's post grants nothing.
+        let threadOnPost = commentThreads.contains {
+            $0.commentThreadIdentifier == commentThreadIdentifier && $0.postId == postIdentifier
+        }
+        guard comment.threadId == commentThreadIdentifier, threadOnPost, ownsComment || postAuthorCanSee else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+
         comments.remove(at: commentIndex)
         // Also remove from the thread's comment list
         if let threadIndex = commentThreads.firstIndex(where: { $0.commentThreadIdentifier == commentThreadIdentifier }) {
@@ -2376,6 +2395,37 @@ final class StatefulStubbedAPI: Networking {
         return try createEmptySuccessResponse()
     }
 
+    func reportAccount(sessionManagementToken: String, username: String, reason: String) async throws -> Data {
+        await simulateNetwork()
+        guard let reporter = findUser(bySessionToken: sessionManagementToken),
+              let target = findUser(byUsername: username),
+              inSameAgeBand(reporter, target),
+              let targetIndex = users.firstIndex(where: { $0.id == target.id }) else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        // Not your own account, and not twice.
+        if reporter.id == target.id || target.accountReports[reporter.id] != nil {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        // Like a post report, this hides nothing (issue #467); the stub has no
+        // classifier to re-review the profile with.
+        users[targetIndex].accountReports[reporter.id] = reason
+        return try createEmptySuccessResponse()
+    }
+
+    func retractReportAccount(sessionManagementToken: String, username: String) async throws -> Data {
+        await simulateNetwork()
+        guard let reporter = findUser(bySessionToken: sessionManagementToken),
+              let target = findUser(byUsername: username),
+              inSameAgeBand(reporter, target),
+              let targetIndex = users.firstIndex(where: { $0.id == target.id }),
+              target.accountReports[reporter.id] != nil else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        users[targetIndex].accountReports[reporter.id] = nil
+        return try createEmptySuccessResponse()
+    }
+
     func toggleBlock(sessionManagementToken: String, username: String) async throws -> Data {
         await simulateNetwork()
         guard let currentUser = findUser(bySessionToken: sessionManagementToken) else {
@@ -2492,6 +2542,10 @@ final class StatefulStubbedAPI: Networking {
             let is_private: Bool
             let follow_request_pending: Bool
             let follow_request_count: Int?
+            // The viewer's own report of the account (issue #602); omitted
+            // (nil) on your own profile.
+            var is_reported: Bool? = nil
+            var report_reason: String? = nil
         }
 
         if isBlockedBy {
@@ -2515,7 +2569,9 @@ final class StatefulStubbedAPI: Networking {
                 bio: "",
                 is_private: profileUser.isPrivate,
                 follow_request_pending: false,
-                follow_request_count: nil
+                follow_request_count: nil,
+                is_reported: profileUser.accountReports[requestingUser.id] != nil,
+                report_reason: profileUser.accountReports[requestingUser.id]
             )
             return try createSerializedResponse(fields: fields)
         }
@@ -2545,7 +2601,9 @@ final class StatefulStubbedAPI: Networking {
                     request.userToId == profileUser.id
                         && users.first(where: { $0.id == request.userFromId })
                             .map { inSameAgeBand(profileUser, $0) } == true
-                }.count : nil
+                }.count : nil,
+            is_reported: isOwnProfile ? nil : profileUser.accountReports[requestingUser.id] != nil,
+            report_reason: isOwnProfile ? nil : profileUser.accountReports[requestingUser.id]
         )
 
         // 6. Return the data using your existing helper
@@ -2768,6 +2826,12 @@ final class StatefulStubbedAPI: Networking {
         tree.append(contentsOf: sources("new_comment", withOther: true))
         tree.append(("new_like", "Likes", "all"))
         tree.append(contentsOf: sources("new_like", withOther: true))
+        tree.append(("new_follower", "New followers", "all"))
+        tree.append(contentsOf: sources("new_follower", withOther: true))
+        tree.append(("follow_request", "Follow requests", "all"))
+        tree.append(contentsOf: sources("follow_request", withOther: true))
+        tree.append(("follow_accepted", "Accepted follow requests", "all"))
+        tree.append(contentsOf: sources("follow_accepted", withOther: false))
         let prefs = tree.map { type, label, parent in
             NotificationPreference(type: type, label: label,
                                    enabled: notificationOverrides[type] ?? true, parent: parent)

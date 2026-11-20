@@ -41,6 +41,9 @@ final class PostActionsViewModel: ObservableObject {
     @Published var postToReport: Post?
     /// The post whose retract-report confirmation is showing.
     @Published var postToRetract: Post?
+    /// The post whose "Delete Post?" confirmation is showing: deleting can't be
+    /// undone, so the menu asks first instead of deleting on the tap.
+    @Published var postToDelete: Post?
     /// The post whose caption the edit composer is open for (issue #462).
     @Published var postToEdit: Post?
     /// Drives the native share sheet for a post in a list (issue #34). Set by

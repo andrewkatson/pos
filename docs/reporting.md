@@ -62,7 +62,7 @@ reports have *all* been withdrawn, sparing a moderator an empty queue entry.
 
 Reporter-side limits: the report endpoints are rate limited per user, and on top
 of that one account may file at most `MAX_REPORTS_PER_USER_PER_DAY` (default 30)
-reports per rolling 24 hours, counted across posts and comments together, so no
+reports per rolling 24 hours, counted across posts, comments and accounts together, so no
 single account can flood the queue. The budget counts **filings, not reports
 currently standing**: retracting a report does not give budget back. That is why
 a retraction stamps `retracted_time` on the report row instead of deleting it —
@@ -70,5 +70,68 @@ a deleted row would let one account cycle report → retract → report and open
 unlimited reviews (each spending provider calls) while never holding more than
 one live report. Everything that asks about the content rather than about the
 reporter — is this reported, how many reports, what did the reporters say, does
-this escalate — reads `PostReport/CommentReport.objects.active()`, so a
+this escalate — reads `PostReport/CommentReport/AccountReport.objects.active()`, so a
 withdrawn report counts for nothing there.
+
+## Reporting an account (issue #602)
+
+Any signed-in user can report another **account** — a complaint about who
+someone presents themselves as rather than about any one thing they posted —
+from the ⋯ options menu on that person's profile, on every client, with a reason,
+and retract it later (`POST /users/<username>/report/` and
+`/users/<username>/report/retract/`). The profile-details payload carries the
+viewer's own `is_reported` / `report_reason` so the menu can offer *Retract
+report*; it is never present on your own profile, and nobody learns who else
+reported an account. You cannot report yourself, a cross-age-band account is
+treated as absent (as everywhere else), and an account that has blocked you can
+still be reported — blocking hides a profile's details, not who someone is.
+Account reports count against the same daily budget, and retraction stamps the
+row the same way.
+
+An account report runs through the same pipeline: the first one opens a
+`ModerationReview` whose target is the account (`ModerationReview.account`; a
+review has exactly one of post, comment or account), and nothing is hidden by
+a headcount. What the automated re-review classifies is the account's
+**username**, **bio** and **approved profile photo** — each separately, the
+texts through the word-list pre-filter and the text cascade and the photo
+through the image cascade, never the reports. Profiles keep no model-chain
+lists, so the cascade runs in its normal order. What a failing verdict does
+depends on the part:
+
+- **Bio** — removed (set to empty), exactly the state a bio rejected on write
+  would have left. The owner is emailed and can write a new one.
+- **Photo** — removed and the owner told via `profile_image_status =
+  "rejected"` and its reason code (plus an email). Its S3 object is not deleted
+  on the spot — an upload key is only scoped to its owner, so the same object
+  can also back one of their posts or a pending avatar — and
+  `cleanup_orphan_images` reclaims it once nothing references it. A
+  photo upload still pending its own classification is a different picture and
+  is left alone, along with its pending status.
+- **Username** — a username is fixed once chosen, so it cannot be removed: the
+  review escalates to the moderator queue, where a moderator can ban the
+  account from the user admin.
+
+Neither removal is appealable, for the same reason a rejected bio or photo is
+not: the remedy is to set another. Only the exact bio and photo that were judged
+are ever removed — one the owner replaced while the cascade ran was moderated on
+its own way in. A profile that passes, or whose failing bio/photo was removed,
+is `cleared`, and further reports count toward a human look as for posts. A
+provider outage retries and then escalates, never removes.
+
+In the moderator queue an account review lists the username, whether there is a
+photo, and the start of the bio; its detail page adds the full bio and a signed
+link to the photo. *Hide* removes the bio and photo (the account itself is
+untouched — banning stays the user admin's job); *Dismiss* leaves the profile as
+it is, and cannot restore a bio or photo an earlier step removed.
+
+One difference from posts: a profile keeps changing. A decision about it must
+not bind the profile that replaces it — a dismissal would make a later,
+unacceptable bio unreportable, and a moderator's removal would leave the account
+deaf to reports forever. So when the owner saves a new bio or a new photo is
+approved (or clears the bio), a `cleared`, `hidden` or `dismissed` account review drops back to
+`cleared` with its escalation count reset: reports from then on are about the
+profile as it now stands. A `pending` or `escalated` review is left alone, since
+the re-review and the moderator look at the profile as it is when they reach it.
+`set_bio`, the photo worker, the report endpoints and the moderator actions all
+lock the user's row before the review row — the same content-then-review lock
+order posts and comments use.

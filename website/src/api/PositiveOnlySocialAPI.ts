@@ -252,6 +252,10 @@ export interface PositiveOnlySocialAPI {
   /** Re-categorize an existing follow relationship (issue #392). */
   setFollowCategory(username: string, category: FollowCategory): Promise<MessageResponse>
   toggleBlock(username: string): Promise<MessageResponse>
+  /** Report an account — its username, bio or profile photo (issue #602). Like
+   * a post report, it opens a moderation review and hides nothing by itself. */
+  reportAccount(username: string, reason: string): Promise<MessageResponse>
+  retractReportAccount(username: string): Promise<MessageResponse>
   getBlockedUsers(): Promise<UserSearchResult[]>
   getFollowers(): Promise<UserSearchResult[]>
   getFollowing(): Promise<UserSearchResult[]>

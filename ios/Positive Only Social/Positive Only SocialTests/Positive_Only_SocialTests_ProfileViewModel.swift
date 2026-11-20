@@ -408,6 +408,96 @@ struct Positive_Only_SocialTests_ProfileViewModel {
         #expect(sut.profileShareItem?.url.absoluteString == "https://smiling.social/profile/shareSubject")
     }
 
+    // --- Reporting an account (issue #602) ---
+
+    @Test func testReportAccount_ThenRetract_UpdatesStateAndBackend() async throws {
+        let (token, viewer) = try await registerUser(username: "reportViewer")
+        let (_, other) = try await registerUser(username: "reportSubject")
+        let account = "reportViewer_account"
+        try await setupLoggedInUser(user: viewer, token: token, account: account)
+        let sut = ProfileViewModel(user: other, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        #expect(sut.isAccountReported == false)
+
+        sut.reportAccount(reason: "  Unkind bio  ")
+        await yield()
+        #expect(sut.isAccountReported == true)
+        #expect(sut.reportErrorMessage == nil)
+
+        // The backend now reports the viewer's standing report on a fresh read.
+        let fresh = ProfileViewModel(user: other, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        fresh.fetchProfileDetails()
+        await yield()
+        #expect(fresh.isAccountReported == true)
+        #expect(fresh.profileDetails?.reportReason == "Unkind bio")
+
+        sut.retractAccountReport()
+        await yield()
+        #expect(sut.isAccountReported == false)
+        await sut.refreshProfileDetails()
+        #expect(sut.isAccountReported == false)
+    }
+
+    @Test func testReportAccount_OnALoadedProfile_RefreshesTheDetails() async throws {
+        // A report supersedes any profile read in flight, so it must start a
+        // replacement even when details are already loaded, or whatever that
+        // read was bringing in (here, a new follower) never lands.
+        let (token, viewer) = try await registerUser(username: "reportLoadedViewer")
+        let (_, other) = try await registerUser(username: "reportLoadedSubject")
+        let (fanToken, _) = try await registerUser(username: "reportLoadedFan")
+        let account = "reportLoadedViewer_account"
+        try await setupLoggedInUser(user: viewer, token: token, account: account)
+        let sut = ProfileViewModel(user: other, api: stubAPI, keychainHelper: keychainHelper, account: account)
+        sut.fetchProfileDetails()
+        await yield()
+        #expect(sut.profileDetails?.followerCount == 0)
+
+        _ = try await stubAPI.followUser(sessionManagementToken: fanToken, username: other.username)
+        sut.reportAccount(reason: "Unkind bio")
+        await yield()
+
+        #expect(sut.isAccountReported == true)
+        #expect(sut.profileDetails?.followerCount == 1)
+        #expect(sut.profileDetails?.reportReason == "Unkind bio")
+    }
+
+    @Test func testReportAccount_Twice_SurfacesAnError() async throws {
+        let (token, viewer) = try await registerUser(username: "reportTwiceViewer")
+        let (_, other) = try await registerUser(username: "reportTwiceSubject")
+        let account = "reportTwiceViewer_account"
+        try await setupLoggedInUser(user: viewer, token: token, account: account)
+        _ = try await stubAPI.reportAccount(sessionManagementToken: token, username: other.username, reason: "first")
+        let sut = ProfileViewModel(user: other, api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        sut.reportAccount(reason: "again")
+        await yield()
+
+        #expect(sut.reportErrorMessage != nil)
+    }
+
+    @Test func testReportAccount_BlankReasonOrOwnProfile_DoesNothing() async throws {
+        let (token, user) = try await registerUser(username: "reportSelfUser")
+        let account = "reportSelfUser_account"
+        try await setupLoggedInUser(user: user, token: token, account: account)
+        let sut = ProfileViewModel(user: user, api: stubAPI, keychainHelper: keychainHelper, account: account)
+
+        sut.reportAccount(reason: "Reporting myself")
+        await yield()
+
+        #expect(sut.isAccountReported == false)
+        #expect(sut.reportErrorMessage == nil)
+    }
+
+    @Test func testProfileDetailsResponse_DecodesReportState() throws {
+        let json = """
+        {"username": "u", "post_count": 0, "follower_count": 0, "following_count": 0,
+         "is_following": false, "is_blocked": false, "identity_is_verified": false, "is_adult": true,
+         "is_reported": true, "report_reason": "Unkind bio"}
+        """.data(using: .utf8)!
+        let details = try JSONDecoder().decode(ProfileDetailsResponse.self, from: json)
+        #expect(details.isReported == true)
+        #expect(details.reportReason == "Unkind bio")
+    }
+
     @Test func testForCurrentUser_BuildsTheSignedInUsersOwnProfile() async throws {
         let (token, user) = try await registerUser(username: "ownProfileUser")
         let account = "ownProfileUser_account"

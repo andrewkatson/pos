@@ -602,6 +602,13 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
     setRetractTarget(target)
   }
 
+  // Delete is offered on your own post and comments, and — so you can moderate
+  // your own comment section (issue #603) — on anyone's comment on your post.
+  function canDelete(target: MenuTarget): boolean {
+    if (target.type === 'post') return isOwnPost
+    return target.comment.isOwn || isOwnPost
+  }
+
   function menuDelete(target: MenuTarget) {
     setMenuTarget(null)
     setDeleteTarget(target)
@@ -711,7 +718,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
     }
   }
 
-  // ---- Deleting (own content only) ----
+  // ---- Deleting (own content, or any comment on your own post) ----
 
   async function submitDelete() {
     const target = deleteTarget
@@ -1103,15 +1110,19 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
             <AnchoredMenuItem onClick={() => menuEdit(menuTarget)}>Edit</AnchoredMenuItem>
           )}
           {/* Report / Retract / Delete all need a session; a signed-out
-              visitor gets Share and nothing else (issue #381). */}
-          {!isSignedIn ? null : menuState(menuTarget).isOwn ? (
+              visitor gets Share and nothing else (issue #381). Someone else's
+              comment on your own post offers both Report and Delete. */}
+          {isSignedIn &&
+            !menuState(menuTarget).isOwn &&
+            (menuState(menuTarget).isReported ? (
+              <AnchoredMenuItem onClick={() => menuRetract(menuTarget)}>Retract Report</AnchoredMenuItem>
+            ) : (
+              <AnchoredMenuItem onClick={() => menuReport(menuTarget)}>Report</AnchoredMenuItem>
+            ))}
+          {isSignedIn && canDelete(menuTarget) && (
             <AnchoredMenuItem destructive onClick={() => menuDelete(menuTarget)}>
               Delete
             </AnchoredMenuItem>
-          ) : menuState(menuTarget).isReported ? (
-            <AnchoredMenuItem onClick={() => menuRetract(menuTarget)}>Retract Report</AnchoredMenuItem>
-          ) : (
-            <AnchoredMenuItem onClick={() => menuReport(menuTarget)}>Report</AnchoredMenuItem>
           )}
         </AnchoredMenu>
       )}

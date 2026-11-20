@@ -10,6 +10,7 @@ import type {
   ProfileDetails,
   PublicProfileDetails,
 } from '../api/types'
+import { focusableIn } from '../utils/focusable'
 import { profileShareUrl, shareLink } from '../utils/shareLink'
 import AnchoredMenu, { AnchoredMenuItem } from './AnchoredMenu'
 import { anchorFrom, type MenuAnchor } from './menuAnchor'
@@ -95,6 +96,15 @@ function ProfileView({
   const [followRequestPending, setFollowRequestPending] = useState(false)
   const [followCategory, setFollowCategory] = useState<FollowCategory>('following')
   const [isBlocked, setIsBlocked] = useState(false)
+  // The viewer's own standing report of this account (issue #602).
+  const [isReported, setIsReported] = useState(false)
+  const [reportDialogOpen, setReportDialogOpen] = useState(false)
+  const [reportReason, setReportReason] = useState('')
+  // The report dialog's focus lifecycle: it opens from the options menu, which
+  // closes as it does, so focus goes back to the options button afterwards.
+  const optionsButtonRef = useRef<HTMLButtonElement>(null)
+  const reportDialogRef = useRef<HTMLDivElement>(null)
+  const reportReasonRef = useRef<HTMLInputElement>(null)
   const [isBusy, setIsBusy] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -170,6 +180,7 @@ function ProfileView({
     setFollowRequestPending(details.follow_request_pending ?? false)
     setFollowCategory(details.follow_category ?? 'following')
     setIsBlocked(details.is_blocked ?? false)
+    setIsReported(details.is_reported ?? false)
   }, [])
 
   // Bumped by every refresh (issue #96): each profile/posts load remembers the
@@ -446,6 +457,130 @@ function ProfileView({
     if (result === 'failed') setErrorMessage('Could not share this profile.')
   }
 
+  // A profile-only reload (header, relationship, report state), for after a
+  // mutation superseded the load in flight. Unlike loadProfile a failure keeps
+  // the header already on screen, as a manual refresh does.
+  async function reloadProfileDetails() {
+    const generation = loadGeneration.current
+    const profileGen = profileGeneration.current
+    try {
+      const details = await fetchProfile()
+      if (
+        !isMounted.current ||
+        generation !== loadGeneration.current ||
+        profileGen !== profileGeneration.current
+      )
+        return
+      setProfile(details)
+      applyRelationship(details)
+    } catch {
+      /* keep the loaded header; the next refresh retries */
+    }
+  }
+
+  // Report this account — its username, bio or photo (issue #602). Like a post
+  // report it hides nothing by itself; it asks for a review.
+  function openReportDialog() {
+    setMenuAnchor(null)
+    setReportReason('')
+    setReportDialogOpen(true)
+  }
+
+  function closeReportDialog() {
+    setReportDialogOpen(false)
+    setReportReason('')
+    if (optionsButtonRef.current?.isConnected) optionsButtonRef.current.focus()
+  }
+
+  // While the report dialog is open: move focus to the reason field, close on
+  // Escape, and keep Tab cycling inside it so a keyboard user can't land on
+  // the page behind the backdrop — what `aria-modal` promises assistive tech.
+  useEffect(() => {
+    if (!reportDialogOpen) return
+
+    const dialog = reportDialogRef.current
+    reportReasonRef.current?.focus()
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeReportDialog()
+        return
+      }
+      if (event.key !== 'Tab' || !dialog) return
+
+      const focusable = focusableIn(dialog)
+      if (focusable.length === 0) {
+        event.preventDefault()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      // -1 when focus is outside the dialog or on something no longer
+      // tabbable (Submit disables when the reason is cleared); wrap either way.
+      const index = focusable.indexOf(document.activeElement as HTMLElement)
+      if (event.shiftKey && index <= 0) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (index === -1 || index === focusable.length - 1)) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [reportDialogOpen])
+
+  async function submitAccountReport() {
+    const reason = reportReason.trim()
+    if (!reason || isBusy) return
+    closeReportDialog()
+    setIsBusy(true)
+    setErrorMessage(null)
+    try {
+      await apiClient.reportAccount(username, reason)
+      if (isMounted.current) {
+        // Supersede an older profile load so it can't restore the previous
+        // report state, and start a replacement so whatever that load was
+        // settling (the header itself, or an unfollow/block revalidation)
+        // still settles.
+        profileGeneration.current += 1
+        setIsReported(true)
+        if (!profile) refresh()
+        else void reloadProfileDetails()
+      }
+    } catch (err) {
+      if (isMounted.current) setErrorMessage(err instanceof Error ? err.message : 'Failed to report.')
+    } finally {
+      if (isMounted.current) setIsBusy(false)
+    }
+  }
+
+  async function retractAccountReport() {
+    setMenuAnchor(null)
+    if (isBusy) return
+    setIsBusy(true)
+    setErrorMessage(null)
+    try {
+      await apiClient.retractReportAccount(username)
+      if (isMounted.current) {
+        // Supersede an older profile load so it can't restore the previous
+        // report state, and start a replacement so whatever that load was
+        // settling (the header itself, or an unfollow/block revalidation)
+        // still settles.
+        profileGeneration.current += 1
+        setIsReported(false)
+        if (!profile) refresh()
+        else void reloadProfileDetails()
+      }
+    } catch (err) {
+      if (isMounted.current) setErrorMessage(err instanceof Error ? err.message : 'Failed to retract report.')
+    } finally {
+      if (isMounted.current) setIsBusy(false)
+    }
+  }
+
   async function toggleFollow() {
     if (isBusy) return
     setIsBusy(true)
@@ -720,9 +855,11 @@ function ProfileView({
           </div>
           {/* The profile's options menu (issue #510). Offered on every
               profile — your own and everyone else's, signed in or not — since
-              Share, its one item, needs no session. */}
+              Share needs no session. A signed-in viewer of someone else's
+              profile can also report the account there (issue #602). */}
           <button
             type="button"
+            ref={optionsButtonRef}
             className="profile-menu-button"
             aria-label="Profile options"
             aria-haspopup="menu"
@@ -982,7 +1119,59 @@ function ProfileView({
           onDismiss={() => setMenuAnchor(null)}
         >
           <AnchoredMenuItem onClick={() => void shareProfile()}>Share</AnchoredMenuItem>
+          {isSignedIn && !isOwnProfile && (
+            isReported ? (
+              <AnchoredMenuItem onClick={() => void retractAccountReport()}>
+                Retract Report
+              </AnchoredMenuItem>
+            ) : (
+              <AnchoredMenuItem onClick={openReportDialog}>Report</AnchoredMenuItem>
+            )
+          )}
         </AnchoredMenu>
+      )}
+
+      {reportDialogOpen && (
+        <div className="modal-overlay">
+          <div
+            ref={reportDialogRef}
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Report account"
+          >
+            <h2 className="modal__title">Report {username}</h2>
+            <p className="muted">
+              Tell us what's wrong with this account's username, bio or profile photo.
+            </p>
+            <input
+              className="search-bar"
+              type="text"
+              placeholder="Reason for reporting..."
+              aria-label="Reason for reporting"
+              ref={reportReasonRef}
+              value={reportReason}
+              onChange={e => setReportReason(e.target.value)}
+            />
+            <div className="modal__actions">
+              <button
+                type="button"
+                className="modal__cancel"
+                onClick={closeReportDialog}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="modal__confirm"
+                disabled={reportReason.trim().length === 0}
+                onClick={() => void submitAccountReport()}
+              >
+                Submit Report
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {shareCopiedOpen && (

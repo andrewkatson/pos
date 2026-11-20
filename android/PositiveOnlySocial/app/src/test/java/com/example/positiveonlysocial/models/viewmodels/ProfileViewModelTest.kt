@@ -6,6 +6,7 @@ import com.example.positiveonlysocial.data.model.GenericResponse
 import com.example.positiveonlysocial.data.model.Post
 import com.example.positiveonlysocial.data.model.PostStatusResponse
 import com.example.positiveonlysocial.data.model.ProfileDetailsResponse
+import com.example.positiveonlysocial.data.model.ReportRequest
 import com.example.positiveonlysocial.data.model.SetBioResponse
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -501,5 +502,139 @@ class ProfileViewModelTest {
         // Opening the profile again starts the grid over.
         viewModel.fetchProfile("user1")
         assertFalse(viewModel.reachedEnd.value)
+    }
+
+    // --- Reporting an account (issue #602) ---
+
+    @Test
+    fun `fetchProfile reads the viewer's own report of the account`() = runTest {
+        val profile = ProfileDetailsResponse("user1", 1, 1, 2, false, isReported = true, reportReason = "Unkind bio")
+        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(profile))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(emptyList()))
+
+        viewModel.fetchProfile("user1")
+
+        assertTrue(viewModel.isAccountReported.value)
+        assertEquals("Unkind bio", viewModel.accountReportReason.value)
+    }
+
+    @Test
+    fun `reportAccount then retract updates state after the backend accepts`() = runTest {
+        val profile = ProfileDetailsResponse("user1", 1, 1, 2, false)
+        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(profile))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(emptyList()))
+        whenever(api.reportAccount(any(), any(), any())).thenReturn(Response.success(GenericResponse("Account reported", null)))
+        whenever(api.retractReportAccount(any(), any())).thenReturn(Response.success(GenericResponse("Account report retracted", null)))
+        viewModel.fetchProfile("user1")
+        assertFalse(viewModel.isAccountReported.value)
+
+        viewModel.reportAccount("user1", "  Unkind bio  ")
+        advanceUntilIdle()
+
+        verify(api).reportAccount(eq("token123"), eq("user1"), eq(ReportRequest("Unkind bio")))
+        assertTrue(viewModel.isAccountReported.value)
+        assertEquals("Unkind bio", viewModel.accountReportReason.value)
+
+        viewModel.retractAccountReport("user1")
+        advanceUntilIdle()
+
+        verify(api).retractReportAccount(eq("token123"), eq("user1"))
+        assertFalse(viewModel.isAccountReported.value)
+        assertNull(viewModel.accountReportReason.value)
+    }
+
+    @Test
+    fun `a refused account report surfaces an error and changes nothing`() = runTest {
+        val profile = ProfileDetailsResponse("user1", 1, 1, 2, false)
+        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(profile))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(emptyList()))
+        whenever(api.reportAccount(any(), any(), any())).thenReturn(
+            Response.error(400, "{\"error\": \"Daily report limit reached\"}".toResponseBody(null)))
+        viewModel.fetchProfile("user1")
+
+        viewModel.reportAccount("user1", "Unkind bio")
+        advanceUntilIdle()
+
+        assertFalse(viewModel.isAccountReported.value)
+        assertNotNull(viewModel.reportErrorMessage.value)
+        viewModel.clearReportError()
+        assertNull(viewModel.reportErrorMessage.value)
+    }
+
+    @Test
+    fun `a blank reason is not sent`() = runTest {
+        viewModel.reportAccount("user1", "   ")
+        advanceUntilIdle()
+
+        verify(api, never()).reportAccount(any(), any(), any())
+    }
+
+    @Test
+    fun `a profile read started before a report cannot undo it`() = runTest {
+        val profile = ProfileDetailsResponse("user1", 1, 1, 2, false, isReported = false)
+        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(profile))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(emptyList()))
+        whenever(api.reportAccount(any(), any(), any())).thenReturn(Response.success(GenericResponse("Account reported", null)))
+        viewModel.fetchProfile("user1")
+
+        // A refresh whose profile read is still in flight when the report lands.
+        val gate = CompletableDeferred<Unit>()
+        api.stub {
+            onBlocking { getProfileDetails("token123", "user1") } doSuspendableAnswer {
+                gate.await()
+                Response.success(profile)
+            }
+        }
+        viewModel.refreshProfile("user1")
+        viewModel.reportAccount("user1", "Unkind bio")
+        advanceUntilIdle()
+        assertTrue(viewModel.isAccountReported.value)
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.isAccountReported.value)
+        assertEquals("Unkind bio", viewModel.accountReportReason.value)
+    }
+
+    @Test
+    fun `a retraction cannot overlap a report whose response is still pending`() = runTest {
+        val profile = ProfileDetailsResponse("user1", 1, 1, 2, false, isReported = false)
+        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(profile))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(emptyList()))
+        whenever(api.retractReportAccount(any(), any())).thenReturn(Response.success(GenericResponse("Account report retracted", null)))
+        viewModel.fetchProfile("user1")
+
+        // The report has reached the backend but its response is delayed.
+        val gate = CompletableDeferred<Unit>()
+        api.stub {
+            onBlocking { reportAccount(any(), any(), any()) } doSuspendableAnswer {
+                gate.await()
+                Response.success(GenericResponse("Account reported", null))
+            }
+        }
+        viewModel.reportAccount("user1", "Unkind bio")
+        advanceUntilIdle()
+        assertTrue(viewModel.isAccountReportBusy.value)
+
+        // Neither a second report nor a retraction is sent meanwhile, so the
+        // slow report response cannot land after a retraction and undo it.
+        viewModel.retractAccountReport("user1")
+        viewModel.reportAccount("user1", "Unkind bio")
+        advanceUntilIdle()
+        verify(api, never()).retractReportAccount(any(), any())
+        verify(api, times(1)).reportAccount(any(), any(), any())
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertFalse(viewModel.isAccountReportBusy.value)
+        assertTrue(viewModel.isAccountReported.value)
+
+        // Once it settles, the retraction goes through and sticks.
+        viewModel.retractAccountReport("user1")
+        advanceUntilIdle()
+        verify(api).retractReportAccount(eq("token123"), eq("user1"))
+        assertFalse(viewModel.isAccountReported.value)
+        assertFalse(viewModel.isAccountReportBusy.value)
     }
 }

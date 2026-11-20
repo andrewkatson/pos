@@ -363,6 +363,66 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNode(hasText("Following") and hasClickAction()).performClick()
         composeTestRule.onNode(hasText("Follow") and hasClickAction()).assertExists()
     }
+
+    @Test
+    fun testViewAllSearchResultsLoadsMoreAndOpensProfile() {
+        // 25 matching users span three batches of ten: the inline list shows
+        // batch 0, "View all results" opens with batches 0-1, and Load more
+        // pages in batch 2. A per-test prefix keeps other tests' accounts out.
+        val prefix = "page_${UUID.randomUUID().toString().take(5)}_"
+        val usernames = List(25) { index -> prefix + index.toString().padStart(2, '0') }
+        usernames.forEach { registerUserViaApi(it, strongPassword) }
+
+        loginUser(testUsername, strongPassword, rememberMe = false, registerToo = true)
+
+        composeTestRule.onNodeWithText("Search for Users").performTextInput(prefix)
+        dismissKeyboardIfPresent()
+
+        // The button appears once the batch-1 check finds more users.
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            runCatching {
+                composeTestRule.onNodeWithTag("SearchResults")
+                    .performScrollToNode(hasText("View all results"))
+                true
+            }.getOrDefault(false)
+        }
+        composeTestRule.onNodeWithText("View all results").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithTag("AllSearchResults")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        // The dialog opens with the two prefetched batches only.
+        composeTestRule.onNodeWithTag("AllSearchResults")
+            .performScrollToNode(hasText(usernames[19]))
+        val batchTwoAlreadyListed = runCatching {
+            composeTestRule.onNodeWithTag("AllSearchResults")
+                .performScrollToNode(hasText(usernames[20]))
+        }.isSuccess
+        assertTrue("Batch 2 must wait for Load more", !batchTwoAlreadyListed)
+
+        composeTestRule.onNodeWithTag("AllSearchResults")
+            .performScrollToNode(hasText("Load more"))
+        composeTestRule.onNodeWithText("Load more").performClick()
+
+        // Select a user from the page Load more added.
+        val addedUser = usernames.last()
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            runCatching {
+                composeTestRule.onNodeWithTag("AllSearchResults")
+                    .performScrollToNode(hasText(addedUser))
+                true
+            }.getOrDefault(false)
+        }
+        // Batch 2 is short, so pagination is over.
+        composeTestRule.onAllNodesWithText("Load more").assertCountEquals(0)
+
+        composeTestRule.onNodeWithText(addedUser).performClick()
+
+        assertOnProfileView()
+        // The profile's top bar is titled with the selected username.
+        composeTestRule.onAllNodesWithText(addedUser).onFirst().assertExists()
+    }
     @Test
     fun testLikeAndUnlikePost() {
         // Setup
@@ -656,6 +716,10 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Report Post").assertDoesNotExist()
         composeTestRule.onNodeWithText("Delete Post").performClick()
 
+        // Delete asks for confirmation first, since it can't be undone.
+        composeTestRule.onNodeWithText("Delete Post?").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("ConfirmDeletePostButton").performClick()
+
         // Deleting pops the Post Detail screen back to the feed.
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             composeTestRule.onAllNodesWithText("Add a comment...").fetchSemanticsNodes().isEmpty()
@@ -684,6 +748,10 @@ class PositiveOnlySocialIntegrationTests {
         // It's the user's own comment: Delete is offered, Report is not.
         composeTestRule.onNodeWithText("Report Comment").assertDoesNotExist()
         composeTestRule.onNodeWithText("Delete Comment").performClick()
+
+        // Delete asks for confirmation first, since it can't be undone.
+        composeTestRule.onNodeWithText("Delete Comment?").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("ConfirmDeleteCommentButton").performClick()
 
         // The comment is removed from the thread.
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
@@ -827,6 +895,10 @@ class PositiveOnlySocialIntegrationTests {
 
         composeTestRule.onNodeWithText("Report Post").assertDoesNotExist()
         composeTestRule.onNodeWithText("Delete Post").performClick()
+
+        // Delete asks for confirmation first, since it can't be undone.
+        composeTestRule.onNodeWithText("Delete Post?").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("ConfirmDeletePostButton").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             composeTestRule.onAllNodesWithContentDescription("Options for post by $testUsername")

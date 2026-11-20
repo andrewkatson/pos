@@ -400,6 +400,21 @@ interface PositiveOnlySocialAPI {
         @Path("username") username: String
     ): Response<GenericResponse>
 
+    // Report an account — its username, bio or profile photo (issue #602). Like
+    // a post report, it opens a moderation review and hides nothing by itself.
+    @POST("users/{username}/report/")
+    suspend fun reportAccount(
+        @Header("Authorization") token: String,
+        @Path("username") username: String,
+        @Body request: ReportRequest
+    ): Response<GenericResponse>
+
+    @POST("users/{username}/report/retract/")
+    suspend fun retractReportAccount(
+        @Header("Authorization") token: String,
+        @Path("username") username: String
+    ): Response<GenericResponse>
+
     @GET("users/blocked/")
     suspend fun getBlockedUsers(
         @Header("Authorization") token: String

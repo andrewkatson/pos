@@ -199,7 +199,8 @@ fun PostActionMenu(actions: PostListActions, post: Post, expanded: Boolean, isOw
         onShare = { ShareLinks.shareText(context, ShareLinks.postUrl(post.postIdentifier)) },
         onReport = { actions.setPostToReport(post) },
         onRetract = { actions.setPostToRetract(post) },
-        onDelete = { actions.deletePost(post) },
+        // Asks first: see the "Delete Post?" dialog in [PostActionDialogs].
+        onDelete = { actions.setPostToDelete(post) },
         // Save / unsave lives in the 3-dot menu on mobile (issue #412); web has a
         // dedicated bookmark control.
         isSaved = post.isSaved == true,
@@ -216,7 +217,7 @@ fun PostActionMenu(actions: PostListActions, post: Post, expanded: Boolean, isOw
 
 /**
  * The confirmations behind [PostActionBar]: the report composer, the retract
- * confirmation, and the error alert. Rendered once per list — a list shares one
+ * and delete confirmations, and the error alert. Rendered once per list — a list shares one
  * [PostListActions], which holds which post (if any) each dialog is for.
  *
  * The action menu itself is not here: it's a [PostActionMenu] anchored to each
@@ -230,6 +231,7 @@ fun PostActionDialogs(actions: PostListActions, navController: NavController) {
     val postForLikes by actions.postForLikes.collectAsState()
     val postToReport by actions.postToReport.collectAsState()
     val postToRetract by actions.postToRetract.collectAsState()
+    val postToDelete by actions.postToDelete.collectAsState()
     val postToEdit by actions.postToEdit.collectAsState()
     val alertMessage by actions.alertMessage.collectAsState()
 
@@ -259,6 +261,16 @@ fun PostActionDialogs(actions: PostListActions, navController: NavController) {
             reason = post.reportReason ?: "",
             onDismiss = { actions.setPostToRetract(null) },
             onRetract = { actions.retractReport(post) }
+        )
+    }
+
+    // Deleting can't be undone, so the menu's Delete asks first — the same
+    // dialog the post detail screen uses.
+    postToDelete?.let { post ->
+        DeleteConfirmDialog(
+            itemLabel = "Post",
+            onDismiss = { actions.setPostToDelete(null) },
+            onDelete = { actions.deletePost(post) }
         )
     }
 

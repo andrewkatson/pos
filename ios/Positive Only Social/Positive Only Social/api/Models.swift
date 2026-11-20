@@ -676,6 +676,10 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
     var followRequestPending: Bool? = nil
     /// Owner-only: incoming follow requests awaiting a decision (issue #96).
     var followRequestCount: Int? = nil
+    /// The viewer's own standing report of this account, and their reason
+    /// (issue #602). Absent on your own profile and on older backends.
+    var isReported: Bool? = nil
+    var reportReason: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case username
@@ -698,6 +702,8 @@ struct ProfileDetailsResponse: Codable, Identifiable, Hashable {
         case isPrivate = "is_private"
         case followRequestPending = "follow_request_pending"
         case followRequestCount = "follow_request_count"
+        case isReported = "is_reported"
+        case reportReason = "report_reason"
     }
 }
 

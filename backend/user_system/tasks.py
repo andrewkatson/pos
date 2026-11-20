@@ -702,7 +702,10 @@ def _review_content_results(target, is_post, order):
 
 
 def review_reported_content(review_identifier):
-    """RQ job: re-examine one reported post or comment and record the outcome.
+    """RQ job: re-examine one reported post, comment or account and record the outcome.
+
+    (An account — issue #602 — branches off once its attempt is claimed; see
+    _finish_account_review. What follows describes posts and comments.)
 
     Transitions out of `pending` (one-way): `hidden` when the cascades reject the
     content, or `cleared` when they do not — and `escalated` when no verdict can
@@ -729,7 +732,8 @@ def review_reported_content(review_identifier):
 
     target = review.target
     is_post = review.post_id is not None
-    if target.hidden:
+    is_account = review.account_id is not None
+    if not is_account and target.hidden:
         # Already hidden (classifier, or a moderator) — there is nothing for the
         # re-review to decide, and its reason must not be overwritten.
         ModerationReview.objects.filter(pk=review.pk, status=REVIEW_STATUS_PENDING).update(
@@ -777,6 +781,10 @@ def review_reported_content(review_identifier):
     if not claimed:
         logger.info("review_reported_content: review %s was claimed or resolved concurrently; nothing to do.",
                     review_identifier)
+        return
+
+    if is_account:
+        _finish_account_review(review, target)
         return
 
     # The point of a re-review is a second opinion, so this round leads with a
@@ -852,7 +860,7 @@ def review_reported_content(review_identifier):
             claimed.status = REVIEW_STATUS_CLEARED
             # Reports counted from here decide whether a human takes a look, so
             # the ones this review already accounted for cannot escalate it too.
-            claimed.reports_at_last_review = claimed.report_count()
+            claimed.restart_escalation_count()
         else:
             claimed.status = REVIEW_STATUS_HIDDEN
             target.hidden = True
@@ -863,7 +871,8 @@ def review_reported_content(review_identifier):
                 target_fields.append('classification_reason_code')
         target.save(update_fields=target_fields)
         claimed.reviewed_time = now
-        claimed.save(update_fields=['status', 'reports_at_last_review', 'reviewed_time', 'updated'])
+        claimed.save(update_fields=['status', 'reports_at_last_review', 'escalation_counted_since',
+                                    'reviewed_time', 'updated'])
 
     # Side effects only after the one-time transition has committed.
     if allowed:
@@ -877,6 +886,105 @@ def review_reported_content(review_identifier):
         # carry an author-facing moderation lifecycle (email + push + appeal).
         _notify_author_of_review_hide(target, text_result, image_result)
         _push_author_of_rejection(target, final=False)
+
+
+def _classify_text_for_review(text, order):
+    """One text through the re-review's text cascade: the local word-list
+    pre-filter first (free, and the lists grow over time), then the models."""
+    prefiltered = prefilter_text(text)
+    if not prefiltered:
+        return prefiltered
+    return text_classifier_class.is_text_positive(text, available_apis=order)
+
+
+def _review_account_results(account, order):
+    """Run the moderation cascades over what a reported account shows everyone
+    (issue #602) and return (username_result, bio_result, photo_result).
+
+    As for posts and comments, the profile alone is classified — never the
+    report count or the reporters' words. The three parts are judged
+    separately, because what a failing verdict does differs by part.
+    """
+    allowed = ClassificationResult(allowed=True)
+    username_future = _CLASSIFICATION_EXECUTOR.submit(
+        _classify_text_for_review, account.username, order)
+    bio_future = (_CLASSIFICATION_EXECUTOR.submit(_classify_text_for_review, account.bio, order)
+                  if account.bio else None)
+    photo_future = (_CLASSIFICATION_EXECUTOR.submit(
+        image_classifier_class.is_image_positive, account.profile_image_url, available_apis=order)
+        if account.profile_image_url else None)
+    return (username_future.result(),
+            bio_future.result() if bio_future else allowed,
+            photo_future.result() if photo_future else allowed)
+
+
+def _finish_account_review(review, account):
+    """The account half of review_reported_content, run once the attempt is
+    claimed (issue #602).
+
+    A failing bio or photo is removed — the remedy the owner already has when
+    one is rejected on write is to set another, so no appeal is needed — and the
+    owner is emailed. A username is fixed once chosen, so a failing username
+    cannot be removed: it escalates the review to a moderator, who can ban. A
+    profile that passes, or whose failing bio/photo has been removed, is
+    cleared, and further reports count toward a human look as usual.
+
+    Profiles carry no model-chain lists, so the cascade runs in its normal
+    order. Only the exact bio and photo that were judged are ever removed: the
+    owner may have replaced either while the cascades ran, and a new bio or
+    photo was moderated on its own way in.
+    """
+    from . import moderation  # moderation imports this module at load time
+
+    review_identifier = review.review_identifier
+    judged_bio = account.bio
+    judged_photo = account.profile_image_url
+    username_result, bio_result, photo_result = _review_account_results(account, get_available_apis())
+
+    results = (username_result, bio_result, photo_result)
+    if any(result.provider_failure for result in results):
+        # Not a verdict: the profile stays as it is and RQ retries with backoff.
+        raise ClassificationProviderError(
+            f"Providers unavailable while reviewing reported account for review {review_identifier}")
+
+    now = timezone.now()
+    removed_parts = []
+    with transaction.atomic():
+        # The user's row first, then the review row — the shared lock order.
+        locked = PositiveOnlySocialUser.objects.select_for_update(no_key=True).filter(pk=account.pk).first()
+        claimed = ModerationReview.objects.select_for_update().filter(
+            pk=review.pk, status=REVIEW_STATUS_PENDING).first()
+        if claimed is None or locked is None:
+            logger.info("review_reported_content: review %s was resolved concurrently; nothing to do.",
+                        review_identifier)
+            return
+        strip_bio = not bio_result and bool(judged_bio) and locked.bio == judged_bio
+        strip_photo = not photo_result and bool(judged_photo) and locked.profile_image_url == judged_photo
+        if strip_bio:
+            removed_parts.append('bio')
+        if strip_photo:
+            removed_parts.append('profile photo')
+        moderation.strip_profile_content(
+            locked, bio=strip_bio, photo=strip_photo, reason_code=photo_result.public_reason_code())
+
+        notes = [f"Removed the {part} (automated review)" for part in removed_parts]
+        if not username_result:
+            claimed.status = REVIEW_STATUS_ESCALATED
+            notes.append(f"Username did not pass automated review ({username_result.public_reason_code()}); "
+                         "escalated for a moderator")
+        else:
+            claimed.status = REVIEW_STATUS_CLEARED
+            claimed.restart_escalation_count()
+        claimed.reviewed_time = now
+        claimed.resolution_note = '; '.join(notes) or None
+        claimed.save(update_fields=['status', 'reports_at_last_review', 'escalation_counted_since',
+                                    'reviewed_time', 'resolution_note', 'updated'])
+
+    logger.info("review_reported_content: account review %s is %s (removed: %s).",
+                review_identifier, claimed.status, ', '.join(removed_parts) or 'nothing')
+    # The removed photo's S3 object is left to cleanup_orphan_images, which only
+    # reclaims it once no post or avatar references it (see strip_profile_content).
+    moderation.notify_owner_of_profile_removal(locked, removed_parts)
 
 
 def enqueue_profile_photo_classification(user_id):
@@ -1004,6 +1112,10 @@ def classify_profile_photo(user_id):
             # photo's hash can never survive as a placeholder for a new one —
             # a None here just means "no placeholder", never "the old blur".
             claimed.profile_image_blurhash = profile_image_blurhash
+            # A new photo is a new profile: release any decision a report
+            # review made about the old one (issue #602).
+            from . import moderation  # moderation imports this module at load time
+            moderation.profile_content_changed(claimed)
         else:
             # Drop the rejected photo; keep any previously approved photo intact
             # so a bad new upload does not wipe out a good current avatar.

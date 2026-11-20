@@ -136,13 +136,20 @@ DEVICE_PLATFORMS = frozenset(value for value, _ in DEVICE_PLATFORM_CHOICES)
 MAX_DEVICE_TOKEN_LENGTH = 1024
 
 # Machine-readable "type" on a push payload's data dict so a client can branch
-# on why it was notified and deep-link accordingly. Every kind carries a
+# on why it was notified and deep-link accordingly. The post kinds carry a
 # post_identifier the client opens on tap: the rejected post, the new post, or
-# the post a comment or like landed on.
+# the post a comment or like landed on. The follow kinds below carry a username.
 PUSH_TYPE_POST_REJECTED = "post_rejected"
 PUSH_TYPE_NEW_POST = "new_post"
 PUSH_TYPE_NEW_COMMENT = "new_comment"
 PUSH_TYPE_NEW_LIKE = "new_like"
+# Follow activity (issue #604): a follow request to a private account, a new
+# follower of a public one, and a request's approval. These are about a person, not a post, so their data
+# map carries the actor's `username` instead of a post_identifier.
+PUSH_TYPE_FOLLOW_REQUEST = "follow_request"
+PUSH_TYPE_NEW_FOLLOWER = "new_follower"
+# The requester's side of an approved follow request: the owner accepted it.
+PUSH_TYPE_FOLLOW_ACCEPTED = "follow_accepted"
 
 # The master switch (issue #444): off silences every push type below it. It is
 # a preference type only — no payload is ever sent with it.
@@ -151,8 +158,10 @@ PUSH_TYPE_ALL = "all"
 # Who an interaction came from, from the recipient's side (issue #444): the
 # category the recipient gave the actor on their own follow edge, or "other"
 # when the recipient does not follow the actor at all. New posts only ever
-# reach followers, so they have no "other" source; comments and likes can come
-# from anyone who can see the content.
+# reach followers, so they have no "other" source; comments, likes, follow
+# requests and new followers can come from anyone (for the last two, "other" is
+# someone the recipient does not follow back). An accepted follow request always
+# leaves the recipient following the owner, so it has no "other" source either.
 PUSH_SOURCE_OTHER = "other"
 PUSH_SOURCE_LABELS = {
     FOLLOW_CATEGORY_FOLLOWING: "From people I follow",
@@ -189,6 +198,9 @@ PUSH_TYPE_TREE = [
     *_push_kind_rows(PUSH_TYPE_NEW_POST, "New posts", _FOLLOW_SOURCES),
     *_push_kind_rows(PUSH_TYPE_NEW_COMMENT, "Comments and replies", _ANY_SOURCE),
     *_push_kind_rows(PUSH_TYPE_NEW_LIKE, "Likes", _ANY_SOURCE),
+    *_push_kind_rows(PUSH_TYPE_NEW_FOLLOWER, "New followers", _ANY_SOURCE),
+    *_push_kind_rows(PUSH_TYPE_FOLLOW_REQUEST, "Follow requests", _ANY_SOURCE),
+    *_push_kind_rows(PUSH_TYPE_FOLLOW_ACCEPTED, "Accepted follow requests", _FOLLOW_SOURCES),
 ]
 PUSH_TYPE_PARENTS = {value: parent for value, _, parent in PUSH_TYPE_TREE}
 PUSH_TYPES = frozenset(PUSH_TYPE_PARENTS)
@@ -684,14 +696,19 @@ REVIEW_STATUS_DISMISSED = "dismissed"
 # about this content, so piling on more reports achieves nothing.
 TERMINAL_REVIEW_STATUSES = (REVIEW_STATUS_HIDDEN, REVIEW_STATUS_DISMISSED)
 
+# What a ModerationReview is about. A post or a comment reuses the appeal target
+# names; an account (issue #602) is reviewed as its username, bio and approved
+# profile photo together.
+REVIEW_TARGET_ACCOUNT = "account"
+
 # How many reports arriving AFTER an automated re-review cleared the content
 # escalate it to a human moderator. Deliberately small: escalating costs a queue
 # entry, never a hide, so there is no harm in a low bar — and no benefit to a
 # brigade in crossing it, since the outcome is a person looking at the content.
 REPORTS_AFTER_CLEAR_BEFORE_ESCALATION = 3
 
-# Most reports one account may file per rolling 24 hours, counted across posts
-# and comments together. Well above what a genuine user files and far below what
+# Most reports one account may file per rolling 24 hours, counted across posts,
+# comments and accounts together. Well above what a genuine user files and far below what
 # mass-reporting needs, so one account cannot flood the review queue. Enforced
 # on top of the per-endpoint rate limits.
 MAX_REPORTS_PER_USER_PER_DAY = 30

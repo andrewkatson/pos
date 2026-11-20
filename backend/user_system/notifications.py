@@ -2,7 +2,9 @@
 
 Beyond the post-rejection push (#342), a user can be told when someone they
 follow publishes a post, when someone comments on their post or replies to
-their comment, and when someone likes their post or comment. Each recipient
+their comment, and when someone likes their post or comment — and, for follow
+activity (issue #604), when someone asks to follow their private account,
+starts following their public one, or accepts their follow request. Each recipient
 filters these in Settings by kind and by who the activity came from (the
 category they gave the actor — following / friend / family — or "other" for
 someone they do not follow); see PUSH_TYPE_TREE and push.is_push_type_enabled.
@@ -28,10 +30,12 @@ from . import push
 from .constants import (
     AUDIENCE_ALLOWED_CATEGORIES, BAN_TYPE_SHADOW, POST_AUDIENCE_PUBLIC, PUSH_SOURCE_OTHER,
     PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE,
+    PUSH_TYPE_FOLLOW_REQUEST, PUSH_TYPE_NEW_FOLLOWER, PUSH_TYPE_FOLLOW_ACCEPTED,
     push_source_type,
 )
 from .models import (
-    Comment, CommentLike, DeviceToken, Post, PostLike, UserBan, UserBlock, UserFollow,
+    Comment, CommentLike, DeviceToken, FollowRequest, Post, PostLike, UserBan, UserBlock,
+    UserFollow,
 )
 from .visibility import audience_admits, can_view_post, in_same_age_band
 
@@ -44,6 +48,10 @@ _JOB_PATH_PREFIX = 'user_system.notifications.'
 # first like on a piece of content by a given user notifies, and repeats within
 # this window are dropped.
 LIKE_PUSH_DEDUPE_SECONDS = 24 * 60 * 60
+
+# The same for follow activity (issue #604): follow/unfollow/follow, or
+# request/cancel/request, tells the other person once per window.
+FOLLOW_PUSH_DEDUPE_SECONDS = 24 * 60 * 60
 
 # Followers one new-post job notifies. Each follower costs a few queries and a
 # provider round trip, so a job stays well inside JOB_TIMEOUT_SECONDS; a larger
@@ -102,6 +110,27 @@ def notify_comment_like(comment, liker):
     _enqueue('push_comment_like', str(comment.comment_identifier), liker.pk)
 
 
+# The follow jobs take the id of the exact row that queued them — the request
+# or follow edge — not the pair of users, so deleting that row (a cancel, an
+# unfollow) invalidates the job for good: a later request or follow between the
+# same two people is a different row and never revives it. The 24-hour dedupe
+# stays keyed by the pair.
+
+def notify_follow_request(follow_request):
+    """A follow request to a private account was just filed."""
+    _enqueue('push_follow_request', follow_request.pk)
+
+
+def notify_new_follower(follow):
+    """A public account was just followed outright (`follow` is the new edge)."""
+    _enqueue('push_new_follower', follow.pk)
+
+
+def notify_follow_accepted(follow):
+    """A follow request was just approved (`follow` is the resulting edge)."""
+    _enqueue('push_follow_accepted', follow.pk)
+
+
 # ---------------------------------------------------------------------------
 # Shared checks
 # ---------------------------------------------------------------------------
@@ -147,6 +176,12 @@ def _first_like(kind, target_id, liker_id):
     """True the first time this user's like on this content is seen inside the
     dedupe window; False for a like/unlike/like repeat."""
     return cache.add(f"push:like:{kind}:{target_id}:{liker_id}", True, LIKE_PUSH_DEDUPE_SECONDS)
+
+
+def _first_follow(kind, actor_id, recipient_id):
+    """True the first time this follow (or follow request) from `actor_id` to
+    `recipient_id` is seen inside the dedupe window; False for a repeat."""
+    return cache.add(f"push:follow:{kind}:{actor_id}:{recipient_id}", True, FOLLOW_PUSH_DEDUPE_SECONDS)
 
 
 # ---------------------------------------------------------------------------
@@ -297,3 +332,78 @@ def push_comment_like(comment_identifier, liker_id):
     payload = push.build_activity_payload(
         PUSH_TYPE_NEW_LIKE, post, f"{liker.username} liked your comment", comment.body)
     _send(author, payload, push_source_type(PUSH_TYPE_NEW_LIKE, _source(author, liker)))
+
+
+def push_follow_request(follow_request_id):
+    """Tell a private account's owner someone asked to follow them (issue #604).
+
+    The request is re-read by id: one cancelled, denied or approved before the
+    job ran — or converted to a follow because the account went public — sends
+    nothing. An owner who has gone public is skipped even while their backlog
+    is still converting, since there is nothing left to approve. Once per
+    requester per window, so request/cancel/request does not repeat it.
+    """
+    follow_request = (FollowRequest.objects.select_related('user_from', 'user_to')
+                      .filter(pk=follow_request_id).first())
+    if follow_request is None:
+        return
+    requester, owner = follow_request.user_from, follow_request.user_to
+    if not owner.is_private:
+        return
+    if not _may_notify(owner, requester):
+        return
+    if not _first_follow(PUSH_TYPE_FOLLOW_REQUEST, requester.pk, owner.pk):
+        return
+    payload = push.build_follow_payload(
+        PUSH_TYPE_FOLLOW_REQUEST, requester, f"{requester.username} asked to follow you",
+        "Tap to approve or deny.")
+    _send(owner, payload, push_source_type(PUSH_TYPE_FOLLOW_REQUEST, _source(owner, requester)))
+
+
+def push_new_follower(follow_id):
+    """Tell an account's owner someone started following them (issue #604).
+
+    Only for an outright follow of a public account: an approved follow request
+    was the owner's own doing, and a going-public backlog converting into
+    follows would be a burst of pushes for something the owner just chose.
+    The follow edge is re-read by id, so an unfollow before the job ran sends
+    nothing, even if the two later follow again some other way; once per
+    follower per window, so follow/unfollow/follow does not repeat it.
+    """
+    edge = UserFollow.objects.select_related('user_from', 'user_to').filter(pk=follow_id).first()
+    if edge is None:
+        return
+    follower, followee = edge.user_from, edge.user_to
+    if not _may_notify(followee, follower):
+        return
+    if not _first_follow(PUSH_TYPE_NEW_FOLLOWER, follower.pk, followee.pk):
+        return
+    payload = push.build_follow_payload(
+        PUSH_TYPE_NEW_FOLLOWER, follower, f"{follower.username} started following you",
+        "Tap to see their profile.")
+    _send(followee, payload, push_source_type(PUSH_TYPE_NEW_FOLLOWER, _source(followee, follower)))
+
+
+def push_follow_accepted(follow_id):
+    """Tell a requester the private account they asked to follow accepted
+    (issue #604).
+
+    Only for an explicit approval: requests converted in bulk when an account
+    goes public send nothing, as with push_new_follower. The follow edge the
+    approval created is re-read by id, so a requester who unfollowed (or was
+    blocked, which removes the edge) before the job ran hears nothing. The
+    source is the category the requester asked for, now on their follow edge.
+    Once per pair per window.
+    """
+    edge = UserFollow.objects.select_related('user_from', 'user_to').filter(pk=follow_id).first()
+    if edge is None:
+        return
+    requester, owner = edge.user_from, edge.user_to
+    if not _may_notify(requester, owner):
+        return
+    if not _first_follow(PUSH_TYPE_FOLLOW_ACCEPTED, owner.pk, requester.pk):
+        return
+    payload = push.build_follow_payload(
+        PUSH_TYPE_FOLLOW_ACCEPTED, owner, f"{owner.username} accepted your follow request",
+        "Tap to see their posts.")
+    _send(requester, payload, push_source_type(PUSH_TYPE_FOLLOW_ACCEPTED, edge.category))

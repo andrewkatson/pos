@@ -664,6 +664,10 @@ export interface ProfileDetails extends PublicProfileDetails {
   profile_image_status?: ProfileImageStatus
   profile_image_reason_code?: string | null
   pending_profile_image_url?: string | null
+  /** Whether the viewer has a standing report of this account, and their
+   * reason (issue #602). Absent on your own profile and on older backends. */
+  is_reported?: boolean
+  report_reason?: string | null
 }
 
 // ---------------------------------------------------------------------------

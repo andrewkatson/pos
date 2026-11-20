@@ -1881,6 +1881,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(deletePostAction.waitForExistence(timeout: TestConstants.shortTimeout))
         deletePostAction.tap()
 
+        // Delete asks for confirmation first, since it can't be undone.
+        // firstMatch: the alert's button is exposed twice, like the menu row's.
+        let confirmDelete = app.alerts["Delete Post?"].buttons["Delete"].firstMatch
+        XCTAssertTrue(confirmDelete.waitForExistence(timeout: TestConstants.shortTimeout))
+        confirmDelete.tap()
+
         // Deleting pops the Post Detail view back to the Home grid it was
         // opened from. The deletion round-trips through the API before the
         // pop, so wait for the view to go away rather than asserting instantly.
@@ -1919,6 +1925,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let deleteCommentAction = app.buttons["DeleteCommentActionButton"].firstMatch
         XCTAssertTrue(deleteCommentAction.waitForExistence(timeout: TestConstants.shortTimeout))
         deleteCommentAction.tap()
+
+        // Delete asks for confirmation first, since it can't be undone.
+        // firstMatch: the alert's button is exposed twice, like the menu row's.
+        let confirmDelete = app.alerts["Delete Comment?"].buttons["Delete"].firstMatch
+        XCTAssertTrue(confirmDelete.waitForExistence(timeout: TestConstants.shortTimeout))
+        confirmDelete.tap()
 
         // The comment is removed from the thread.
         let commentElements = app.staticTexts.matching(identifier: "CommentText")

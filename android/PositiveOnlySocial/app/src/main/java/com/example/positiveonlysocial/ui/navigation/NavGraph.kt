@@ -74,13 +74,42 @@ fun NavGraph(
     // parsed in MainActivity, held the same way until a session exists. It
     // pushes the ordinary Profile screen — the same one a search result opens —
     // so your own username lands on your own profile with Follow / Block hidden.
+    // A follow notification (issue #604) arrives the same way. Every request
+    // gets a fresh Profile entry, never launchSingleTop: that would reuse the
+    // Profile entry on top and its ViewModel, and ProfileBody fetches only when
+    // nothing is loaded yet, so a different username would show above the
+    // previous person's bio, counts and posts. When that very profile is
+    // already on top it is replaced rather than stacked, so an accepted follow
+    // request swaps the old "private" view for the posts it unlocked without
+    // leaving a duplicate behind it.
     val pendingProfileUsername by PushNavigator.pendingProfileUsername.collectAsState()
     LaunchedEffect(pendingProfileUsername, pushIsLoggedIn) {
         val username = pendingProfileUsername ?: return@LaunchedEffect
         if (!pushIsLoggedIn) return@LaunchedEffect
         PushNavigator.clearProfileRequest()
+        val top = navController.currentBackStackEntry
+        val sameProfileOnTop = top != null && top.destination.route == Screen.Profile.route &&
+            top.arguments?.getString("username") == username
         navController.navigate(Screen.Profile.createRoute(username)) {
-            launchSingleTop = true
+            if (sameProfileOnTop) {
+                popUpTo(top!!.destination.id) { inclusive = true }
+            }
+        }
+    }
+
+    // A tapped follow-request notification (issue #604) opens the signed-in
+    // user's incoming requests — the screen the profile's "Follow requests"
+    // link opens — once a session exists, like the requests above. If that
+    // screen is already open it is replaced rather than reused (popUpTo
+    // inclusive, not launchSingleTop): a fresh back-stack entry gets a fresh
+    // ViewModel that loads the list again, so the requester the notification
+    // announced is actually on it.
+    val pendingFollowRequests by PushNavigator.pendingFollowRequests.collectAsState()
+    LaunchedEffect(pendingFollowRequests, pushIsLoggedIn) {
+        if (!pendingFollowRequests || !pushIsLoggedIn) return@LaunchedEffect
+        PushNavigator.clearFollowRequestsRequest()
+        navController.navigate(Screen.FollowRequests.route) {
+            popUpTo(Screen.FollowRequests.route) { inclusive = true }
         }
     }
 
