@@ -248,7 +248,11 @@ fun PostDetailScreen(
             modifier = Modifier.fillMaxSize().padding(scaffoldPadding)
         ) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().dismissKeyboardOnTap(),
+            modifier = Modifier
+                .fillMaxSize()
+                .dismissKeyboardOnTap()
+                // Integration tests scroll this lazy list to off-screen comments.
+                .testTag("postDetailList"),
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
             if (isLoading && postDetail == null) {
