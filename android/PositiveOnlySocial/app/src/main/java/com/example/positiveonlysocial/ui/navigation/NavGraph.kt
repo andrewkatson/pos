@@ -86,13 +86,17 @@ fun NavGraph(
 
     // A tapped follow-request notification (issue #604) opens the signed-in
     // user's incoming requests — the screen the profile's "Follow requests"
-    // link opens — once a session exists, like the requests above.
+    // link opens — once a session exists, like the requests above. If that
+    // screen is already open it is replaced rather than reused (popUpTo
+    // inclusive, not launchSingleTop): a fresh back-stack entry gets a fresh
+    // ViewModel that loads the list again, so the requester the notification
+    // announced is actually on it.
     val pendingFollowRequests by PushNavigator.pendingFollowRequests.collectAsState()
     LaunchedEffect(pendingFollowRequests, pushIsLoggedIn) {
         if (!pendingFollowRequests || !pushIsLoggedIn) return@LaunchedEffect
         PushNavigator.clearFollowRequestsRequest()
         navController.navigate(Screen.FollowRequests.route) {
-            launchSingleTop = true
+            popUpTo(Screen.FollowRequests.route) { inclusive = true }
         }
     }
 
