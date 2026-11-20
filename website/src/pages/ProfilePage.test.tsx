@@ -824,3 +824,27 @@ test('a signed-out visitor cannot report the account (#602)', async () => {
   expect(screen.getByRole('menuitem', { name: 'Share' })).toBeInTheDocument()
   expect(screen.queryByRole('menuitem', { name: 'Report' })).not.toBeInTheDocument()
 })
+
+test('a profile read started before a report cannot undo it (#602)', async () => {
+  renderProfile()
+  await screen.findByText('10')
+
+  // A refresh whose profile read is still in flight when the report lands.
+  let resolveStale: (p: ProfileDetails) => void = () => {}
+  mockGetProfile.mockImplementationOnce(
+    () => new Promise<ProfileDetails>(resolve => { resolveStale = resolve }),
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+
+  await userEvent.click(screen.getByRole('button', { name: 'Profile options' }))
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Report' }))
+  await userEvent.type(screen.getByLabelText('Reason for reporting'), 'Unkind bio')
+  await userEvent.click(screen.getByRole('button', { name: 'Submit Report' }))
+  await waitFor(() => expect(mockReportAccount).toHaveBeenCalled())
+
+  resolveStale({ ...baseProfile, is_reported: false })
+  await Promise.resolve()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Profile options' }))
+  expect(screen.getByRole('menuitem', { name: 'Retract Report' })).toBeInTheDocument()
+})

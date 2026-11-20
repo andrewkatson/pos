@@ -32,7 +32,6 @@ from .constants import (
     REVIEW_STATUS_HIDDEN, TERMINAL_REVIEW_STATUSES,
 )
 from .models import AccountReport, CommentReport, ModerationReview, PostReport
-from .s3 import delete_image
 
 logger = logging.getLogger(__name__)
 
@@ -266,20 +265,21 @@ def dismiss_reports(review, moderator=None, note=''):
 def strip_profile_content(user, bio=False, photo=False, reason_code=GENERIC_REASON_CODE):
     """Clear the bio and/or the approved profile photo on a LOCKED user row.
 
-    Saves the row and returns the removed photo's URL (or None), which the
-    caller deletes from S3 only after its transaction commits. A photo upload
+    Saves the row. The removed photo's S3 object is deliberately NOT deleted
+    here: an upload key is only scoped to its owner, so the same object can
+    also back one of their posts or a pending avatar, and deleting it would
+    break that. Once nothing references it, cleanup_orphan_images (which checks
+    posts and both avatar fields) reclaims it after its grace window. A photo upload
     still under review is left alone — it is a different picture, and the
     worker classifies it on its own — so the rejected status (which tells the
     owner's client why their avatar disappeared) is only set when there is no
     pending upload whose own status it would overwrite.
     """
     fields = []
-    removed_photo_url = None
     if bio and user.bio:
         user.bio = ""
         fields.append('bio')
     if photo and user.profile_image_url:
-        removed_photo_url = user.profile_image_url
         user.profile_image_url = None
         user.profile_image_blurhash = None
         fields += ['profile_image_url', 'profile_image_blurhash']
@@ -289,7 +289,6 @@ def strip_profile_content(user, bio=False, photo=False, reason_code=GENERIC_REAS
             fields += ['profile_image_status', 'profile_image_reason_code']
     if fields:
         user.save(update_fields=fields)
-    return removed_photo_url
 
 
 def notify_owner_of_profile_removal(user, removed_parts):
@@ -324,13 +323,11 @@ def _strip_reviewed_account(review, moderator, note):
         removed_parts = [part for part, present in (('bio', bool(account.bio)),
                                                     ('profile photo', bool(account.profile_image_url)))
                          if present]
-        removed_photo_url = strip_profile_content(account, bio=True, photo=True)
+        strip_profile_content(account, bio=True, photo=True)
         review.resolve(REVIEW_STATUS_HIDDEN, moderator,
                        note or 'Bio and profile photo removed by a moderator after user reports')
     logger.info("hide_reviewed_content: account review %s removed %s.",
                 review.review_identifier, ', '.join(removed_parts) or 'nothing (already empty)')
-    if removed_photo_url:
-        delete_image(removed_photo_url)
     notify_owner_of_profile_removal(account, removed_parts)
     return review
 

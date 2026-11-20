@@ -568,4 +568,32 @@ class ProfileViewModelTest {
 
         verify(api, never()).reportAccount(any(), any(), any())
     }
+
+    @Test
+    fun `a profile read started before a report cannot undo it`() = runTest {
+        val profile = ProfileDetailsResponse("user1", 1, 1, 2, false, isReported = false)
+        whenever(api.getProfileDetails("token123", "user1")).thenReturn(Response.success(profile))
+        whenever(api.getPostsForUser("token123", "user1", 0)).thenReturn(Response.success(emptyList()))
+        whenever(api.reportAccount(any(), any(), any())).thenReturn(Response.success(GenericResponse("Account reported", null)))
+        viewModel.fetchProfile("user1")
+
+        // A refresh whose profile read is still in flight when the report lands.
+        val gate = CompletableDeferred<Unit>()
+        api.stub {
+            onBlocking { getProfileDetails("token123", "user1") } doSuspendableAnswer {
+                gate.await()
+                Response.success(profile)
+            }
+        }
+        viewModel.refreshProfile("user1")
+        viewModel.reportAccount("user1", "Unkind bio")
+        advanceUntilIdle()
+        assertTrue(viewModel.isAccountReported.value)
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.isAccountReported.value)
+        assertEquals("Unkind bio", viewModel.accountReportReason.value)
+    }
 }

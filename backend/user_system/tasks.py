@@ -948,7 +948,6 @@ def _finish_account_review(review, account):
 
     now = timezone.now()
     removed_parts = []
-    removed_photo_url = None
     with transaction.atomic():
         # The user's row first, then the review row — the shared lock order.
         locked = PositiveOnlySocialUser.objects.select_for_update(no_key=True).filter(pk=account.pk).first()
@@ -964,7 +963,7 @@ def _finish_account_review(review, account):
             removed_parts.append('bio')
         if strip_photo:
             removed_parts.append('profile photo')
-        removed_photo_url = moderation.strip_profile_content(
+        moderation.strip_profile_content(
             locked, bio=strip_bio, photo=strip_photo, reason_code=photo_result.public_reason_code())
 
         notes = [f"Removed the {part} (automated review)" for part in removed_parts]
@@ -982,8 +981,8 @@ def _finish_account_review(review, account):
 
     logger.info("review_reported_content: account review %s is %s (removed: %s).",
                 review_identifier, claimed.status, ', '.join(removed_parts) or 'nothing')
-    if removed_photo_url:
-        delete_image(removed_photo_url)
+    # The removed photo's S3 object is left to cleanup_orphan_images, which only
+    # reclaims it once no post or avatar references it (see strip_profile_content).
     moderation.notify_owner_of_profile_removal(locked, removed_parts)
 
 

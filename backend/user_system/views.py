@@ -5435,10 +5435,15 @@ def set_bio(request):
 
     user = request.user
 
-    # A blank bio just clears it — nothing to classify.
+    # A blank bio just clears it — nothing to classify. Still a profile change,
+    # so it releases any report-review decision exactly like a new bio does
+    # (see moderation.profile_content_changed).
     if not bio.strip():
-        user.bio = ""
-        user.save(update_fields=['bio'])
+        with transaction.atomic():
+            moderation.lock_reviewed_content(account=user)
+            user.bio = ""
+            user.save(update_fields=['bio'])
+            moderation.profile_content_changed(user)
         logger.info(f"Bio cleared for user_id: {user.id}")
         return log_and_return_json("set_bio", {
             Fields.bio: "",

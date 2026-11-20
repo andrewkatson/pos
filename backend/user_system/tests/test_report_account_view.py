@@ -8,7 +8,7 @@ from django.urls import reverse
 from .test_constants import UserFields
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..classifiers.classifier_utils import ClassificationResult
-from ..constants import Fields, MAX_REPORTS_PER_USER_PER_DAY, REVIEW_STATUS_CLEARED
+from ..constants import Fields, MAX_REPORTS_PER_USER_PER_DAY, REVIEW_STATUS_CLEARED, REVIEW_STATUS_DISMISSED
 from ..models import AccountReport, ModerationReview, PositiveOnlySocialUser
 
 ALLOWED = ClassificationResult(allowed=True)
@@ -144,3 +144,19 @@ class ReportAccountTests(PositiveOnlySocialTestCase):
         data = self._profile(self.target_header).json()
         self.assertNotIn(Fields.is_reported, data)
         self.assertNotIn(Fields.report_reason, data)
+
+    # --- profile changes release a decision -------------------------------
+
+    def test_clearing_the_bio_releases_a_dismissal(self, text):
+        PositiveOnlySocialUser.objects.filter(pk=self.target.pk).update(bio='an old bio')
+        self._report()
+        ModerationReview.objects.filter(account=self.target).update(status=REVIEW_STATUS_DISMISSED)
+        text.reset_mock()
+
+        response = self.client.post(reverse('set_bio'), data={Fields.bio: '   '},
+                                    content_type='application/json', **self.target_header)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ModerationReview.objects.get(account=self.target).status, REVIEW_STATUS_CLEARED)
+        self.target.refresh_from_db()
+        self.assertEqual(self.target.bio, '')

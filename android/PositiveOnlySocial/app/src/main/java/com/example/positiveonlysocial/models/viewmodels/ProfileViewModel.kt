@@ -248,6 +248,7 @@ class ProfileViewModel(
                 loadedUsername = username
 
                 // Fetch Profile Details
+                val reportGen = reportStateGeneration
                 val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
                 if (generation != loadGeneration) return@launch
                 if (profileResponse.isSuccessful) {
@@ -257,7 +258,7 @@ class ProfileViewModel(
                     _isFollowing.value = profile?.isFollowing ?: false
                     _followCategory.value = FollowCategory.from(profile?.followCategory)
                     _isBlocked.value = profile?.isBlocked ?: false
-                    applyReportState(profile)
+                    applyReportState(profile, reportGen)
                 } else {
                     _errorMessage.value = ApiErrors.messageFor(profileResponse, fallback = "Failed to load this profile. Please try again.")
                 }
@@ -318,6 +319,8 @@ class ProfileViewModel(
                     return@launch
                 }
 
+                val reportGen = reportStateGeneration
+
                 val profileResponse = api.getProfileDetails(userSession.sessionToken, username)
                 if (generation != loadGeneration) return@launch
                 if (profileResponse.isSuccessful) {
@@ -327,7 +330,7 @@ class ProfileViewModel(
                     _isFollowing.value = profile?.isFollowing ?: false
                     _followCategory.value = FollowCategory.from(profile?.followCategory)
                     _isBlocked.value = profile?.isBlocked ?: false
-                    applyReportState(profile)
+                    applyReportState(profile, reportGen)
                 } else {
                     // Surface the failure instead of silently leaving follow/block
                     // state stale (mirrors fetchProfile()).
@@ -558,13 +561,14 @@ class ProfileViewModel(
      * without disturbing pagination.
      */
     private suspend fun reloadProfileDetails(username: String, token: String) {
+        val reportGen = reportStateGeneration
         val profileResponse = api.getProfileDetails(token, username)
         if (profileResponse.isSuccessful) {
             val profile = profileResponse.body()
             _profileDetails.value = profile
             _isFollowing.value = profile?.isFollowing ?: false
             _isBlocked.value = profile?.isBlocked ?: false
-            applyReportState(profile)
+            applyReportState(profile, reportGen)
         } else {
             // The set/remove itself succeeded but this refresh didn't, so the
             // header would keep showing the old avatar/state. Surface it as a
@@ -861,7 +865,15 @@ class ProfileViewModel(
         }
     }
 
-    private fun applyReportState(profile: ProfileDetailsResponse?) {
+    // Bumped by every confirmed report or retraction (issue #602). Each profile
+    // read captures it before its request and applies the report state only if
+    // it is unchanged, so a read that was already in flight cannot land after
+    // the mutation and restore the old menu action. Separate from
+    // loadGeneration so the posts load alongside it is not discarded.
+    private var reportStateGeneration = 0
+
+    private fun applyReportState(profile: ProfileDetailsResponse?, generation: Int) {
+        if (generation != reportStateGeneration) return
         _isAccountReported.value = profile?.isReported ?: false
         _accountReportReason.value = profile?.reportReason
     }
@@ -887,6 +899,7 @@ class ProfileViewModel(
                 }
                 val response = api.reportAccount(userSession.sessionToken, username, ReportRequest(trimmed))
                 if (response.isSuccessful) {
+                    reportStateGeneration++
                     _isAccountReported.value = true
                     _accountReportReason.value = trimmed
                 } else {
@@ -909,6 +922,7 @@ class ProfileViewModel(
                 }
                 val response = api.retractReportAccount(userSession.sessionToken, username)
                 if (response.isSuccessful) {
+                    reportStateGeneration++
                     _isAccountReported.value = false
                     _accountReportReason.value = null
                 } else {

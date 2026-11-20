@@ -2,6 +2,9 @@ from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
 from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
+from django.utils.html import format_html
+
+from .cloudfront import sign_original_url
 
 from . import moderation
 from .constants import BAN_TYPE_OUTRIGHT, BAN_TYPE_SHADOW, APPEAL_STATUS_PENDING
@@ -214,7 +217,8 @@ class ModerationReviewAdmin(admin.ModelAdmin):
     # Reviews are written by the report pipeline and resolved via the actions
     # below, so nothing here is hand-edited — admins act, they don't type.
     readonly_fields = ("review_identifier", "post", "comment", "account", "status", "author",
-                       "target_summary", "reported_reasons", "report_count",
+                       "target_summary", "account_bio", "account_photo",
+                       "reported_reasons", "report_count",
                        "classifier_chain",
                        "reports_at_last_review", "review_attempts", "created",
                        "updated", "reviewed_time", "resolved_time", "resolved_by",
@@ -268,6 +272,26 @@ class ModerationReviewAdmin(admin.ModelAdmin):
         if review.post_id and target.image_url and not text:
             return "(image only)"
         return (text[:80] + '…') if len(text) > 80 else (text or '—')
+
+    @admin.display(description="Bio")
+    def account_bio(self, review):
+        """An account review's full bio (issue #602): the list summary is
+        truncated, and a complaint can be about any part of it. Plain string,
+        so the admin escapes it."""
+        if not review.account_id:
+            return '—'
+        return review.account.bio or '—'
+
+    @admin.display(description="Profile photo")
+    def account_photo(self, review):
+        """A signed link to an account review's approved photo (issue #602), so
+        a moderator can see what was reported. format_html escapes the URL."""
+        if not review.account_id or not review.account.profile_image_url:
+            return '—'
+        url = sign_original_url(review.account.profile_image_url)
+        if not url:
+            return '—'
+        return format_html('<a href="{}" target="_blank" rel="noopener noreferrer">Open photo</a>', url)
 
     @admin.display(description="Author")
     def author(self, review):

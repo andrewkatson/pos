@@ -88,6 +88,18 @@ class ProfileViewModel: ObservableObject {
     @Published var showRetractAccountReportDialog = false
     @Published var reportErrorMessage: String?
 
+    /// Applies a confirmed report/retraction. A profile read still in flight
+    /// would otherwise land afterwards and restore the old report state, so
+    /// this supersedes it; if that read was the initial load (no details yet),
+    /// a replacement is started.
+    private func markAccountReported(_ reported: Bool) {
+        detailsRefreshGeneration += 1
+        isAccountReported = reported
+        if profileDetails == nil {
+            Task { await refreshProfileDetails() }
+        }
+    }
+
     func reportAccount(reason: String) {
         let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isOwnProfile, !isBusy else { return }
@@ -100,7 +112,7 @@ class ProfileViewModel: ObservableObject {
                 }
                 _ = try await api.reportAccount(sessionManagementToken: userSession.sessionToken,
                                                 username: user.username, reason: trimmed)
-                isAccountReported = true
+                markAccountReported(true)
             } catch {
                 NSLog("%@", "Error reporting account \(user.username): \(error)")
                 reportErrorMessage = "Could not report this account. Please try again."
@@ -120,7 +132,7 @@ class ProfileViewModel: ObservableObject {
                 }
                 _ = try await api.retractReportAccount(sessionManagementToken: userSession.sessionToken,
                                                        username: user.username)
-                isAccountReported = false
+                markAccountReported(false)
             } catch {
                 NSLog("%@", "Error retracting report of \(user.username): \(error)")
                 reportErrorMessage = "Could not retract your report. Please try again."

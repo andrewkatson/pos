@@ -100,8 +100,11 @@ depends on the part:
 
 - **Bio** — removed (set to empty), exactly the state a bio rejected on write
   would have left. The owner is emailed and can write a new one.
-- **Photo** — removed, its S3 object deleted, and the owner told via
-  `profile_image_status = "rejected"` and its reason code (plus an email). A
+- **Photo** — removed and the owner told via `profile_image_status =
+  "rejected"` and its reason code (plus an email). Its S3 object is not deleted
+  on the spot — an upload key is only scoped to its owner, so the same object
+  can also back one of their posts or a pending avatar — and
+  `cleanup_orphan_images` reclaims it once nothing references it. A
   photo upload still pending its own classification is a different picture and
   is left alone, along with its pending status.
 - **Username** — a username is fixed once chosen, so it cannot be removed: the
@@ -115,8 +118,9 @@ its own way in. A profile that passes, or whose failing bio/photo was removed,
 is `cleared`, and further reports count toward a human look as for posts. A
 provider outage retries and then escalates, never removes.
 
-In the moderator queue an account review shows the username, whether there is a
-photo, and the bio. *Hide* removes the bio and photo (the account itself is
+In the moderator queue an account review lists the username, whether there is a
+photo, and the start of the bio; its detail page adds the full bio and a signed
+link to the photo. *Hide* removes the bio and photo (the account itself is
 untouched — banning stays the user admin's job); *Dismiss* leaves the profile as
 it is, and cannot restore a bio or photo an earlier step removed.
 
@@ -124,7 +128,7 @@ One difference from posts: a profile keeps changing. A decision about it must
 not bind the profile that replaces it — a dismissal would make a later,
 unacceptable bio unreportable, and a moderator's removal would leave the account
 deaf to reports forever. So when the owner saves a new bio or a new photo is
-approved, a `cleared`, `hidden` or `dismissed` account review drops back to
+approved (or clears the bio), a `cleared`, `hidden` or `dismissed` account review drops back to
 `cleared` with its escalation count reset: reports from then on are about the
 profile as it now stands. A `pending` or `escalated` review is left alone, since
 the re-review and the moderator look at the profile as it is when they reach it.

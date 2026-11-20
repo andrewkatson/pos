@@ -468,7 +468,13 @@ function ProfileView({
     setErrorMessage(null)
     try {
       await apiClient.reportAccount(username, reason)
-      if (isMounted.current) setIsReported(true)
+      if (isMounted.current) {
+        // Supersede an older profile load so it can't restore the previous
+        // report state; if that was the only load (no header yet), replace it.
+        profileGeneration.current += 1
+        setIsReported(true)
+        if (!profile) refresh()
+      }
     } catch (err) {
       if (isMounted.current) setErrorMessage(err instanceof Error ? err.message : 'Failed to report.')
     } finally {
@@ -483,7 +489,13 @@ function ProfileView({
     setErrorMessage(null)
     try {
       await apiClient.retractReportAccount(username)
-      if (isMounted.current) setIsReported(false)
+      if (isMounted.current) {
+        // Supersede an older profile load so it can't restore the previous
+        // report state; if that was the only load (no header yet), replace it.
+        profileGeneration.current += 1
+        setIsReported(false)
+        if (!profile) refresh()
+      }
     } catch (err) {
       if (isMounted.current) setErrorMessage(err instanceof Error ? err.message : 'Failed to retract report.')
     } finally {

@@ -32,7 +32,6 @@ PROVIDER_FAILURE = ClassificationResult(allowed=False, provider_failure=True)
 TEXT = 'user_system.tasks.text_classifier_class.is_text_positive'
 IMAGE = 'user_system.tasks.image_classifier_class.is_image_positive'
 TASK_DELETE = 'user_system.tasks.delete_image'
-MODERATION_DELETE = 'user_system.moderation.delete_image'
 
 PHOTO_URL = 'https://test-bucket.s3.amazonaws.com/user/avatar.jpeg'
 PENDING_URL = 'https://test-bucket.s3.amazonaws.com/user/pending.jpeg'
@@ -140,7 +139,9 @@ class AccountReviewTests(TestCase):
         self.assertEqual(self.account.profile_image_reason_code, 'nudity')
         self.assertEqual(self.account.bio, BIO)
         self.assertEqual(review.status, REVIEW_STATUS_CLEARED)
-        delete.assert_called_once_with(PHOTO_URL)
+        # Not deleted at once: the same key may back a post or pending avatar,
+        # so cleanup_orphan_images reclaims it once nothing references it.
+        delete.assert_not_called()
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn('profile photo', mail.outbox[0].body)
 
@@ -159,7 +160,9 @@ class AccountReviewTests(TestCase):
         # still to come; its pending status must survive.
         self.assertEqual(self.account.pending_profile_image_url, PENDING_URL)
         self.assertEqual(self.account.profile_image_status, PROFILE_IMAGE_STATUS_PENDING)
-        delete.assert_called_once_with(PHOTO_URL)
+        # Not deleted at once: the same key may back a post or pending avatar,
+        # so cleanup_orphan_images reclaims it once nothing references it.
+        delete.assert_not_called()
 
     @patch(TASK_DELETE)
     @patch(IMAGE, return_value=ALLOWED)
@@ -273,7 +276,7 @@ class AccountReviewTests(TestCase):
     def _escalated_review(self):
         return ModerationReview.objects.create(account=self.account, status=REVIEW_STATUS_ESCALATED)
 
-    @patch(MODERATION_DELETE)
+    @patch(TASK_DELETE)
     def test_a_moderator_hide_removes_the_bio_and_photo(self, delete):
         AccountReport.objects.create(user=self.reporters[0], reported_user=self.account, reason='x')
         moderator = PositiveOnlySocialUser.objects.create(username='the_moderator', email='mod@test.com')
@@ -290,10 +293,12 @@ class AccountReviewTests(TestCase):
         # The account itself is untouched: banning is the user admin's job.
         self.assertTrue(PositiveOnlySocialUser.objects.filter(pk=self.account.pk).exists())
         self.assertFalse(self.account.bans.exists())
-        delete.assert_called_once_with(PHOTO_URL)
+        # Not deleted at once: the same key may back a post or pending avatar,
+        # so cleanup_orphan_images reclaims it once nothing references it.
+        delete.assert_not_called()
         self.assertEqual(len(mail.outbox), 1)
 
-    @patch(MODERATION_DELETE)
+    @patch(TASK_DELETE)
     def test_a_moderator_dismissal_leaves_the_profile_alone(self, delete):
         review = self._escalated_review()
 
@@ -375,3 +380,13 @@ class AccountReviewTests(TestCase):
         self.assertIn(BIO, model_admin.target_summary(review))
         self.assertEqual(model_admin.reported_reasons(review), '• their bio is mean')
         self.assertEqual(model_admin.classifier_chain(review), '—')
+        self.assertEqual(model_admin.account_bio(review), BIO)
+        self.assertIn(PHOTO_URL, model_admin.account_photo(review))
+        self.assertIn('noopener', model_admin.account_photo(review))
+
+    def test_the_admin_evidence_fields_are_blank_for_content_reviews(self):
+        post = self.account.post_set.create(caption='a post')
+        review = ModerationReview.objects.create(post=post)
+        model_admin = ModerationReviewAdmin(ModerationReview, None)
+        self.assertEqual(model_admin.account_bio(review), '—')
+        self.assertEqual(model_admin.account_photo(review), '—')
