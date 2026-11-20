@@ -159,6 +159,33 @@ fun PostDetailScreen(
             )
         }
 
+        // Deleting a comment can't be undone — and on your own post it may be
+        // someone else's (issue #603) — so the menu's Delete asks first.
+        val commentToDelete by viewModel.commentToDelete.collectAsState()
+        commentToDelete?.let { comment ->
+            AlertDialog(
+                onDismissRequest = { viewModel.setCommentToDelete(null) },
+                title = { Text("Delete Comment?") },
+                text = { Text("This can’t be undone.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.setCommentToDelete(null)
+                            viewModel.deleteComment(comment, comment.threadId)
+                        },
+                        modifier = Modifier.testTag("ConfirmDeleteCommentButton")
+                    ) {
+                        Text("Delete")
+                    }
+                },
+                dismissButton = {
+                    Button(onClick = { viewModel.setCommentToDelete(null) }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
         val commentToRetract by viewModel.commentToRetract.collectAsState()
         commentToRetract?.let { comment ->
             RetractReportDialog(
@@ -564,7 +591,8 @@ fun CommentThreadView(
             },
             onReport = { viewModel.setCommentToReport(comment) },
             onRetract = { viewModel.setCommentToRetract(comment) },
-            onDelete = { viewModel.deleteComment(comment, comment.threadId) },
+            // Asks first: see the "Delete Comment?" dialog on the screen.
+            onDelete = { viewModel.setCommentToDelete(comment) },
             // Your own comments, and anyone's comment on your own post (issue #603).
             canDelete = viewModel.canDeleteComment(comment),
             // Edit your own comment (issue #462) while the post accepts comments.

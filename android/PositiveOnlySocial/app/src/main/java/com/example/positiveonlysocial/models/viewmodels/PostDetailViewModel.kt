@@ -79,6 +79,12 @@ class PostDetailViewModel(
     private val _commentToRetract = MutableStateFlow<CommentViewData?>(null)
     val commentToRetract: StateFlow<CommentViewData?> = _commentToRetract.asStateFlow()
 
+    // Drives the "Delete Comment?" confirmation. Deleting can't be undone, and on
+    // your own post it may be someone else's comment (issue #603), so the menu
+    // asks first instead of deleting on the tap.
+    private val _commentToDelete = MutableStateFlow<CommentViewData?>(null)
+    val commentToDelete: StateFlow<CommentViewData?> = _commentToDelete.asStateFlow()
+
     // Set once the post has been deleted so the screen can pop back — the post
     // no longer exists to display.
     private val _postWasDeleted = MutableStateFlow(false)
@@ -222,6 +228,10 @@ class PostDetailViewModel(
 
     fun setShowRetractDialogForPost(show: Boolean) {
         _showRetractDialogForPost.value = show
+    }
+
+    fun setCommentToDelete(comment: CommentViewData?) {
+        _commentToDelete.value = comment
     }
 
     fun setCommentToRetract(comment: CommentViewData?) {

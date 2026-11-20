@@ -337,7 +337,7 @@ struct CommentRowView: View {
             // #603) — so someone else's comment there offers Report and Delete.
             if viewModel.canDeleteComment(comment) {
                 menuRow("Delete Comment", identifier: "DeleteCommentActionButton", isDestructive: true) {
-                    viewModel.deleteComment(comment)
+                    viewModel.commentToDelete = comment
                 }
             }
         }

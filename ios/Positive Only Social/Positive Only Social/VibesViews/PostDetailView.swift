@@ -332,6 +332,24 @@ struct PostDetailView: View {
         } message: { comment in
             Text("You reported this comment with the reason: “\(comment.reportReason ?? "")”. Retracting removes your report.")
         }
+        // Deleting a comment can't be undone — and on your own post it may be
+        // someone else's (issue #603) — so the menu's Delete asks first.
+        .alert(
+            "Delete Comment?",
+            isPresented: Binding(
+                get: { viewModel.commentToDelete != nil },
+                set: { if !$0 { viewModel.commentToDelete = nil } }
+            ),
+            presenting: viewModel.commentToDelete
+        ) { comment in
+            Button("Delete", role: .destructive) {
+                viewModel.deleteComment(comment)
+            }
+            .accessibilityIdentifier("ConfirmDeleteCommentButton")
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("This can’t be undone.")
+        }
         // --- Modals and Sheets ---
         .sheet(isPresented: $viewModel.showReportSheetForPost) {
             ReportView { reason in

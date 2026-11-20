@@ -1920,6 +1920,11 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(deleteCommentAction.waitForExistence(timeout: TestConstants.shortTimeout))
         deleteCommentAction.tap()
 
+        // Delete asks for confirmation first, since it can't be undone.
+        let confirmDelete = app.alerts["Delete Comment?"].buttons["Delete"]
+        XCTAssertTrue(confirmDelete.waitForExistence(timeout: TestConstants.shortTimeout))
+        confirmDelete.tap()
+
         // The comment is removed from the thread.
         let commentElements = app.staticTexts.matching(identifier: "CommentText")
         expectation(for: NSPredicate(format: "count == 0"), evaluatedWith: commentElements, handler: nil)

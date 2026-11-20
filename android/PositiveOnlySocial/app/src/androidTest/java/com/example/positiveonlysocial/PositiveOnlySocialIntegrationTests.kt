@@ -667,6 +667,10 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Report Comment").assertDoesNotExist()
         composeTestRule.onNodeWithText("Delete Comment").performClick()
 
+        // Delete asks for confirmation first, since it can't be undone.
+        composeTestRule.onNodeWithText("Delete Comment?").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("ConfirmDeleteCommentButton").performClick()
+
         // The comment is removed from the thread.
         composeTestRule.waitUntil(timeoutMillis = 5_000) {
             composeTestRule.onAllNodesWithText("Comment to Delete").fetchSemanticsNodes().isEmpty()

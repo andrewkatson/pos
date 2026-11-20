@@ -52,6 +52,11 @@ final class PostDetailViewModel: ObservableObject {
     @Published var showRetractDialogForPost = false
     @Published var commentToRetract: CommentViewData?
 
+    /// Drives the "Delete Comment?" confirmation. Deleting can't be undone, and
+    /// on your own post it may be someone else's comment (issue #603), so the
+    /// menu asks first instead of deleting on the tap.
+    @Published var commentToDelete: CommentViewData?
+
     /// Drives the native share sheet for the post / a comment (issue #34). Set
     /// by the action menu's "Share" button and presented as a `.sheet(item:)`;
     /// `nil` when no share sheet is showing. Sharing is offered for any post or
