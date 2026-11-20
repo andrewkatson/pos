@@ -136,13 +136,18 @@ DEVICE_PLATFORMS = frozenset(value for value, _ in DEVICE_PLATFORM_CHOICES)
 MAX_DEVICE_TOKEN_LENGTH = 1024
 
 # Machine-readable "type" on a push payload's data dict so a client can branch
-# on why it was notified and deep-link accordingly. Every kind carries a
+# on why it was notified and deep-link accordingly. The post kinds carry a
 # post_identifier the client opens on tap: the rejected post, the new post, or
-# the post a comment or like landed on.
+# the post a comment or like landed on. The follow kinds below carry a username.
 PUSH_TYPE_POST_REJECTED = "post_rejected"
 PUSH_TYPE_NEW_POST = "new_post"
 PUSH_TYPE_NEW_COMMENT = "new_comment"
 PUSH_TYPE_NEW_LIKE = "new_like"
+# Follow activity (issue #604): a follow request to a private account, and a new
+# follower of a public one. These are about a person, not a post, so their data
+# map carries the actor's `username` instead of a post_identifier.
+PUSH_TYPE_FOLLOW_REQUEST = "follow_request"
+PUSH_TYPE_NEW_FOLLOWER = "new_follower"
 
 # The master switch (issue #444): off silences every push type below it. It is
 # a preference type only — no payload is ever sent with it.
@@ -151,8 +156,9 @@ PUSH_TYPE_ALL = "all"
 # Who an interaction came from, from the recipient's side (issue #444): the
 # category the recipient gave the actor on their own follow edge, or "other"
 # when the recipient does not follow the actor at all. New posts only ever
-# reach followers, so they have no "other" source; comments and likes can come
-# from anyone who can see the content.
+# reach followers, so they have no "other" source; comments, likes, follow
+# requests and new followers can come from anyone (for the last two, "other" is
+# someone the recipient does not follow back).
 PUSH_SOURCE_OTHER = "other"
 PUSH_SOURCE_LABELS = {
     FOLLOW_CATEGORY_FOLLOWING: "From people I follow",
@@ -189,6 +195,8 @@ PUSH_TYPE_TREE = [
     *_push_kind_rows(PUSH_TYPE_NEW_POST, "New posts", _FOLLOW_SOURCES),
     *_push_kind_rows(PUSH_TYPE_NEW_COMMENT, "Comments and replies", _ANY_SOURCE),
     *_push_kind_rows(PUSH_TYPE_NEW_LIKE, "Likes", _ANY_SOURCE),
+    *_push_kind_rows(PUSH_TYPE_NEW_FOLLOWER, "New followers", _ANY_SOURCE),
+    *_push_kind_rows(PUSH_TYPE_FOLLOW_REQUEST, "Follow requests", _ANY_SOURCE),
 ]
 PUSH_TYPE_PARENTS = {value: parent for value, _, parent in PUSH_TYPE_TREE}
 PUSH_TYPES = frozenset(PUSH_TYPE_PARENTS)

@@ -83,11 +83,11 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
 
     // MARK: - UNUserNotificationCenterDelegate
 
-    /// A notification was tapped — route to the post it is about, if any.
+    /// A notification was tapped — route to what it is about, if anything.
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        routeToPost(userInfo: response.notification.request.content.userInfo)
+        route(userInfo: response.notification.request.content.userInfo)
         completionHandler()
     }
 
@@ -99,22 +99,26 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
         completionHandler([.banner, .sound])
     }
 
-    /// Pull `post_identifier` out of the payload's `data` map (the shape the
-    /// backend sends under the APNs `data` key) and hand it to the router. Gated
-    /// on the `type` tag so only the kinds known to be about a post (a
-    /// rejection, a new post, a comment or a like — #342/#444) route to one; any
-    /// future push kind is ignored here rather than mis-routed.
-    private func routeToPost(userInfo: [AnyHashable: Any]) {
+    /// Route a tapped notification by its payload's `data` map (the shape the
+    /// backend sends under the APNs `data` key), gated on the `type` tag so only
+    /// known kinds route anywhere and any future kind is ignored rather than
+    /// mis-routed: the post kinds (a rejection, a new post, a comment or a like
+    /// — #342/#444) open their `post_identifier`; a follow request opens the
+    /// follow-request list, and a new follower that follower's profile (#604).
+    private func route(userInfo: [AnyHashable: Any]) {
         // APNs bridges the nested JSON object as [AnyHashable: Any] (from
         // NSDictionary), so cast to that — [String: Any] can fail on a valid
         // payload and silently drop the tap.
         guard let data = userInfo["data"] as? [AnyHashable: Any],
-              let type = data["type"] as? String, POST_PUSH_TYPES.contains(type),
-              let postIdentifier = data["post_identifier"] as? String else {
+              let type = data["type"] as? String else {
             return
         }
-        DispatchQueue.main.async {
-            PushRouter.shared.openPost(postIdentifier)
+        if POST_PUSH_TYPES.contains(type), let postIdentifier = data["post_identifier"] as? String {
+            DispatchQueue.main.async { PushRouter.shared.openPost(postIdentifier) }
+        } else if type == FOLLOW_REQUEST_PUSH_TYPE {
+            DispatchQueue.main.async { PushRouter.shared.openFollowRequests() }
+        } else if type == NEW_FOLLOWER_PUSH_TYPE, let username = data["username"] as? String, !username.isEmpty {
+            DispatchQueue.main.async { PushRouter.shared.openProfile(username) }
         }
     }
 }
@@ -122,3 +126,6 @@ final class PushNotifications: NSObject, UNUserNotificationCenterDelegate {
 // The machine-readable `type`s on a push's data map that carry a post to open,
 // mirroring the backend's PUSH_TYPE_* kinds (user_system/constants.py).
 private let POST_PUSH_TYPES: Set<String> = ["post_rejected", "new_post", "new_comment", "new_like"]
+// Follow kinds (#604), which carry a `username` instead of a post.
+private let FOLLOW_REQUEST_PUSH_TYPE = "follow_request"
+private let NEW_FOLLOWER_PUSH_TYPE = "new_follower"

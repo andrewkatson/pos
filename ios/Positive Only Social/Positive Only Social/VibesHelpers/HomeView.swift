@@ -101,6 +101,18 @@ struct HomeView: View {
             profilePath = newPath
             pushRouter.pendingProfileUsername = nil
         }
+        // A tapped follow-request notification (issue #604) opens the signed-in
+        // user's incoming requests on the Profile tab, where they can approve
+        // or deny it — the same screen the profile's "Follow requests" link
+        // pushes.
+        .onReceive(pushRouter.$pendingFollowRequests) { pending in
+            guard pending else { return }
+            currentTab = GVOAppConstants.profileTabIndex
+            var newPath = NavigationPath()
+            newPath.append(FollowRequestsDestination())
+            profilePath = newPath
+            pushRouter.pendingFollowRequests = false
+        }
     }
 }
 

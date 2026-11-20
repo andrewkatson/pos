@@ -29,6 +29,7 @@ from django.conf import settings
 from .constants import (
     DEVICE_PLATFORM_IOS, DEVICE_PLATFORM_ANDROID, DEVICE_PLATFORM_WEB,
     PUSH_TYPE_POST_REJECTED, PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE,
+    PUSH_TYPE_FOLLOW_REQUEST, PUSH_TYPE_NEW_FOLLOWER,
     PUSH_TYPE_PARENTS,
 )
 from .models import DeviceToken, NotificationPreference
@@ -50,13 +51,17 @@ _apns_jwt_cache = {"token": None, "minted_at": 0.0}
 _FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
 
 # Android notification channels, matching the ids the app registers at launch
-# (PosFirebaseMessagingService). Social activity (issue #444) has its own
-# channel so a user can mute it in system settings without muting rejections.
+# (PosFirebaseMessagingService). Social activity (issue #444) — follow activity
+# (#604) included — has its own channel so a user can mute it in system
+# settings without muting rejections.
 # Named in the FCM payload because a message arriving while the app is in the
 # background is displayed by the system, never reaching the app's own code.
 ANDROID_CHANNEL_POST_MODERATION = "post_moderation"
 ANDROID_CHANNEL_ACTIVITY = "activity"
-_ACTIVITY_PUSH_TYPES = frozenset({PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE})
+_ACTIVITY_PUSH_TYPES = frozenset({
+    PUSH_TYPE_NEW_POST, PUSH_TYPE_NEW_COMMENT, PUSH_TYPE_NEW_LIKE,
+    PUSH_TYPE_FOLLOW_REQUEST, PUSH_TYPE_NEW_FOLLOWER,
+})
 
 
 def android_channel_for(data):
@@ -129,6 +134,31 @@ def build_activity_payload(kind, post, title, body_text):
             "type": kind,
             "post_identifier": post_id,
             "deep_link": f"{settings.FRONTEND_BASE_URL}/post/{post_id}",
+        },
+    }
+
+
+def build_follow_payload(kind, actor, title, body):
+    """Build the push payload for follow activity (issue #604): a follow request
+    to a private account, or a new follower.
+
+    These are about a person, not a post, so ``data`` carries the actor's
+    ``username`` rather than a post_identifier. A request deep-links to the
+    owner's follow-request list, where it can be approved or denied; a new
+    follower deep-links to the follower's profile. Every value is a string, as
+    with the other payloads.
+    """
+    if kind == PUSH_TYPE_FOLLOW_REQUEST:
+        deep_link = f"{settings.FRONTEND_BASE_URL}/follow-requests"
+    else:
+        deep_link = f"{settings.FRONTEND_BASE_URL}/profile/{quote(actor.username)}"
+    return {
+        "title": title,
+        "body": body,
+        "data": {
+            "type": kind,
+            "username": actor.username,
+            "deep_link": deep_link,
         },
     }
 

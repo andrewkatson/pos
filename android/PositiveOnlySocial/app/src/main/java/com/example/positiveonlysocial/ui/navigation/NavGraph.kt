@@ -84,6 +84,18 @@ fun NavGraph(
         }
     }
 
+    // A tapped follow-request notification (issue #604) opens the signed-in
+    // user's incoming requests — the screen the profile's "Follow requests"
+    // link opens — once a session exists, like the requests above.
+    val pendingFollowRequests by PushNavigator.pendingFollowRequests.collectAsState()
+    LaunchedEffect(pendingFollowRequests, pushIsLoggedIn) {
+        if (!pendingFollowRequests || !pushIsLoggedIn) return@LaunchedEffect
+        PushNavigator.clearFollowRequestsRequest()
+        navController.navigate(Screen.FollowRequests.route) {
+            launchSingleTop = true
+        }
+    }
+
     NavHost(
         navController = navController,
         startDestination = Screen.Welcome.route

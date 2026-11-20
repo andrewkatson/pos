@@ -2046,7 +2046,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
             Triple("new_post", "New posts", "all")
         ) + sources("new_post", false) +
             Triple("new_comment", "Comments and replies", "all") + sources("new_comment", true) +
-            Triple("new_like", "Likes", "all") + sources("new_like", true)
+            Triple("new_like", "Likes", "all") + sources("new_like", true) +
+            Triple("new_follower", "New followers", "all") + sources("new_follower", true) +
+            Triple("follow_request", "Follow requests", "all") + sources("follow_request", true)
         val prefs = tree.map { (type, label, parent) ->
             NotificationPreference(
                 type = type, label = label, parent = parent,
