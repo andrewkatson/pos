@@ -1,6 +1,7 @@
 import { useMemo, useSyncExternalStore } from 'react'
 import { getCurrentUsername } from './session'
 import { USERNAME_CHANGED_EVENT } from './sessionEvents'
+import { parseFormerUsernames } from './formerUsernames'
 
 function subscribe(onChange: () => void): () => void {
   window.addEventListener(USERNAME_CHANGED_EVENT, onChange)
@@ -33,13 +34,14 @@ function readStored(key: string): string | null {
   }
 }
 
-/** Current username plus the names given up this session (written by
- * updateStoredUsername), newline-separated: a stable string snapshot. */
+/** Current username plus the still-held names given up this session
+ * (written by updateStoredUsername), newline-separated: a stable string
+ * snapshot. A name drops out once its hold ends. */
 function ownUsernamesKey(): string {
   const current = getCurrentUsername()
   if (!current) return ''
-  const former = readStored('former_usernames') ?? ''
-  return former ? `${current}\n${former}` : current
+  const former = parseFormerUsernames(readStored('former_usernames'), Date.now())
+  return [current, ...former.map(entry => entry.name)].join('\n')
 }
 
 /**

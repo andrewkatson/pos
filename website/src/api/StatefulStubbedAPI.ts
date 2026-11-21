@@ -884,6 +884,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       pending_email: user.pendingEmail ?? null,
       has_password: !user.passwordHash.startsWith('no-password-'),
       next_username_change_time: this.nextUsernameChangeTime(user),
+      // The hold on the given-up name is as long as the cooldown (both 30 days).
+      former_username_held_until: this.nextUsernameChangeTime(user),
     }
   }
 
@@ -911,6 +913,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     return {
       username: user.username,
       next_username_change_time: this.nextUsernameChangeTime(user),
+      former_username_held_until: this.nextUsernameChangeTime(user),
       message: 'Your username has been changed.',
     }
   }

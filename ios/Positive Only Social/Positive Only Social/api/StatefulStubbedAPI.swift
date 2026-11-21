@@ -1087,8 +1087,10 @@ final class StatefulStubbedAPI: Networking {
         }
         users[userIndex].username = newUsername
         users[userIndex].usernameChangedAt = Date()
+        // The hold on the given-up name is as long as the cooldown (both 30 days).
+        let heldUntil = nextUsernameChangeTime(for: users[userIndex])
         return try createSerializedResponse(fields: ChangeUsernameFields(
-            username: newUsername, nextUsernameChangeTime: nextUsernameChangeTime(for: users[userIndex])))
+            username: newUsername, nextUsernameChangeTime: heldUntil, formerUsernameHeldUntil: heldUntil))
     }
 
     func requestEmailChange(sessionManagementToken: String, email: String, password: String?, idToken: String?) async throws -> Data {

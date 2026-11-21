@@ -66,7 +66,7 @@ function SettingsTab() {
         setCurrentUser(user)
         // Another device may have renamed the account (issue #594); keep the
         // cached name that "is this me?" checks use in step with the server.
-        updateStoredUsername(user.username)
+        updateStoredUsername(user.username, user.former_username_held_until)
       })
       .catch(() => {
         // Non-fatal: the section falls back to a placeholder if this fails.

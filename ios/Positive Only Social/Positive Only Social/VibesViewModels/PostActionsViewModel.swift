@@ -77,15 +77,19 @@ final class PostActionsViewModel: ObservableObject {
     /// Published and kept current across a rename (issue #594).
     @Published private(set) var currentUsername: String?
 
-    /// Names this account gave up while this view model was alive (issue #594).
-    /// A renamed-away name stays reserved for its former owner, so rows fetched
-    /// before the rename — still carrying it — are still the user's own.
-    private(set) var formerUsernames: Set<String> = []
+    /// Names this account gave up while this view model was alive (issue #594),
+    /// each with when its hold ends. A renamed-away name stays reserved for its
+    /// former owner until then, so rows fetched before the rename — still
+    /// carrying it — are still the user's own; after it, someone else may hold
+    /// the name.
+    private(set) var formerUsernames: [String: Date] = [:]
 
-    /// Whether `username` is the signed-in account, under its current name or
-    /// one it gave up this session.
-    func isOwnUsername(_ username: String) -> Bool {
-        username == currentUsername || formerUsernames.contains(username)
+    /// Whether `username` is the signed-in account, under its current name or a
+    /// still-held one it gave up this session.
+    func isOwnUsername(_ username: String, now: Date = Date()) -> Bool {
+        if username == currentUsername { return true }
+        guard let heldUntil = formerUsernames[username] else { return false }
+        return heldUntil > now
     }
 
     private let api: Networking
@@ -121,10 +125,14 @@ final class PostActionsViewModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] notification in
                 guard let self, let username = notification.object as? String else { return }
-                if let previous = self.currentUsername, previous != username {
-                    self.formerUsernames.insert(previous)
+                // Remembered only with a hold that hasn't ended: without one, the
+                // old name may already belong to someone else.
+                if let previous = self.currentUsername, previous != username,
+                   let heldUntil = notification.userInfo?["formerUsernameHeldUntil"] as? Date,
+                   heldUntil > Date() {
+                    self.formerUsernames[previous] = heldUntil
                 }
-                self.formerUsernames.remove(username)
+                self.formerUsernames[username] = nil
                 self.currentUsername = username
             }
 

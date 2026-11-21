@@ -712,7 +712,9 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         }
         user.username = request.username
         user.usernameChangedAtMillis = System.currentTimeMillis()
-        return Response.success(ChangeUsernameResponse(user.username, nextUsernameChangeTime(user)))
+        // The hold on the given-up name is as long as the cooldown (both 30 days).
+        val heldUntil = nextUsernameChangeTime(user)
+        return Response.success(ChangeUsernameResponse(user.username, heldUntil, heldUntil))
     }
 
     override suspend fun requestEmailChange(

@@ -327,6 +327,7 @@ test('getCurrentUser returns the signed-in account’s own username and email', 
     pending_email: null,
     has_password: true,
     next_username_change_time: null,
+    former_username_held_until: null,
   })
 })
 

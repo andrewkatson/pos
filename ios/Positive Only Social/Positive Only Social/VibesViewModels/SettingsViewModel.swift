@@ -250,7 +250,11 @@ final class SettingsViewModel: ObservableObject {
                                           isIdentityVerified: userSession.isIdentityVerified)
                 try keychainHelper.save(renamed, for: keychainService, account: account)
                 authManager.login(with: renamed)
-                notificationCenter.post(name: .usernameChanged, object: fields.username)
+                var userInfo: [String: Any] = [:]
+                if let heldUntil = Self.parseChangeTime(fields.formerUsernameHeldUntil) {
+                    userInfo["formerUsernameHeldUntil"] = heldUntil
+                }
+                notificationCenter.post(name: .usernameChanged, object: fields.username, userInfo: userInfo)
                 currentUsername = fields.username
                 nextUsernameChangeTime = Self.parseChangeTime(fields.nextUsernameChangeTime)
                 accountChangeStatusMessage = "Your username is now \(fields.username)."

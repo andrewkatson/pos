@@ -319,6 +319,10 @@ struct Positive_Only_SocialTests_SettingsViewModel {
         #expect(postActions.isOwnUsername("renameNotifyUser"))
         #expect(postActions.isOwnUsername("renamed_notify_one"))
         #expect(!postActions.isOwnUsername("someone_else"))
+        // Once the old name's hold ends someone else may hold it.
+        let afterHold = Date().addingTimeInterval(StatefulStubbedAPI.usernameChangeCooldown + 60)
+        #expect(!postActions.isOwnUsername("renameNotifyUser", now: afterHold))
+        #expect(postActions.isOwnUsername("renamed_notify_one", now: afterHold))
     }
 
     @Test func testChangeUsername_SecondRenameTooSoon_ShowsCopy() async throws {

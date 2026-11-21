@@ -232,6 +232,24 @@ class ChangeUsernameTests(PositiveOnlySocialTestCase):
         me = self.client.get(reverse('get_current_user'), **self.header).json()
         self.assertIsNotNone(me[Fields.next_username_change_time])
 
+    def test_former_name_hold_is_reported_until_it_ends(self):
+        me = self.client.get(reverse('get_current_user'), **self.header).json()
+        self.assertIsNone(me[Fields.former_username_held_until])
+
+        renamed = self._rename(self.new_name).json()
+        self.assertIsNotNone(renamed[Fields.former_username_held_until])
+        hold = UsernameHold.objects.get(username=self.local_username)
+        me = self.client.get(reverse('get_current_user'), **self.header).json()
+        reported = timezone.datetime.fromisoformat(me[Fields.former_username_held_until].replace('Z', '+00:00'))
+        self.assertLess(abs((reported - hold.expires).total_seconds()), 1)
+
+        # Once the hold is over the name may belong to someone else, so the
+        # client must stop counting it as the user's own.
+        get_user_model().objects.filter(pk=self.user.pk).update(
+            username_changed_time=timezone.now() - timedelta(days=USERNAME_HOLD_DAYS, minutes=1))
+        me = self.client.get(reverse('get_current_user'), **self.header).json()
+        self.assertIsNone(me[Fields.former_username_held_until])
+
 
 @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
 class HeldNameRaceTests(PositiveOnlySocialTestCase):

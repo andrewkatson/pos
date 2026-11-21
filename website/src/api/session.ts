@@ -11,9 +11,10 @@
 
 import { apiClient } from './client'
 import { USERNAME_CHANGED_EVENT } from './sessionEvents'
+import { parseFormerUsernames } from './formerUsernames'
 
 // former_usernames: names this account gave up during the session (issue #594),
-// newline-separated. See getOwnUsernames.
+// one "name<TAB>held-until epoch ms" per line. See useOwnUsernames.
 const SESSION_KEYS = ['session_token', 'user_id', 'username', 'former_usernames'] as const
 
 function readSessionValue(key: string): string | null {
@@ -57,18 +58,27 @@ export function getCurrentUsername(): string | null {
  * Replaces the cached username after a rename (issue #594), in whichever store
  * holds the session, so "is this me?" checks keep recognising the account. Also
  * used to refresh a name another device changed. No-op without a session.
+ *
+ * `formerHeldUntil` is the server's `former_username_held_until`: until then
+ * the name being replaced is still reserved for this account, so content under
+ * it is still the user's own. Without it (or once it has passed) the old name
+ * is not remembered — after its hold someone else may have taken it.
  */
-export function updateStoredUsername(username: string): void {
+export function updateStoredUsername(username: string, formerHeldUntil?: string | null): void {
   for (const store of [localStorage, sessionStorage]) {
     if (store.getItem('session_token') !== null) {
       const previous = store.getItem('username')
       if (previous === username) return
       store.setItem('username', username)
-      if (previous) {
-        const former = (store.getItem('former_usernames') ?? '').split('\n').filter(Boolean)
-        if (!former.includes(previous)) former.push(previous)
-        store.setItem('former_usernames', former.filter(name => name !== username).join('\n'))
+      const now = Date.now()
+      const former = parseFormerUsernames(store.getItem('former_usernames'), now).filter(
+        entry => entry.name !== username && entry.name !== previous,
+      )
+      const heldUntil = formerHeldUntil ? Date.parse(formerHeldUntil) : Number.NaN
+      if (previous && Number.isFinite(heldUntil) && heldUntil > now) {
+        former.push({ name: previous, heldUntil })
       }
+      store.setItem('former_usernames', former.map(e => `${e.name}\t${e.heldUntil}`).join('\n'))
       // Lets views that already read the old name re-render (useCurrentUsername).
       window.dispatchEvent(new Event(USERNAME_CHANGED_EVENT))
       return

@@ -15,14 +15,20 @@ import kotlinx.coroutines.flow.asSharedFlow
  * Settings (issue #594) reaches them here.
  */
 object SessionEvents {
-    private val _usernameChanges = MutableSharedFlow<String>(
+    private val _usernameChanges = MutableSharedFlow<UsernameChange>(
         extraBufferCapacity = 4,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
-    val usernameChanges: SharedFlow<String> = _usernameChanges.asSharedFlow()
+    val usernameChanges: SharedFlow<UsernameChange> = _usernameChanges.asSharedFlow()
 
-    /** Announce that the signed-in account is now called [username]. */
-    fun usernameChanged(username: String) {
-        _usernameChanges.tryEmit(username)
+    /** Announce that the signed-in account is now called [username]; the name
+     * it gave up stays reserved for it until [formerHeldUntilMillis] (epoch ms,
+     * null if unknown). */
+    fun usernameChanged(username: String, formerHeldUntilMillis: Long? = null) {
+        _usernameChanges.tryEmit(UsernameChange(username, formerHeldUntilMillis))
     }
 }
+
+/** A rename: the new name, and until when the given-up name stays held for
+ * the account (epoch ms) — after that someone else may hold it. */
+data class UsernameChange(val username: String, val formerHeldUntilMillis: Long?)

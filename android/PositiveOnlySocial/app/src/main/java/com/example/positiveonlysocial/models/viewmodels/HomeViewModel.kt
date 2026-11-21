@@ -103,7 +103,7 @@ class HomeViewModel(
 
         // A rename made in Settings (issue #594) is this destination's user too.
         viewModelScope.launch {
-            SessionEvents.usernameChanges.collect { _currentUsername.value = it }
+            SessionEvents.usernameChanges.collect { _currentUsername.value = it.username }
         }
 
         viewModelScope.launch {

@@ -56,9 +56,9 @@ interface CommentView {
   /** The current user's own report reason, shown pre-populated in the retract
    * dialog (issue #176). Null when they haven't reported this comment. */
   reportReason: string | null
-  // The backend rejects liking your own comment, so the UI hides the like
-  // control for comments the current user authored.
-  isOwn: boolean
+  // Whether the current user wrote it is not stored here: it is derived at
+  // render time from the account's names (ownsComment), so a username refresh
+  // after the comments loaded (issue #594) is reflected immediately.
 }
 
 interface ThreadView {
@@ -136,18 +136,15 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
 
   // Every name the signed-in account answers to, for hiding the like control
   // on its own post/comments (the backend rejects liking your own content).
-  // Empty for a signed-out visitor, who owns nothing on the page. Includes names
-  // given up this session (issue #594), which stay reserved for the account, so
-  // content fetched under an old name is still the user's. A load reads it
-  // through the ref, so one that started before a rename — or a queued re-run of
-  // it — marks comments with the latest names rather than the ones its closure
-  // captured.
+  // Empty for a signed-out visitor, who owns nothing on the page. Includes
+  // still-held names given up this session (issue #594), so content fetched
+  // under an old name is still the user's. Ownership is always derived from
+  // this at render time — never stored with a comment — so a username refresh
+  // that lands after the comments loaded, or a menu already open on one, sees
+  // the latest names.
   const allOwnUsernames = useOwnUsernames()
   const ownUsernames = useMemo(() => (isSignedIn ? allOwnUsernames : []), [isSignedIn, allOwnUsernames])
-  const ownUsernamesRef = useRef(ownUsernames)
-  useEffect(() => {
-    ownUsernamesRef.current = ownUsernames
-  }, [ownUsernames])
+  const ownsComment = (comment: CommentView) => ownUsernames.includes(comment.authorUsername)
 
   // The comment a shared `#comment-<id>` link points at, so the page can scroll
   // to it once the threads have rendered.
@@ -274,7 +271,6 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
         isLiked: c.is_liked ?? likedCommentIds.current.has(c.comment_identifier),
         isReported: c.is_reported ?? reportedCommentIds.current.has(c.comment_identifier),
         reportReason: c.report_reason ?? reportedCommentReasons.current.get(c.comment_identifier) ?? null,
-        isOwn: ownUsernamesRef.current.includes(c.author_username),
       })
 
       // A failure to load the post itself is the only "not found" case. Comment
@@ -470,7 +466,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
   }
 
   async function toggleCommentLike(comment: CommentView) {
-    if (comment.isOwn || !isSignedIn) return
+    if (ownsComment(comment) || !isSignedIn) return
     const liking = !comment.isLiked
     if (liking) likedCommentIds.current.add(comment.id)
     else likedCommentIds.current.delete(comment.id)
@@ -598,7 +594,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
     if (target.type === 'post') {
       return { isOwn: isOwnPost, isReported: postReported }
     }
-    return { isOwn: target.comment.isOwn, isReported: target.comment.isReported }
+    return { isOwn: ownsComment(target.comment), isReported: target.comment.isReported }
   }
 
   function menuReport(target: MenuTarget) {
@@ -616,7 +612,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
   // your own comment section (issue #603) — on anyone's comment on your post.
   function canDelete(target: MenuTarget): boolean {
     if (target.type === 'post') return isOwnPost
-    return target.comment.isOwn || isOwnPost
+    return ownsComment(target.comment) || isOwnPost
   }
 
   function menuDelete(target: MenuTarget) {
@@ -630,7 +626,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
   function canEdit(target: MenuTarget): boolean {
     if (!isSignedIn || !post) return false
     if (target.type === 'post') return isOwnPost && !post.hidden
-    return target.comment.isOwn && !post.comments_disabled
+    return ownsComment(target.comment) && !post.comments_disabled
   }
 
   function menuEdit(target: MenuTarget) {
@@ -1016,6 +1012,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
                 {root && (
                   <CommentRow
                     comment={root}
+                    isOwn={ownsComment(root)}
                     canLike={isSignedIn}
                     isShared={root.id === targetCommentId}
                     isCollapsed={collapsedIds.has(root.id)}
@@ -1054,6 +1051,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
                       <CommentRow
                         key={reply.id}
                         comment={reply}
+                        isOwn={ownsComment(reply)}
                         canLike={isSignedIn}
                         isShared={reply.id === targetCommentId}
                         isCollapsed={collapsedIds.has(reply.id)}
@@ -1265,6 +1263,9 @@ function DetailBar({ onBack }: { onBack: () => void }) {
 
 interface CommentRowProps {
   comment: CommentView
+  /** Whether the signed-in user wrote it, derived by the page at render time
+   * (issue #594) — the backend rejects liking your own comment. */
+  isOwn: boolean
   /** False for a signed-out visitor, who has no session to like with. */
   canLike: boolean
   /** True when a `#comment-<id>` share link points at this comment, so it is
@@ -1287,6 +1288,7 @@ interface CommentRowProps {
 
 function CommentRow({
   comment,
+  isOwn,
   canLike,
   isShared,
   isCollapsed,
@@ -1341,7 +1343,7 @@ function CommentRow({
           {/* Who can see this comment, on your own comments only (issue #518):
               who a commenter chose to share with is their information, so
               other readers see no badge. */}
-          {comment.isOwn && <AudienceBadge audience={comment.audience} />}
+          {isOwn && <AudienceBadge audience={comment.audience} />}
           {/* Three-dots menu next to the timestamp: Delete for your own
               comment, Report / Retract Report for someone else's (issue #304). */}
           <button
@@ -1378,7 +1380,7 @@ function CommentRow({
           <FormattedText text={comment.body} spans={comment.formatting} />
         </p>
         <div className="comment-row__info">
-          {!comment.isOwn && canLike && (
+          {!isOwn && canLike && (
             <button
               type="button"
               className="heart"
@@ -1391,7 +1393,7 @@ function CommentRow({
           )}
           {/* Same rule as the post's count: tappable only on your own comment
               (issue #478). */}
-          {comment.isOwn ? (
+          {isOwn ? (
             <button
               type="button"
               className="comment-row__likes"

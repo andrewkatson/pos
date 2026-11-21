@@ -49,8 +49,10 @@ extension Notification.Name {
     static let followRequestsChanged = Notification.Name("followRequestsChanged")
 
     /// Posted after the signed-in account is renamed (issue #594), with the new
-    /// username as the `object`. View models kept alive across tabs cache the
-    /// username to tell your own posts from others', so they listen and update.
+    /// username as the `object` and, under `userInfo["formerUsernameHeldUntil"]`,
+    /// the `Date` until which the name given up stays reserved for the account.
+    /// View models kept alive across tabs cache the username to tell your own
+    /// posts from others', so they listen and update.
     static let usernameChanged = Notification.Name("usernameChanged")
 }
 

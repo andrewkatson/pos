@@ -207,6 +207,10 @@ export interface CurrentUser {
   has_password?: boolean
   /** When the next rename is allowed (ISO time), or null if it is now. */
   next_username_change_time?: string | null
+  /** Until when the name given up at the last rename stays reserved for this
+   * account (ISO time), or null — content under it counts as the user's own
+   * only until then. */
+  former_username_held_until?: string | null
 }
 
 /** `POST /me/username/` (issue #594). */
@@ -217,6 +221,7 @@ export interface ChangeUsernameRequest {
 export interface ChangeUsernameResponse {
   username: string
   next_username_change_time: string | null
+  former_username_held_until?: string | null
   message: string
 }
 

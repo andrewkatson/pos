@@ -452,6 +452,10 @@ class Fields:
     pending_email = "pending_email"
     has_password = "has_password"
     next_username_change_time = "next_username_change_time"
+    # Until when the name given up at the last rename stays reserved for this
+    # account (issue #594); null when there is no such hold. Clients count that
+    # name as the user's own only until then — after it, someone else may hold it.
+    former_username_held_until = "former_username_held_until"
     follow_request_pending = "follow_request_pending"
     follow_request_count = "follow_request_count"
     # Each incoming follow request row's id, the keyset cursor for paging the

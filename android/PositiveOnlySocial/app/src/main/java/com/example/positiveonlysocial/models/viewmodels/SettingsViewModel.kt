@@ -430,7 +430,10 @@ class SettingsViewModel(
                     val renamed = userSession.copy(username = body.username)
                     keychainHelper.save(renamed, service, account)
                     authenticationManager.login(renamed)
-                    SessionEvents.usernameChanged(body.username)
+                    val heldUntil = body.formerUsernameHeldUntil?.let {
+                        try { java.time.Instant.parse(it).toEpochMilli() } catch (e: Exception) { null }
+                    }
+                    SessionEvents.usernameChanged(body.username, heldUntil)
                     _currentUser.value = _currentUser.value?.copy(
                         username = body.username,
                         nextUsernameChangeTime = body.nextUsernameChangeTime,

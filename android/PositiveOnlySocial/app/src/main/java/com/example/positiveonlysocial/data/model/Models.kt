@@ -142,7 +142,10 @@ data class ChangeUsernameRequest(
 
 data class ChangeUsernameResponse(
     @SerializedName("username") val username: String,
-    @SerializedName("next_username_change_time") val nextUsernameChangeTime: String? = null
+    @SerializedName("next_username_change_time") val nextUsernameChangeTime: String? = null,
+    // Until when the name just given up stays reserved for this account (ISO
+    // time); content under it counts as the user's own only until then.
+    @SerializedName("former_username_held_until") val formerUsernameHeldUntil: String? = null
 )
 
 /**
