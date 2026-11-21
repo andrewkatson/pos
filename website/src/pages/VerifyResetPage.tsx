@@ -59,7 +59,7 @@ function VerifyResetPage() {
         <h1 className="auth-title">Enter Verification Token</h1>
 
         {usernameOrEmail && (
-          <p style={{ color: 'rgba(255,255,255,0.8)', textAlign: 'center', lineHeight: 1.5, margin: 0 }}>
+          <p className="auth-message">
             Enter the verification token sent to {usernameOrEmail}.
           </p>
         )}

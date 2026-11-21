@@ -139,7 +139,12 @@ test('a slow response for a superseded token does not overwrite the latest resul
 
 test('shows an explanation when the token is missing from the URL', () => {
   renderVerifyEmailPage('/verify-email')
-  expect(screen.getByText(/missing its token/)).toBeInTheDocument()
+  const explanation = screen.getByText(/missing its token/)
+  expect(explanation).toBeInTheDocument()
+  // The auth pages are light: body copy takes the themed class, not the old
+  // hard-coded white that was invisible on the white background.
+  expect(explanation).toHaveClass('auth-message')
+  expect(explanation).not.toHaveAttribute('style')
   expect(mockVerifyEmail).not.toHaveBeenCalled()
 })
 

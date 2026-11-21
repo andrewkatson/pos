@@ -38,3 +38,8 @@ hopeful note is also allowed. These will be updated as time goes on.
 
 Detailed behavior — moderation, visibility, sharing, accounts, images,
 deployment and more — lives in [`docs/`](docs/README.md).
+
+## Contributing
+
+Open pull requests against the `dev` branch only. Don't open PRs against
+`main` — changes reach `main` through a merge from `dev`.
