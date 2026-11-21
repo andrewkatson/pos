@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { apiClient } from '../api/client'
-import { getCurrentUsername } from '../api/session'
+import { useCurrentUsername } from '../api/useCurrentUsername'
 import type {
   Comment,
   CommentFormatSpan,
@@ -134,10 +134,12 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
   const navigate = useNavigate()
   const location = useLocation()
 
-  // The signed-in user, read once. Used to hide the like control on the user's
-  // own post/comments since the backend rejects liking your own content. Null
-  // for a signed-out visitor, who owns nothing on the page.
-  const [currentUsername] = useState(() => (isSignedIn ? getCurrentUsername() : null))
+  // The signed-in user. Used to hide the like control on the user's own
+  // post/comments since the backend rejects liking your own content. Null for a
+  // signed-out visitor, who owns nothing on the page. Reactive, so a rename
+  // picked up after mount (issue #594) updates the owner controls.
+  const cachedUsername = useCurrentUsername()
+  const currentUsername = isSignedIn ? cachedUsername : null
 
   // The comment a shared `#comment-<id>` link points at, so the page can scroll
   // to it once the threads have rendered.

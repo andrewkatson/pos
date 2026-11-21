@@ -47,7 +47,9 @@ test('an address taken since the request shows our own copy', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'Another account already uses that email address.',
   )
-  expect(screen.getByText(/still uses your previous email/)).toBeInTheDocument()
+  // An error can't prove the change didn't happen (a reused link, a lost
+  // response), so the page points at Settings rather than promising either way.
+  expect(screen.getByText(/Check Settings to see which email your account uses/)).toBeInTheDocument()
 })
 
 test('an expired link shows the backend message', async () => {

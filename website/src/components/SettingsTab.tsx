@@ -50,6 +50,10 @@ function SettingsTab() {
   // The private account setting (issue #96), saved as soon as it is toggled.
   const [savingPrivacy, setSavingPrivacy] = useState(false)
   const [cancellingEmail, setCancellingEmail] = useState(false)
+  // The clock the rename cooldown is judged against (issue #594). Advanced by a
+  // timer when the cooldown runs out, so a Settings tab left open unlocks the
+  // username row without being remounted.
+  const [now, setNow] = useState(() => Date.now())
 
   // Load the signed-in account's own username + email for the Contact
   // Information section (load-on-mount, matching the rest of the app).
@@ -149,7 +153,19 @@ function SettingsTab() {
   // Account-settings fields from a backend new enough to support changing the
   // username and email (issue #594); an older one omits them.
   const canChangeAccountDetails = currentUser?.has_password !== undefined
-  const nextRenameDate = formatChangeDate(currentUser?.next_username_change_time)
+  const nextRenameAt = currentUser?.next_username_change_time
+    ? Date.parse(currentUser.next_username_change_time)
+    : Number.NaN
+  const renameLocked = Number.isFinite(nextRenameAt) && nextRenameAt > now
+  const nextRenameDate = renameLocked ? formatChangeDate(currentUser?.next_username_change_time) : null
+
+  useEffect(() => {
+    if (!Number.isFinite(nextRenameAt) || nextRenameAt <= now) return
+    // setTimeout overflows past ~24.8 days; a capped timer just re-arms.
+    const delay = Math.min(nextRenameAt - now, 2 ** 31 - 1)
+    const id = window.setTimeout(() => setNow(Date.now()), delay)
+    return () => window.clearTimeout(id)
+  }, [nextRenameAt, now])
 
   async function handleLogout() {
     close()

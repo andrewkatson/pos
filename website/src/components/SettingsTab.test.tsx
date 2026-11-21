@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
@@ -539,4 +539,25 @@ test('a pending email change can be cancelled', async () => {
     expect(screen.queryByText(/Waiting for you to confirm/)).not.toBeInTheDocument(),
   )
   expect(screen.getByText('Your email change was cancelled.')).toBeInTheDocument()
+})
+
+test('the username row unlocks when the rename cooldown runs out while Settings is open', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    mockGetCurrentUser.mockResolvedValue({
+      username: 'ada',
+      email: 'ada@example.com',
+      ...ACCOUNT_FIELDS,
+      next_username_change_time: new Date(Date.now() + 60_000).toISOString(),
+    })
+    renderTab()
+    expect(await screen.findByRole('button', { name: /Change username/ })).toBeDisabled()
+    await act(async () => {
+      vi.advanceTimersByTime(61_000)
+    })
+    expect(screen.getByRole('button', { name: /Change username/ })).toBeEnabled()
+    expect(screen.queryByText(/You can change your username again on/)).not.toBeInTheDocument()
+  } finally {
+    vi.useRealTimers()
+  }
 })

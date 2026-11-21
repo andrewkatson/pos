@@ -10,6 +10,7 @@ import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.util.CaptionEdit
 import com.example.positiveonlysocial.util.PostEvents
+import com.example.positiveonlysocial.util.SessionEvents
 import com.example.positiveonlysocial.util.savedEditIsNewer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -96,6 +97,10 @@ class PostListActions(
         // its now-missing image doesn't linger as an empty black tile (issue #256).
         scope.launch {
             PostEvents.deletedPostIds.collect { deletedId -> removeLocally(deletedId) }
+        }
+        // Ownership checks follow a rename made in Settings (issue #594).
+        scope.launch {
+            SessionEvents.usernameChanges.collect { _currentUsername.value = it }
         }
         // Likewise keep the lock-comments menu action in sync with a toggle made
         // on the post detail screen (issue #492).

@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.example.positiveonlysocial.util.SessionEvents
 
 private const val TAG = "SettingsViewModel"
 
@@ -429,6 +430,7 @@ class SettingsViewModel(
                     val renamed = userSession.copy(username = body.username)
                     keychainHelper.save(renamed, service, account)
                     authenticationManager.login(renamed)
+                    SessionEvents.usernameChanged(body.username)
                     _currentUser.value = _currentUser.value?.copy(
                         username = body.username,
                         nextUsernameChangeTime = body.nextUsernameChangeTime,

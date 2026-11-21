@@ -10,6 +10,7 @@
 // Reads check both stores so callers don't need to know which one was used.
 
 import { apiClient } from './client'
+import { USERNAME_CHANGED_EVENT } from './sessionEvents'
 
 const SESSION_KEYS = ['session_token', 'user_id', 'username'] as const
 
@@ -56,7 +57,10 @@ export function getCurrentUsername(): string | null {
 export function updateStoredUsername(username: string): void {
   for (const store of [localStorage, sessionStorage]) {
     if (store.getItem('session_token') !== null) {
+      if (store.getItem('username') === username) return
       store.setItem('username', username)
+      // Lets views that already read the old name re-render (useCurrentUsername).
+      window.dispatchEvent(new Event(USERNAME_CHANGED_EVENT))
       return
     }
   }

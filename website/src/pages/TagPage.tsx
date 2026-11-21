@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router'
 import { apiClient } from '../api/client'
-import { getCurrentUsername } from '../api/session'
+import { useCurrentUsername } from '../api/useCurrentUsername'
 import type { FeedPost } from '../api/types'
 import PostGrid from '../components/PostGrid'
 import './MainApp.css'
@@ -18,6 +18,8 @@ import './MainApp.css'
 function TagPage() {
   const { tag = '' } = useParams<{ tag: string }>()
   const navigate = useNavigate()
+  // Reactive, so a rename picked up after mount (issue #594) keeps owner controls right.
+  const currentUsername = useCurrentUsername()
 
   if (!apiClient.isAuthenticated()) {
     return <Navigate to="/login" replace />
@@ -33,7 +35,7 @@ function TagPage() {
       </header>
 
       <main className="app-content">
-        <TagFeed key={tag} tag={tag} currentUsername={getCurrentUsername()} />
+        <TagFeed key={tag} tag={tag} currentUsername={currentUsername} />
       </main>
     </div>
   )

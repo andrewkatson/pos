@@ -296,6 +296,26 @@ struct Positive_Only_SocialTests_SettingsViewModel {
         #expect(sut.usernameChangeSucceeded == false)
     }
 
+    @Test func testChangeUsername_TellsRetainedViewModels() async throws {
+        // View models kept alive across tabs cache the username for ownership
+        // checks; a rename must reach them (review of issue #594).
+        _ = try await setupLoggedInUser(username: "renameNotifyUser")
+        let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper,
+                                    account: "renameNotifyUser_account", notificationCenter: notificationCenter)
+        let postActions = PostActionsViewModel(api: stubAPI, keychainHelper: keychainHelper,
+                                               account: "renameNotifyUser_account",
+                                               notificationCenter: notificationCenter)
+        let home = HomeViewModel(api: stubAPI, keychainHelper: keychainHelper,
+                                 account: "renameNotifyUser_account", notificationCenter: notificationCenter)
+        #expect(postActions.currentUsername == "renameNotifyUser")
+
+        sut.changeUsername("renamed_notify_one", authManager: makeAuthManager())
+        await yield()
+
+        #expect(postActions.currentUsername == "renamed_notify_one")
+        #expect(home.currentUsername == "renamed_notify_one")
+    }
+
     @Test func testChangeUsername_SecondRenameTooSoon_ShowsCopy() async throws {
         _ = try await setupLoggedInUser(username: "renameTwiceUser")
         let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "renameTwiceUser_account")

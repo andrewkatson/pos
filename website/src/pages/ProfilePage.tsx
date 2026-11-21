@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { apiClient } from '../api/client'
-import { getCurrentUsername } from '../api/session'
+import { useCurrentUsername } from '../api/useCurrentUsername'
 import { profilePathFor } from '../utils/profilePath'
 import ProfileView from '../components/ProfileView'
 import './MainApp.css'
@@ -28,7 +28,8 @@ function ProfilePage() {
   // underneath this page without a navigation, and a stable value keeps the
   // view's load effects from re-running.
   const [isSignedIn] = useState(() => apiClient.isAuthenticated())
-  const currentUsername = isSignedIn ? getCurrentUsername() : null
+  const cachedUsername = useCurrentUsername()
+  const currentUsername = isSignedIn ? cachedUsername : null
 
   // A shared link opened cold has no history entry to pop, so Back would be a
   // dead control. Send those visitors somewhere real instead.

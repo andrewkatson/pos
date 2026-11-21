@@ -10,7 +10,9 @@ from django.utils import timezone
 
 from .test_parent_case import PositiveOnlySocialTestCase
 from ..constants import EMAIL_IN_USE, Fields, GOOGLE_SIGN_IN_UNAVAILABLE, REAUTHENTICATION_REQUIRED
+from .. import views
 from ..google_auth import GoogleTokenError
+from ..models import Session
 
 CHANGE_LINK_RE = re.compile(r"/verify-email-change\?token=([A-Za-z0-9_-]{43})")
 VERIFY_PATH = 'user_system.views.verify_google_id_token'
@@ -254,3 +256,62 @@ class GoogleOnlyEmailChangeTests(PositiveOnlySocialTestCase):
         response = self._request(self.body)
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()['error'], GOOGLE_SIGN_IN_UNAVAILABLE)
+
+
+class EmailChangeReviewFixTests(PositiveOnlySocialTestCase):
+    """Follow-ups from review of issue #594: the proof is judged against the
+    locked row, a revoked session can't finish a request, and confirming voids
+    both stages of a password reset."""
+
+    def setUp(self):
+        super().setUp()
+        super().register_user_and_setup_local_fields()
+        self.header = {'HTTP_AUTHORIZATION': f'Bearer {self.session_management_token}'}
+        self.user = get_user_model().objects.get(username=self.local_username)
+        mail.outbox.clear()
+
+    def _request(self):
+        return self.client.post(reverse('request_email_change'), data={
+            Fields.email: 'fresh@example.com', Fields.password: self.local_password},
+            content_type='application/json', **self.header)
+
+    def _mid_request(self, action):
+        """Run `action` after authentication but before the row lock, by riding
+        on the token generation that sits between them."""
+        real = views.secrets.token_urlsafe
+
+        def side_effect(n):
+            action()
+            return real(n)
+        return patch.object(views.secrets, 'token_urlsafe', side_effect=side_effect)
+
+    def test_password_changed_mid_request_invalidates_the_old_one(self):
+        def change_password():
+            user = get_user_model().objects.get(pk=self.user.pk)
+            user.set_password('SomethingElse123-')
+            user.save(update_fields=['password'])
+        with self._mid_request(change_password):
+            response = self._request()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], REAUTHENTICATION_REQUIRED)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.pending_email)
+
+    def test_session_revoked_mid_request_is_refused(self):
+        with self._mid_request(lambda: Session.objects.filter(management_user=self.user).delete()):
+            response = self._request()
+        self.assertEqual(response.status_code, 401)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.pending_email)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_confirm_voids_the_emailed_reset_code_too(self):
+        get_user_model().objects.filter(pk=self.user.pk).update(
+            verification_token='b' * 64, verification_token_expires=timezone.now() + timedelta(hours=1))
+        self._request()
+        token = CHANGE_LINK_RE.search(mail.outbox[-1].body).group(1)
+        self.client.post(reverse('confirm_email_change'), data={Fields.verification_token: token},
+                         content_type='application/json')
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.verification_token)
+        self.assertIsNone(self.user.verification_token_expires)

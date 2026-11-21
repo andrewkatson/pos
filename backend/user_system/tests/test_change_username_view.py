@@ -231,3 +231,53 @@ class ChangeUsernameTests(PositiveOnlySocialTestCase):
         self._rename(self.new_name)
         me = self.client.get(reverse('get_current_user'), **self.header).json()
         self.assertIsNotNone(me[Fields.next_username_change_time])
+
+
+@patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+class HeldNameRaceTests(PositiveOnlySocialTestCase):
+    """A write that waited on the username's unique index for a rename to free
+    the name must still lose to the hold that rename created (review of #594).
+    The race itself needs two connections, so these drive the post-write check
+    directly: the pre-write checks see no hold, the post-write one does."""
+
+    HELD_AFTER_WRITE = 'user_system.views.is_username_held_for_someone_else'
+
+    def setUp(self):
+        super().setUp()
+        super().register_user_and_setup_local_fields()
+        self.header = {'HTTP_AUTHORIZATION': f'Bearer {self.session_management_token}'}
+        self.user = get_user_model().objects.get(username=self.local_username)
+
+    def test_registration_loses_to_a_hold_seen_after_the_insert(self):
+        with patch(self.HELD_AFTER_WRITE, side_effect=[False, True]):
+            response = self.client.post(reverse('register'), data={
+                'username': 'racing_registrant', 'email': 'racer@example.com',
+                'password': 'Password123-', 'remember_me': 'false'}, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(get_user_model().objects.filter(username='racing_registrant').exists())
+
+    def test_rename_loses_to_a_hold_seen_after_the_write(self):
+        with patch(self.HELD_AFTER_WRITE, side_effect=[False, False, True]):
+            response = self.client.post(reverse('change_username'), data={Fields.username: 'racing_rename'},
+                                        content_type='application/json', **self.header)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], USERNAME_TAKEN)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.username, self.local_username)
+        self.assertIsNone(self.user.username_changed_time)
+
+    def test_google_creation_draws_another_name_when_its_first_turns_out_held(self):
+        with patch(self.HELD_AFTER_WRITE, side_effect=[False, True, False, False]), \
+                patch.object(views, '_google_username_base', return_value='google_racer_name'), \
+                patch('user_system.views.text_classifier_class.is_text_positive', return_value=True):
+            user, created = views._create_user_for_google(
+                None, {'sub': 'race-sub', 'email': 'gracer@example.com', 'email_verified': True}, '127.0.0.1')
+        self.assertTrue(created)
+        self.assertNotEqual(user.username, 'google_racer_name')
+
+    def test_google_creation_backs_off_when_its_address_was_just_taken(self):
+        get_user_model().objects.filter(pk=self.user.pk).update(email='TAKEN@example.com')
+        user, created = views._create_user_for_google(
+            None, {'sub': 'late-sub', 'email': 'taken@example.com', 'email_verified': True}, '127.0.0.1')
+        self.assertIsNone(user)
+        self.assertFalse(created)

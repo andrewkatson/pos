@@ -74,7 +74,8 @@ final class PostActionsViewModel: ObservableObject {
     @Published private(set) var captionOverrides: [String: CaptionOverride] = [:]
 
     /// The signed-in user's username, used to tell your own posts from others'.
-    private(set) var currentUsername: String?
+    /// Published and kept current across a rename (issue #594).
+    @Published private(set) var currentUsername: String?
 
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
@@ -86,6 +87,8 @@ final class PostActionsViewModel: ObservableObject {
     private var commentsLockCancellable: AnyCancellable?
     // Listens for `.postCaptionEdited` for the same reason, for caption edits.
     private var captionEditCancellable: AnyCancellable?
+    // Listens for `.usernameChanged`, so ownership checks follow a rename.
+    private var usernameChangedCancellable: AnyCancellable?
 
     convenience init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         self.init(api: api, keychainHelper: keychainHelper, account: "userSessionToken")
@@ -102,6 +105,13 @@ final class PostActionsViewModel: ObservableObject {
         self.currentUsername = try? keychainHelper.load(
             UserSession.self, from: GVOAppConstants.keychainService, account: account
         )?.username
+
+        usernameChangedCancellable = notificationCenter.publisher(for: .usernameChanged)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] notification in
+                guard let username = notification.object as? String else { return }
+                self?.currentUsername = username
+            }
 
         commentsLockCancellable = notificationCenter.publisher(for: .postCommentsDisabledChanged)
             .receive(on: RunLoop.main)

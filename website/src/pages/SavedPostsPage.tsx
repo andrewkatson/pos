@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
-import { getCurrentUsername } from '../api/session'
+import { useCurrentUsername } from '../api/useCurrentUsername'
 import type { FeedPost } from '../api/types'
 import PostGrid from '../components/PostGrid'
 import './MainApp.css'
@@ -22,6 +22,8 @@ function SavedPostsPage() {
 
 function SavedPostsView() {
   const navigate = useNavigate()
+  // Reactive, so a rename picked up after mount (issue #594) keeps owner controls right.
+  const currentUsername = useCurrentUsername()
   const isMounted = useRef(true)
   useEffect(() => {
     isMounted.current = true
@@ -120,7 +122,7 @@ function SavedPostsView() {
         ) : (
           <PostGrid
             posts={posts}
-            currentUsername={getCurrentUsername()}
+            currentUsername={currentUsername}
             onPostDeleted={dropPost}
             // Unsaving removes the post from the collection, so drop its tile.
             onPostUnsaved={dropPost}

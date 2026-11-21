@@ -66,6 +66,12 @@ rename is allowed now) so clients disable the row and say when it reopens.
 - the former owner can take it back (subject to the cooldown), which just ends
   the hold.
 
+Registration, a first Google sign-in and a rename each re-check the hold
+*after* writing the name, in the same transaction. A write that collided with a
+rename on the username's unique index only proceeds once that rename — and the
+hold it creates in the same commit — is visible, so a check made only beforehand
+could hand the reserved name to someone else.
+
 Sign-in, registration and password reset match the *current* username only: an
 old name is a pointer to the account, not a credential for it. A hold past its
 expiry is ignored everywhere, and expired rows are swept on the next rename. A
@@ -80,11 +86,16 @@ so it releases a decided review exactly like a new bio does
 
 **Clients.** Each client caches the signed-in username for "is this me?"
 checks (website `localStorage`/`sessionStorage`, iOS and Android the keychain
-session). The device that renames updates its cache from the response; the
-website also refreshes it from `GET /me/` on startup and when Settings opens, so
-a rename made on another device catches up. The website's `/profile/<old name>`
-page replaces itself with the current name once the profile loads; the native
-clients rely on the backend resolving the old name.
+session). The device that renames updates its cache from the response and
+tells views that already read it: the website through `useCurrentUsername`
+(an event-backed hook its ownership checks use), iOS through the
+`.usernameChanged` notification, Android through `SessionEvents`, which the
+view models kept alive across tabs listen to. The website also refreshes the
+cache from `GET /me/` on startup and when Settings opens, so a rename made on
+another device catches up, and a view that rendered with the old name updates
+when the refresh lands. The website's `/profile/<old name>` page replaces itself
+with the current name once the profile loads; the native clients rely on the
+backend resolving the old name.
 
 ## Changing the email (issue #594)
 
@@ -97,6 +108,10 @@ change is a request that only takes effect once the new address is proven:
    `id_token` whose `sub` is the Google account already linked to it. A stolen
    session alone can't redirect where password resets go, the same reasoning
    as changing the password. A failure answers `reauthentication_required`.
+   The proof is judged against the user row as locked for the write, not the
+   copy loaded at authentication, and the request's session must still exist
+   then: a password changed or reset mid-request (which also revokes sessions)
+   stops it.
 2. The address must differ from the current one and must not be held by any
    other account, both compared **case-insensitively** (`email_in_use`
    otherwise). Registration only rejects exact matches, but addresses differing
@@ -111,11 +126,15 @@ change is a request that only takes effect once the new address is proven:
    `GET /me/` reports `pending_email` so Settings can show it with a cancel
    action.
 4. The website page POSTs the token to `verify-email-change/`, which needs no
-   session (the link may be opened on any device). It re-checks that no other
-   account took the address meanwhile (clearing the request with
+   session (the link may be opened on any device, so the page is in
+   `PUBLIC_PATHS`: a dead session in that browser is cleared without bouncing
+   to `/login`). Under a lock on the address — the same one registration and a
+   first Google sign-in take, a Postgres advisory lock on the lowercased
+   address, since no database constraint makes emails unique — it re-checks
+   that no other account took the address meanwhile (clearing the request with
    `email_in_use` if one did), swaps it in, marks the account verified, and
-   voids any outstanding password-reset token, since that link went to the old
-   address. The **old address is then emailed** that the change happened, so an
+   voids both stages of any outstanding password reset (the emailed code and
+   the reset token), since they went to the old address. The **old address is then emailed** that the change happened, so an
    owner whose account was taken over hears about it where they still read
    mail.
 

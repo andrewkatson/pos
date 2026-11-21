@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
-import { getCurrentUsername } from '../api/session'
+import { useCurrentUsername } from '../api/useCurrentUsername'
 import type { FeedPost, FollowCategory, TopPostPeriod } from '../api/types'
 import { profilePathFor } from '../utils/profilePath'
 import PostThumbnail from './PostThumbnail'
@@ -90,6 +90,9 @@ function FeedTab() {
     }
   }, [])
 
+  // Reactive, so a rename picked up after mount (issue #594) keeps owner controls right.
+  const currentUsername = useCurrentUsername()
+
   const [posts, setPosts] = useState<FeedPost[]>([])
   const [page, setPage] = useState(0)
   const [canLoadMore, setCanLoadMore] = useState(true)
@@ -103,7 +106,7 @@ function FeedTab() {
 
   const { stateFor, withEdits, toggleLike, toggleSave, openMenu, openMenuPostId, openLikes, dialogs } =
     usePostActions({
-      currentUsername: getCurrentUsername(),
+      currentUsername,
       // Deleting from the feed drops the row rather than reloading the whole
       // feed, which would reshuffle the weighted ordering under the user (#267).
       onPostDeleted: postIdentifier =>

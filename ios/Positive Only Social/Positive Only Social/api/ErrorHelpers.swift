@@ -47,6 +47,11 @@ extension Notification.Name {
     /// badge, "Follow Requests (n)" badge and follower count refresh when they
     /// come back to it.
     static let followRequestsChanged = Notification.Name("followRequestsChanged")
+
+    /// Posted after the signed-in account is renamed (issue #594), with the new
+    /// username as the `object`. View models kept alive across tabs cache the
+    /// username to tell your own posts from others', so they listen and update.
+    static let usernameChanged = Notification.Name("usernameChanged")
 }
 
 extension Error {

@@ -89,7 +89,8 @@ function VerifyEmailChangePage() {
               <p>{result?.message}</p>
             </div>
             <p style={BODY_STYLE}>
-              You can ask for a new link from Settings. Your account still uses your previous email.
+              Check Settings to see which email your account uses now — the change may already have
+              gone through. If it hasn&apos;t, you can ask for a new link there.
             </p>
           </>
         )}
