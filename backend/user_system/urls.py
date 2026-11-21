@@ -21,6 +21,9 @@ urlpatterns = [
     # POST /resend-verification-email/
     path('resend-verification-email/', views.resend_verification_email, name='resend_verification_email'),
 
+    # POST /verify-email-change/ — confirm a new email address from its emailed link (issue #594)
+    path('verify-email-change/', views.confirm_email_change, name='confirm_email_change'),
+
 
     # POST /login/
     path('login/', views.login_user, name='login_user'),
@@ -284,6 +287,13 @@ urlpatterns = [
 
     # GET /me/ (Token in header) — the signed-in account's own username + email
     path('me/', views.get_current_user, name='get_current_user'),
+    # POST /me/username/ (Token in header) — rename the account (issue #594)
+    path('me/username/', views.change_username, name='change_username'),
+    # POST /me/email/ (Token in header) — ask to move to a new email; it takes
+    # effect once the link sent to the new address is followed
+    path('me/email/', views.request_email_change, name='request_email_change'),
+    # POST /me/email/cancel/ (Token in header) — withdraw a pending email change
+    path('me/email/cancel/', views.cancel_email_change, name='cancel_email_change'),
 
     # POST /profile/photo/ (Token in header)
     path('profile/photo/', views.set_profile_photo, name='set_profile_photo'),

@@ -19,6 +19,13 @@ vi.mock('../api/client', () => ({
     getNotificationPreferences: vi.fn(),
     setNotificationPreference: vi.fn(),
     setAccountPrivacy: vi.fn(),
+    changeUsername: vi.fn(),
+    requestEmailChange: vi.fn(),
+    cancelEmailChange: vi.fn(),
+  },
+  ACCOUNT_CHANGE_MESSAGES: {
+    username_taken: 'That username is already taken.',
+    reauthentication_required: "That didn't confirm it's you. Please check your password and try again.",
   },
 }))
 
@@ -34,6 +41,12 @@ const mockChangePassword = vi.mocked(apiClient.changePassword)
 const mockGetNotifPrefs = vi.mocked(apiClient.getNotificationPreferences)
 const mockSetNotifPref = vi.mocked(apiClient.setNotificationPreference)
 const mockSetPrivacy = vi.mocked(apiClient.setAccountPrivacy)
+const mockChangeUsername = vi.mocked(apiClient.changeUsername)
+const mockRequestEmailChange = vi.mocked(apiClient.requestEmailChange)
+const mockCancelEmailChange = vi.mocked(apiClient.cancelEmailChange)
+
+/** /me/ from a backend that supports changing the username and email (#594). */
+const ACCOUNT_FIELDS = { pending_email: null, has_password: true, next_username_change_time: null }
 
 function renderTab() {
   return render(
@@ -68,6 +81,9 @@ beforeEach(() => {
     .mockResolvedValue({ username: 'ada', email: 'ada@example.com', is_private: false })
   mockChangePassword.mockReset().mockResolvedValue({ message: 'ok' })
   mockSetPrivacy.mockReset().mockResolvedValue({ is_private: true })
+  mockChangeUsername.mockReset()
+  mockRequestEmailChange.mockReset()
+  mockCancelEmailChange.mockReset().mockResolvedValue({ message: 'ok' })
   // Default: no notification types, so the Notifications section stays hidden
   // for the existing tests; the toggle test overrides this.
   mockGetNotifPrefs.mockReset().mockResolvedValue([])
@@ -405,4 +421,140 @@ test('the private account toggle stays disabled when the backend omits the setti
   await screen.findByText('ada@example.com')
 
   expect(screen.getByRole('button', { name: /Private account/ })).toBeDisabled()
+})
+
+// ---- Changing the username and email (issue #594) ----
+
+test('an older backend without the account fields shows contact info read-only', async () => {
+  renderTab()
+  expect(await screen.findByText('ada')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Change username/ })).not.toBeInTheDocument()
+})
+
+test('renaming sends the new username and updates the row', async () => {
+  mockGetCurrentUser.mockResolvedValue({ username: 'ada', email: 'ada@example.com', ...ACCOUNT_FIELDS })
+  mockChangeUsername.mockResolvedValue({
+    username: 'ada_lovelace_new',
+    next_username_change_time: '2099-01-01T00:00:00Z',
+    message: 'ok',
+  })
+  renderTab()
+  await userEvent.click(await screen.findByRole('button', { name: /Change username/ }))
+  const dialog = screen.getByRole('dialog')
+  const submit = within(dialog).getByRole('button', { name: 'Change Username' })
+  // Too short to be a username: the button stays disabled.
+  await userEvent.type(within(dialog).getByLabelText('New username'), 'short')
+  expect(submit).toBeDisabled()
+  await userEvent.type(within(dialog).getByLabelText('New username'), '_and_long')
+  await userEvent.clear(within(dialog).getByLabelText('New username'))
+  await userEvent.type(within(dialog).getByLabelText('New username'), 'ada_lovelace_new')
+  await userEvent.click(submit)
+
+  expect(mockChangeUsername).toHaveBeenCalledWith({ username: 'ada_lovelace_new' })
+  expect(await screen.findByText('Your username is now ada_lovelace_new.')).toBeInTheDocument()
+  // The cooldown now locks the row and says when it ends.
+  expect(screen.getByRole('button', { name: /Change username/ })).toBeDisabled()
+  expect(screen.getByText(/You can change your username again on/)).toBeInTheDocument()
+  // The cached name used by "is this me?" checks follows the rename.
+  expect(localStorage.setItem).toHaveBeenCalledWith('username', 'ada_lovelace_new')
+})
+
+test('a taken username shows our own copy and keeps the dialog open', async () => {
+  mockGetCurrentUser.mockResolvedValue({ username: 'ada', email: 'ada@example.com', ...ACCOUNT_FIELDS })
+  mockChangeUsername.mockRejectedValue(new Error('username_taken'))
+  renderTab()
+  await userEvent.click(await screen.findByRole('button', { name: /Change username/ }))
+  const dialog = screen.getByRole('dialog')
+  await userEvent.type(within(dialog).getByLabelText('New username'), 'somebody_else_1')
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Change Username' }))
+  expect(await within(dialog).findByRole('alert')).toHaveTextContent('That username is already taken.')
+})
+
+test('the username row is locked during the rename cooldown', async () => {
+  mockGetCurrentUser.mockResolvedValue({
+    username: 'ada',
+    email: 'ada@example.com',
+    ...ACCOUNT_FIELDS,
+    next_username_change_time: '2099-01-01T00:00:00Z',
+  })
+  renderTab()
+  expect(await screen.findByRole('button', { name: /Change username/ })).toBeDisabled()
+})
+
+test('changing email asks for the password and shows the pending address', async () => {
+  mockGetCurrentUser.mockResolvedValue({ username: 'ada', email: 'ada@example.com', ...ACCOUNT_FIELDS })
+  mockRequestEmailChange.mockResolvedValue({ pending_email: 'new@example.com', message: 'ok' })
+  renderTab()
+  await userEvent.click(await screen.findByRole('button', { name: /Change email/ }))
+  const dialog = screen.getByRole('dialog')
+  const submit = within(dialog).getByRole('button', { name: 'Send Link' })
+  await userEvent.type(within(dialog).getByLabelText('New email'), 'new@example.com')
+  expect(submit).toBeDisabled()
+  await userEvent.type(within(dialog).getByLabelText('Current password'), 'password123')
+  await userEvent.click(submit)
+
+  expect(mockRequestEmailChange).toHaveBeenCalledWith({ email: 'new@example.com', password: 'password123' })
+  expect(await screen.findByText(/Waiting for you to confirm new@example.com/)).toBeInTheDocument()
+  // The confirmed address is still the old one.
+  expect(screen.getByText('ada@example.com')).toBeInTheDocument()
+})
+
+test('the current email cannot be requested again', async () => {
+  mockGetCurrentUser.mockResolvedValue({ username: 'ada', email: 'ada@example.com', ...ACCOUNT_FIELDS })
+  renderTab()
+  await userEvent.click(await screen.findByRole('button', { name: /Change email/ }))
+  const dialog = screen.getByRole('dialog')
+  await userEvent.type(within(dialog).getByLabelText('New email'), 'ADA@example.com')
+  await userEvent.type(within(dialog).getByLabelText('Current password'), 'password123')
+  expect(within(dialog).getByRole('button', { name: 'Send Link' })).toBeDisabled()
+  expect(within(dialog).getByText("That's already your email.")).toBeInTheDocument()
+})
+
+test('a Google-only account is not asked for a password', async () => {
+  mockGetCurrentUser.mockResolvedValue({
+    username: 'ada',
+    email: 'ada@example.com',
+    ...ACCOUNT_FIELDS,
+    has_password: false,
+  })
+  renderTab()
+  await userEvent.click(await screen.findByRole('button', { name: /Change email/ }))
+  const dialog = screen.getByRole('dialog')
+  expect(within(dialog).queryByLabelText('Current password')).not.toBeInTheDocument()
+  expect(within(dialog).queryByRole('button', { name: 'Send Link' })).not.toBeInTheDocument()
+  expect(within(dialog).getByText(/Sign in with Google again/)).toBeInTheDocument()
+})
+
+test('a pending email change can be cancelled', async () => {
+  mockGetCurrentUser.mockResolvedValue({
+    username: 'ada',
+    email: 'ada@example.com',
+    ...ACCOUNT_FIELDS,
+    pending_email: 'new@example.com',
+  })
+  renderTab()
+  await userEvent.click(await screen.findByRole('button', { name: 'Cancel email change' }))
+  expect(mockCancelEmailChange).toHaveBeenCalled()
+  await waitFor(() =>
+    expect(screen.queryByText(/Waiting for you to confirm/)).not.toBeInTheDocument(),
+  )
+  expect(screen.getByText('Your email change was cancelled.')).toBeInTheDocument()
+})
+
+test('the username row unlocks when the rename cooldown runs out while Settings is open', async () => {
+  // Real timers with a short cooldown: the component's own timer has to fire,
+  // with no remount, for the row to unlock.
+  mockGetCurrentUser.mockResolvedValue({
+    username: 'ada',
+    email: 'ada@example.com',
+    ...ACCOUNT_FIELDS,
+    next_username_change_time: new Date(Date.now() + 1500).toISOString(),
+  })
+  renderTab()
+  expect(await screen.findByRole('button', { name: /Change username/ })).toBeDisabled()
+  await waitFor(
+    () => expect(screen.getByRole('button', { name: /Change username/ })).toBeEnabled(),
+    { timeout: 5000 },
+  )
+  expect(screen.queryByText(/You can change your username again on/)).not.toBeInTheDocument()
 })

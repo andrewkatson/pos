@@ -26,10 +26,149 @@ underscores; length counted in code points) — `Patterns.username`, mirrored by
 the registration hints on every client. The 150 ceiling is the username
 column's `max_length`, so a longer name is refused as an ordinary validation
 error (`Invalid fields ['USERNAME']`, 400) rather than failing at the database.
-A username is fixed once chosen: it is set at registration (or generated on a
-first Google sign-in, see [Signing in with Google](authentication.md#signing-in-with-google)) and there is no rename endpoint. Session and
-remember-me tokens are validated by the separate `Patterns.alphanumeric`, which
-is not a username rule.
+A username is set at registration (or generated on a first Google sign-in, see
+[Signing in with Google](authentication.md#signing-in-with-google)) and can be
+changed later from Settings — see [Changing the username](#changing-the-username-issue-594).
+Session and remember-me tokens are validated by the separate
+`Patterns.alphanumeric`, which is not a username rule.
+
+## Changing the username (issue #594)
+
+Settings → Contact Information shows the username with a **Change** action,
+backed by `POST /me/username/` with `{"username": "<new name>"}`. The username
+and the email are changed separately: the username is a public handle, so its
+risks are moderation, links and impersonation, while the email is a private
+credential that must be proven before it takes effect (see
+[Changing the email](#changing-the-email-issue-594)).
+
+**Checks.** The new name goes through exactly what a registration name does:
+`Patterns.username`, nobody else holding it, and the positivity classifier. A
+classifier rejection is not appealable — pick another name. A name equal to the
+current one is refused. No password is asked for: a username is not a
+credential, and the cooldown caps what a stolen session could do with it.
+
+**Cooldown.** An account may rename once every `USERNAME_CHANGE_COOLDOWN_DAYS`
+(30), tracked in `username_changed_time`, so renaming can't be used to churn
+names to shake off reports and blocks or to cycle impersonation names. A rename
+inside the window answers `username_change_too_soon` with
+`next_username_change_time`, and `GET /me/` reports the same field (null when a
+rename is allowed now) so clients disable the row and say when it reopens.
+`GET /me/` and the rename response also carry `former_username_held_until`
+(see below).
+
+**The old name is held.** The name given up becomes a `UsernameHold` for
+`USERNAME_HOLD_DAYS` (30). During the hold:
+
+- nobody else can register it, rename to it, or be generated it on a first
+  Google sign-in — refused as `username_taken`, like a name in use;
+- every `users/<username>/…` route (profile, posts, follow, block, report,
+  follow requests) and the public profile routes still resolve it to the
+  account, through `get_user_by_handle`, so share links, push notifications
+  already delivered and other devices' cached names keep working;
+- the former owner can take it back (subject to the cooldown), which just ends
+  the hold.
+
+Registration, a first Google sign-in and a rename each re-check the hold
+*after* writing the name, in the same transaction. A write that collided with a
+rename on the username's unique index only proceeds once that rename — and the
+hold it creates in the same commit — is visible, so a check made only beforehand
+could hand the reserved name to someone else.
+
+Sign-in, registration and password reset match the *current* username only: an
+old name is a pointer to the account, not a credential for it. A hold past its
+expiry is ignored everywhere, and expired rows are swept on the next rename. A
+current username always wins over a hold, so a name freed after its hold
+belongs to whoever takes it next.
+
+Every relation (posts, comments, follows, blocks, reports, appeals, sessions)
+points at the user's UUID, so a rename rewrites nothing else. It does change the
+profile under [account report review](reporting.md#reporting-an-account-issue-602),
+so it releases a decided review exactly like a new bio does
+(`moderation.profile_content_changed`).
+
+**Clients.** Each client caches the signed-in username for "is this me?"
+checks (website `localStorage`/`sessionStorage`, iOS and Android the keychain
+session). The device that renames updates its cache from the response and
+tells views that already read it: the website through `useCurrentUsername`
+(an event-backed hook its ownership checks use), iOS through the
+`.usernameChanged` notification, Android through `SessionEvents`, which the
+view models kept alive across tabs listen to. The website also refreshes the
+cache from `GET /me/` on startup and when Settings opens, so a rename made on
+another device catches up, and a view that rendered with the old name updates
+when the refresh lands (a startup response is dropped if the session or the
+cached name changed while it was in flight).
+
+Rows already on screen — and loads that started before the rename — still
+carry the old author name. Rather than refetch, each client remembers the names
+the account gave up during the session and counts them as the user's own for
+"is this mine?" checks (website `useOwnUsernames`, iOS
+`PostActionsViewModel.isOwnUsername`, Android `PostListActions.isOwnPost`).
+That is safe only while the name is held for its former owner, so the rename
+response and `GET /me/` report `former_username_held_until` — when the hold on
+the name given up at the last rename ends (null when there is none) — and
+clients remember a former name only with a hold still running and stop
+counting it once that passes. A refresh that finds the hold already over
+remembers nothing. The website derives comment ownership at render time from
+these names rather than storing it per comment, so a refresh that lands after
+the comments loaded is reflected at once. The website's `/profile/<old name>` page replaces itself
+with the current name once the profile loads; the native clients rely on the
+backend resolving the old name.
+
+## Changing the email (issue #594)
+
+Settings → Contact Information shows the email with a **Change** action. The
+change is a request that only takes effect once the new address is proven:
+
+1. `POST /me/email/` with the new `email` plus proof that the owner is asking:
+   the account `password`, or — for a Google-only account, which has no
+   password (`GET /me/` reports `has_password: false`) — a fresh Google
+   `id_token` whose `sub` is the Google account already linked to it. A stolen
+   session alone can't redirect where password resets go, the same reasoning
+   as changing the password. A failure answers `reauthentication_required`.
+   The proof is judged against the user row as locked for the write, not the
+   copy loaded at authentication, and the request's session must still exist
+   then: a password changed or reset mid-request (which also revokes sessions)
+   stops it.
+2. The address must differ from the current one and must not be held by any
+   other account, both compared **case-insensitively** (`email_in_use`
+   otherwise). Registration only rejects exact matches, but addresses differing
+   in case are one mailbox, and two accounts sharing one is what makes Google
+   sign-in refuse with `google_email_ambiguous`, so a change never creates that.
+3. The new address is stored as `pending_email` with a token (SHA-256 hash
+   only, `EMAIL_CHANGE_TOKEN_HOURS` = 24h) and mailed a link to
+   `https://smiling.social/verify-email-change?token=...`. The current address
+   keeps working for login, password reset and every notice until then, and the
+   account stays verified throughout. Requesting again replaces the pending
+   address and invalidates the old link; `POST /me/email/cancel/` withdraws it.
+   `GET /me/` reports `pending_email` so Settings can show it with a cancel
+   action.
+4. The website page POSTs the token to `verify-email-change/`, which needs no
+   session (the link may be opened on any device, so the page is in
+   `PUBLIC_PATHS`: a dead session in that browser is cleared without bouncing
+   to `/login`). Under a lock on the address — the same one registration and a
+   first Google sign-in take, a Postgres advisory lock on the lowercased
+   address, since no database constraint makes emails unique — it re-checks
+   that no other account took the address meanwhile (clearing the request with
+   `email_in_use` if one did), swaps it in, marks the account verified, and
+   voids both stages of any outstanding password reset (the emailed code and
+   the reset token), since they went to the old address. The **old address is then emailed** that the change happened, so an
+   owner whose account was taken over hears about it where they still read
+   mail.
+
+A password change or password reset clears any pending email change: it was
+authorized by the old credentials, and a reset is account recovery, so a change
+someone else requested before it must not be completable after. Issuing a
+password-reset code locks and re-reads the account (the lock confirmation
+takes), so a reset in flight can't store a code for the old mailbox after a
+confirmation voided reset codes. Linking a Google identity to an account found
+by its email does the same and refuses to link if the account no longer holds
+that address — the sign-in then proceeds as if nothing matched.
+
+Other sessions are not signed out by an email change. Google sign-in keeps
+working because it finds the account by `google_sub`, not by email. Password
+reset matches on username plus email, so it simply uses the new values.
+Authenticator apps keep the old address as the account's label (the TOTP
+provisioning URI is built from the email at enrollment), which is cosmetic.
 
 ## Membership numbers
 

@@ -74,7 +74,23 @@ final class PostActionsViewModel: ObservableObject {
     @Published private(set) var captionOverrides: [String: CaptionOverride] = [:]
 
     /// The signed-in user's username, used to tell your own posts from others'.
-    private(set) var currentUsername: String?
+    /// Published and kept current across a rename (issue #594).
+    @Published private(set) var currentUsername: String?
+
+    /// Names this account gave up while this view model was alive (issue #594),
+    /// each with when its hold ends. A renamed-away name stays reserved for its
+    /// former owner until then, so rows fetched before the rename — still
+    /// carrying it — are still the user's own; after it, someone else may hold
+    /// the name.
+    private(set) var formerUsernames: [String: Date] = [:]
+
+    /// Whether `username` is the signed-in account, under its current name or a
+    /// still-held one it gave up this session.
+    func isOwnUsername(_ username: String, now: Date = Date()) -> Bool {
+        if username == currentUsername { return true }
+        guard let heldUntil = formerUsernames[username] else { return false }
+        return heldUntil > now
+    }
 
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
@@ -86,6 +102,8 @@ final class PostActionsViewModel: ObservableObject {
     private var commentsLockCancellable: AnyCancellable?
     // Listens for `.postCaptionEdited` for the same reason, for caption edits.
     private var captionEditCancellable: AnyCancellable?
+    // Listens for `.usernameChanged`, so ownership checks follow a rename.
+    private var usernameChangedCancellable: AnyCancellable?
 
     convenience init(api: Networking, keychainHelper: KeychainHelperProtocol) {
         self.init(api: api, keychainHelper: keychainHelper, account: "userSessionToken")
@@ -102,6 +120,21 @@ final class PostActionsViewModel: ObservableObject {
         self.currentUsername = try? keychainHelper.load(
             UserSession.self, from: GVOAppConstants.keychainService, account: account
         )?.username
+
+        usernameChangedCancellable = notificationCenter.publisher(for: .usernameChanged)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] notification in
+                guard let self, let username = notification.object as? String else { return }
+                // Remembered only with a hold that hasn't ended: without one, the
+                // old name may already belong to someone else.
+                if let previous = self.currentUsername, previous != username,
+                   let heldUntil = notification.userInfo?["formerUsernameHeldUntil"] as? Date,
+                   heldUntil > Date() {
+                    self.formerUsernames[previous] = heldUntil
+                }
+                self.formerUsernames[username] = nil
+                self.currentUsername = username
+            }
 
         commentsLockCancellable = notificationCenter.publisher(for: .postCommentsDisabledChanged)
             .receive(on: RunLoop.main)
@@ -127,7 +160,7 @@ final class PostActionsViewModel: ObservableObject {
     /// acted on it this session, otherwise the state the server sent with the list.
     func state(for post: Post) -> InteractionState {
         var state = overrides[post.id] ?? InteractionState(
-            isOwn: post.authorUsername == currentUsername,
+            isOwn: isOwnUsername(post.authorUsername),
             isLiked: post.isLiked,
             likeCount: post.postLikes,
             isSaved: post.isSaved,

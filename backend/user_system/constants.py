@@ -445,6 +445,17 @@ class Fields:
     # viewer has a follow request pending on it, and (owner-only) how many
     # incoming requests are waiting for a decision.
     is_private = "is_private"
+    # Account settings for changing the username or email (issue #594): the
+    # address waiting on its confirmation link, whether the account has a
+    # password to re-enter (a Google-only account re-authenticates with Google
+    # instead), and when the next rename is allowed (null when it is now).
+    pending_email = "pending_email"
+    has_password = "has_password"
+    next_username_change_time = "next_username_change_time"
+    # Until when the name given up at the last rename stays reserved for this
+    # account (issue #594); null when there is no such hold. Clients count that
+    # name as the user's own only until then — after it, someone else may hold it.
+    former_username_held_until = "former_username_held_until"
     follow_request_pending = "follow_request_pending"
     follow_request_count = "follow_request_count"
     # Each incoming follow request row's id, the keyset cursor for paging the
@@ -746,3 +757,33 @@ MAX_COMMENT_FORMAT_SPANS = 100
 # verify_reset lockout: lock the account after this many consecutive failures
 VERIFY_RESET_MAX_ATTEMPTS = 5
 VERIFY_RESET_LOCKOUT_MINUTES = 15
+
+# Changing a username or email (issue #594).
+#
+# A username can be changed once per USERNAME_CHANGE_COOLDOWN_DAYS, so renaming
+# cannot be used to churn through names to dodge reports and blocks, or to
+# cycle impersonation names. The name given up stays reserved for its former
+# owner for USERNAME_HOLD_DAYS (see UsernameHold): nobody else can take it, and
+# profile routes still resolve it, so old links keep working.
+USERNAME_CHANGE_COOLDOWN_DAYS = 30
+USERNAME_HOLD_DAYS = 30
+
+# Returned when the requested username is in use or held for someone else. A
+# stable code (like ACCOUNT_BANNED) so clients can show their own copy.
+USERNAME_TAKEN = "username_taken"
+
+# Returned when the account renamed less than USERNAME_CHANGE_COOLDOWN_DAYS ago;
+# the response carries next_username_change_time.
+USERNAME_CHANGE_TOO_SOON = "username_change_too_soon"
+
+# Returned when another account already holds the requested email address
+# (compared case-insensitively — see request_email_change).
+EMAIL_IN_USE = "email_in_use"
+
+# Returned when changing the email cannot prove the caller is the owner: the
+# password (or, for a Google-only account, a fresh Google ID token for the
+# linked Google account) is missing or wrong.
+REAUTHENTICATION_REQUIRED = "reauthentication_required"
+
+# How long the link confirming a new email address stays valid.
+EMAIL_CHANGE_TOKEN_HOURS = 24

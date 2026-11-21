@@ -112,11 +112,47 @@ struct CurrentUserFields: Codable {
     /// The private account setting (issue #96), shown as a Settings toggle.
     /// Optional so a response from an older backend still decodes.
     var isPrivate: Bool? = nil
+    /// Changing the username or email (issue #594): an address waiting on its
+    /// confirmation link, whether the account has a password to re-enter (a
+    /// Google-only account confirms with Google instead), and when the next
+    /// rename is allowed (ISO time; nil when it is now). All optional so an
+    /// older backend's response still decodes — `hasPassword` being nil is how
+    /// the client tells that the feature isn't there.
+    var pendingEmail: String? = nil
+    var hasPassword: Bool? = nil
+    var nextUsernameChangeTime: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case username
         case email
         case isPrivate = "is_private"
+        case pendingEmail = "pending_email"
+        case hasPassword = "has_password"
+        case nextUsernameChangeTime = "next_username_change_time"
+    }
+}
+
+/// `POST me/username/` (issue #594).
+struct ChangeUsernameFields: Codable {
+    let username: String
+    var nextUsernameChangeTime: String? = nil
+    /// Until when the name just given up stays reserved for this account (ISO
+    /// time); content under it counts as the user's own only until then.
+    var formerUsernameHeldUntil: String? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case username
+        case nextUsernameChangeTime = "next_username_change_time"
+        case formerUsernameHeldUntil = "former_username_held_until"
+    }
+}
+
+/// `POST me/email/` (issue #594).
+struct RequestEmailChangeFields: Codable {
+    let pendingEmail: String
+
+    enum CodingKeys: String, CodingKey {
+        case pendingEmail = "pending_email"
     }
 }
 

@@ -1,9 +1,10 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach, test, expect } from 'vitest'
 import PostDetailPage from './PostDetailPage'
 import type { Comment, PostDetails } from '../api/types'
+import { USERNAME_CHANGED_EVENT } from '../api/sessionEvents'
 
 vi.mock('../api/client', () => ({
   apiClient: {
@@ -194,6 +195,49 @@ test('hides the like control on the current user’s own comment', async () => {
   mockGetThreadComments.mockResolvedValue([comment])
   renderDetail()
   await screen.findByText('love this')
+  expect(screen.queryByRole('button', { name: 'Like comment' })).not.toBeInTheDocument()
+})
+
+test('a post under a name the account gave up this session is still its own (#594)', async () => {
+  // Renamed from "ada" to "ada_renamed": the old name is reserved for this
+  // account until its hold ends, so content still carrying it keeps owner
+  // controls.
+  localStorage.setItem('session_token', 'token')
+  localStorage.setItem('username', 'ada_renamed')
+  localStorage.setItem('former_usernames', `ada\t${Date.now() + 60_000}`)
+  renderDetail()
+  await screen.findByText('sunshine')
+  expect(screen.queryByRole('button', { name: 'Like post' })).not.toBeInTheDocument()
+})
+
+test('a former name whose hold has ended is no longer the account’s own (#594)', async () => {
+  // After the hold someone else may hold the name, so their content must not
+  // get this user's owner controls.
+  localStorage.setItem('session_token', 'token')
+  localStorage.setItem('username', 'ada_renamed')
+  localStorage.setItem('former_usernames', `ada\t${Date.now() - 1000}`)
+  renderDetail()
+  await screen.findByText('sunshine')
+  expect(screen.getByRole('button', { name: 'Like post' })).toBeInTheDocument()
+})
+
+test('comments loaded before a username refresh follow it (#594)', async () => {
+  // Another device renamed the account to "bob"; the startup refresh lands
+  // after the comments loaded. Ownership is derived at render, so bob's comment
+  // loses its like control without a reload.
+  localStorage.setItem('session_token', 'token')
+  localStorage.setItem('username', 'someone_else')
+  mockGetThreadRefs.mockResolvedValue([{ comment_thread_identifier: 't1' }])
+  mockGetThreadComments.mockResolvedValue([comment])
+  renderDetail()
+  await screen.findByText('love this')
+  expect(screen.getByRole('button', { name: 'Like comment' })).toBeInTheDocument()
+
+  act(() => {
+    localStorage.setItem('username', 'bob')
+    window.dispatchEvent(new Event(USERNAME_CHANGED_EVENT))
+  })
+
   expect(screen.queryByRole('button', { name: 'Like comment' })).not.toBeInTheDocument()
 })
 

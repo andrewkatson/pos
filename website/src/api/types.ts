@@ -200,6 +200,42 @@ export interface CurrentUser {
   email: string
   /** Whether the account is private (issue #96). Absent on older backends. */
   is_private?: boolean
+  /** A new address waiting on its confirmation link (issue #594), or null. */
+  pending_email?: string | null
+  /** False for a Google-only account, which re-authenticates with Google
+   * instead of a password to change its email (issue #594). */
+  has_password?: boolean
+  /** When the next rename is allowed (ISO time), or null if it is now. */
+  next_username_change_time?: string | null
+  /** Until when the name given up at the last rename stays reserved for this
+   * account (ISO time), or null — content under it counts as the user's own
+   * only until then. */
+  former_username_held_until?: string | null
+}
+
+/** `POST /me/username/` (issue #594). */
+export interface ChangeUsernameRequest {
+  username: string
+}
+
+export interface ChangeUsernameResponse {
+  username: string
+  next_username_change_time: string | null
+  former_username_held_until?: string | null
+  message: string
+}
+
+/** `POST /me/email/` (issue #594): the new address plus proof it is the owner
+ * asking — the password, or for a Google-only account a fresh Google ID token. */
+export interface RequestEmailChangeRequest {
+  email: string
+  password?: string
+  id_token?: string
+}
+
+export interface RequestEmailChangeResponse {
+  pending_email: string
+  message: string
 }
 
 export interface ChangePasswordRequest {

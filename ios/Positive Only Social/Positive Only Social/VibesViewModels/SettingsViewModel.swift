@@ -36,6 +36,23 @@ final class SettingsViewModel: ObservableObject {
     @Published var isPrivate: Bool?
     @Published var isSavingPrivacy = false
 
+    // Changing the username or email (issue #594), loaded with the contact
+    // info. `hasPassword` is nil on a backend without the feature, in which case
+    // the rows stay read-only. `nextUsernameChangeTime` is when the next rename
+    // is allowed (nil when it is now). Errors raised while a sheet is open show
+    // inline on it (`accountChangeErrorMessage`), like the password sheet, and
+    // the `…Succeeded` flags tell the view to dismiss it, after which
+    // `accountChangeStatusMessage` is raised as an alert.
+    @Published var pendingEmail: String?
+    @Published var hasPassword: Bool?
+    @Published var nextUsernameChangeTime: Date?
+    @Published var accountChangeErrorMessage: String?
+    @Published var isChangingAccountDetails = false
+    @Published var usernameChangeSucceeded = false
+    @Published var emailChangeRequested = false
+    @Published var accountChangeStatusMessage = ""
+    @Published var showingAccountChangeStatusAlert = false
+
     // Push notification preferences (issues #342/#343): the per-type Settings
     // toggles, loaded on mount. Empty until the fetch resolves (or if it fails,
     // in which case the section simply doesn't render).
@@ -183,11 +200,141 @@ final class SettingsViewModel: ObservableObject {
                 currentUsername = fields.username
                 currentEmail = fields.email
                 isPrivate = fields.isPrivate
+                pendingEmail = fields.pendingEmail
+                hasPassword = fields.hasPassword
+                nextUsernameChangeTime = Self.parseChangeTime(fields.nextUsernameChangeTime)
             } catch {
                 // Non-fatal: leave the placeholder in place.
                 NSLog("%@", "🔴 Could not load current user: \(error.localizedDescription)")
             }
         }
+    }
+
+    // MARK: - Changing the username or email (issue #594)
+
+    /// Whether the backend supports changing the username and email.
+    var canChangeAccountDetails: Bool { hasPassword != nil }
+
+    /// Whether a rename is allowed now (the cooldown has run out).
+    var canRenameNow: Bool {
+        guard let next = nextUsernameChangeTime else { return true }
+        return next <= Date()
+    }
+
+    static func parseChangeTime(_ iso: String?) -> Date? {
+        guard let iso else { return nil }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return withFraction.date(from: iso) ?? ISO8601DateFormatter().date(from: iso)
+    }
+
+    /// Renames the account. On success the stored session's username is
+    /// replaced too — it's what every "is this me?" check compares against —
+    /// and the AuthenticationManager republishes it.
+    func changeUsername(_ newUsername: String, authManager: AuthenticationManager) {
+        accountChangeErrorMessage = nil
+        isChangingAccountDetails = true
+        Task {
+            defer { isChangingAccountDetails = false }
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    accountChangeErrorMessage = "Session not found."
+                    return
+                }
+                let data = try await api.changeUsername(sessionManagementToken: userSession.sessionToken,
+                                                        newUsername: newUsername)
+                let fields = try JSONDecoder().decode(ChangeUsernameFields.self, from: data)
+                let renamed = UserSession(sessionToken: userSession.sessionToken,
+                                          username: fields.username,
+                                          userId: userSession.userId,
+                                          isIdentityVerified: userSession.isIdentityVerified)
+                try keychainHelper.save(renamed, for: keychainService, account: account)
+                authManager.login(with: renamed)
+                var userInfo: [String: Any] = [:]
+                if let heldUntil = Self.parseChangeTime(fields.formerUsernameHeldUntil) {
+                    userInfo["formerUsernameHeldUntil"] = heldUntil
+                }
+                notificationCenter.post(name: .usernameChanged, object: fields.username, userInfo: userInfo)
+                currentUsername = fields.username
+                nextUsernameChangeTime = Self.parseChangeTime(fields.nextUsernameChangeTime)
+                accountChangeStatusMessage = "Your username is now \(fields.username)."
+                usernameChangeSucceeded = true
+            } catch {
+                accountChangeErrorMessage = error.userFacingMessage
+            }
+        }
+    }
+
+    /// Asks to move the account to a new email. Nothing changes until the link
+    /// sent there is followed; the pending address is shown until then. Pass the
+    /// password, or for a Google-only account a fresh Google ID token.
+    func requestEmailChange(_ newEmail: String, password: String?, idToken: String?) {
+        accountChangeErrorMessage = nil
+        isChangingAccountDetails = true
+        Task {
+            defer { isChangingAccountDetails = false }
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    accountChangeErrorMessage = "Session not found."
+                    return
+                }
+                let data = try await api.requestEmailChange(sessionManagementToken: userSession.sessionToken,
+                                                            email: newEmail, password: password, idToken: idToken)
+                let fields = try JSONDecoder().decode(RequestEmailChangeFields.self, from: data)
+                pendingEmail = fields.pendingEmail
+                accountChangeStatusMessage = "We sent a confirmation link to \(fields.pendingEmail)."
+                emailChangeRequested = true
+            } catch {
+                accountChangeErrorMessage = error.userFacingMessage
+            }
+        }
+    }
+
+    /// A Google-only account confirms an email change by signing in with Google
+    /// again; cancelling Google's sheet is a choice, not an error.
+    func requestEmailChangeWithGoogle(_ newEmail: String, googleSignIn: GoogleSignInProviding) {
+        accountChangeErrorMessage = nil
+        Task {
+            do {
+                let idToken = try await googleSignIn.signIn()
+                requestEmailChange(newEmail, password: nil, idToken: idToken)
+            } catch GoogleSignInError.cancelled {
+                return
+            } catch let error as GoogleSignInError {
+                accountChangeErrorMessage = error.errorDescription
+            } catch {
+                accountChangeErrorMessage = GVOAppConstants.googleSignInFailedMessage
+            }
+        }
+    }
+
+    /// Withdraws a pending email change.
+    func cancelEmailChange() {
+        Task {
+            do {
+                guard let userSession = try keychainHelper.load(UserSession.self, from: keychainService, account: account) else {
+                    return
+                }
+                _ = try await api.cancelEmailChange(sessionManagementToken: userSession.sessionToken)
+                pendingEmail = nil
+                accountChangeStatusMessage = "Your email change was cancelled."
+                showingAccountChangeStatusAlert = true
+            } catch {
+                errorMessage = "Could not cancel the email change: \(error.userFacingMessage)"
+                showingErrorAlert = true
+            }
+        }
+    }
+
+    /// Called after a username or email sheet has closed: raises the
+    /// confirmation alert if it succeeded, and clears the sheet's state.
+    func finishAccountChangeSheet() {
+        if usernameChangeSucceeded || emailChangeRequested {
+            showingAccountChangeStatusAlert = true
+        }
+        usernameChangeSucceeded = false
+        emailChangeRequested = false
+        accountChangeErrorMessage = nil
     }
 
     // MARK: - Private account (issue #96)

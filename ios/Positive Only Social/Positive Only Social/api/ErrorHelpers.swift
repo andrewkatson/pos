@@ -47,6 +47,13 @@ extension Notification.Name {
     /// badge, "Follow Requests (n)" badge and follower count refresh when they
     /// come back to it.
     static let followRequestsChanged = Notification.Name("followRequestsChanged")
+
+    /// Posted after the signed-in account is renamed (issue #594), with the new
+    /// username as the `object` and, under `userInfo["formerUsernameHeldUntil"]`,
+    /// the `Date` until which the name given up stays reserved for the account.
+    /// View models kept alive across tabs cache the username to tell your own
+    /// posts from others', so they listen and update.
+    static let usernameChanged = Notification.Name("usernameChanged")
 }
 
 extension Error {
@@ -89,7 +96,9 @@ extension APIError {
     var userFacingMessage: String {
         switch self {
         case .serverError(_, let message):
-            return message
+            // A few endpoints answer with stable codes rather than prose; the
+            // copy for those lives on the client.
+            return GVOAppConstants.accountChangeMessages[message] ?? message
         case .badServerResponse(let statusCode):
             return APIError.userFacingMessage(forStatusCode: statusCode)
         case .requestFailed(let underlying):
