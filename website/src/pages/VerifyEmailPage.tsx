@@ -99,7 +99,7 @@ function VerifyEmailPage() {
 
         {state === 'success' && (
           <>
-            <p style={{ color: 'rgba(255,255,255,0.8)', textAlign: 'center', lineHeight: 1.5, margin: 0 }}>
+            <p className="auth-message">
               Your email address has been verified. You can now log in.
             </p>
             <button type="button" className="auth-button" onClick={() => navigate('/login')}>
@@ -109,7 +109,7 @@ function VerifyEmailPage() {
         )}
 
         {state === 'missing-token' && (
-          <p style={{ color: 'rgba(255,255,255,0.8)', textAlign: 'center', lineHeight: 1.5, margin: 0 }}>
+          <p className="auth-message">
             This page verifies your email address, but the link is missing its token. Please open
             the verification link from your welcome email.
           </p>
@@ -122,7 +122,7 @@ function VerifyEmailPage() {
                 <p>{errorMessage}</p>
               </div>
             )}
-            <p style={{ color: 'rgba(255,255,255,0.8)', textAlign: 'center', lineHeight: 1.5, margin: 0 }}>
+            <p className="auth-message">
               Enter your username or email below and we&apos;ll send you a fresh verification link.
             </p>
             <form className="auth-form" onSubmit={handleResend} noValidate>
@@ -143,7 +143,7 @@ function VerifyEmailPage() {
                 />
               </div>
               {resendMessage && (
-                <p style={{ color: 'rgba(255,255,255,0.8)', textAlign: 'center', margin: 0 }} role="status">
+                <p className="auth-message" role="status">
                   {resendMessage}
                 </p>
               )}

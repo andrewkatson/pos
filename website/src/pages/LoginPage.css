@@ -366,6 +366,18 @@
   color: var(--auth-accent-hover);
 }
 
+/* ---- Centred body copy (check-email, verify-email, verify-reset) ---- */
+
+/* Takes the auth foreground token rather than a fixed colour: these pages
+   used to hard-code white text from the old dark theme, which vanished on the
+   light auth background. */
+.auth-message {
+  color: var(--auth-fg-strong);
+  text-align: center;
+  line-height: 1.5;
+  margin: 0;
+}
+
 /* ---- Two-factor step ---- */
 
 .auth-instructions {

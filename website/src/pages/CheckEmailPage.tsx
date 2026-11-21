@@ -44,7 +44,7 @@ function CheckEmailPage() {
 
         <h1 className="auth-title">Check Your Email</h1>
 
-        <p style={{ color: 'rgba(255,255,255,0.8)', textAlign: 'center', lineHeight: 1.5, margin: 0 }}>
+        <p className="auth-message">
           {email
             ? `We sent a verification link to ${email}. Click it to activate your account — you won't be able to log in until your email is verified.`
             : "We sent a verification link to the email address you registered with. Click it to activate your account — you won't be able to log in until your email is verified."}
@@ -71,7 +71,7 @@ function CheckEmailPage() {
           )}
 
           {resendMessage && (
-            <p style={{ color: 'rgba(255,255,255,0.8)', textAlign: 'center', margin: 0 }} role="status">
+            <p className="auth-message" role="status">
               {resendMessage}
             </p>
           )}
