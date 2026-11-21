@@ -53,8 +53,8 @@ names to shake off reports and blocks or to cycle impersonation names. A rename
 inside the window answers `username_change_too_soon` with
 `next_username_change_time`, and `GET /me/` reports the same field (null when a
 rename is allowed now) so clients disable the row and say when it reopens.
-`GET /me/` and the rename response also carry `former_username_held_until`
-(see below).
+`GET /me/` and the rename response also carry `former_username` and
+`former_username_held_until` (see below).
 
 **The old name is held.** The name given up becomes a `UsernameHold` for
 `USERNAME_HOLD_DAYS` (30). During the hold:
@@ -104,11 +104,13 @@ the account gave up during the session and counts them as the user's own for
 "is this mine?" checks (website `useOwnUsernames`, iOS
 `PostActionsViewModel.isOwnUsername`, Android `PostListActions.isOwnPost`).
 That is safe only while the name is held for its former owner, so the rename
-response and `GET /me/` report `former_username_held_until` — when the hold on
-the name given up at the last rename ends (null when there is none) — and
-clients remember a former name only with a hold still running and stop
-counting it once that passes. A refresh that finds the hold already over
-remembers nothing. The website derives comment ownership at render time from
+response and `GET /me/` report `former_username` and
+`former_username_held_until` — the name whose hold is still running, read from
+the hold itself, and when it ends (both null when there is none). Clients
+remember exactly that server-confirmed name, never the one they happened to
+have cached (after a rename missed elsewhere, A → B → C, the held name is B and
+A may belong to someone else), and stop counting it once the hold passes. A
+refresh that finds no running hold remembers nothing. The website derives comment ownership at render time from
 these names rather than storing it per comment, so a refresh that lands after
 the comments loaded is reflected at once. The website's `/profile/<old name>` page replaces itself
 with the current name once the profile loads; the native clients rely on the

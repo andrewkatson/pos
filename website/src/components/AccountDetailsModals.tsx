@@ -44,7 +44,7 @@ export function ChangeUsernameModal({ currentUsername, onClose, onChanged }: Cha
     setErrorMessage(null)
     try {
       const result = await apiClient.changeUsername({ username: trimmed })
-      updateStoredUsername(result.username, result.former_username_held_until)
+      updateStoredUsername(result.username, result)
       onChanged(result.username, result.next_username_change_time)
     } catch (err) {
       setErrorMessage(accountChangeMessage(err, 'Could not change your username.'))

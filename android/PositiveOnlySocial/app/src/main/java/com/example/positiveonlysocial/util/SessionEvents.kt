@@ -21,14 +21,15 @@ object SessionEvents {
     )
     val usernameChanges: SharedFlow<UsernameChange> = _usernameChanges.asSharedFlow()
 
-    /** Announce that the signed-in account is now called [username]; the name
-     * it gave up stays reserved for it until [formerHeldUntilMillis] (epoch ms,
-     * null if unknown). */
-    fun usernameChanged(username: String, formerHeldUntilMillis: Long? = null) {
-        _usernameChanges.tryEmit(UsernameChange(username, formerHeldUntilMillis))
+    /** Announce that the signed-in account is now called [username], and which
+     * old name the server says is still reserved for it ([formerUsername]) until
+     * when ([formerHeldUntilMillis], epoch ms) — null when none is. */
+    fun usernameChanged(username: String, formerUsername: String? = null, formerHeldUntilMillis: Long? = null) {
+        _usernameChanges.tryEmit(UsernameChange(username, formerUsername, formerHeldUntilMillis))
     }
 }
 
-/** A rename: the new name, and until when the given-up name stays held for
- * the account (epoch ms) — after that someone else may hold it. */
-data class UsernameChange(val username: String, val formerHeldUntilMillis: Long?)
+/** A rename: the new name, and the server-confirmed old name still held for
+ * the account with when its hold ends (epoch ms) — after that, or for any other
+ * old name, someone else may hold it. */
+data class UsernameChange(val username: String, val formerUsername: String?, val formerHeldUntilMillis: Long?)

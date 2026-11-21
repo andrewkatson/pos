@@ -251,7 +251,9 @@ final class SettingsViewModel: ObservableObject {
                 try keychainHelper.save(renamed, for: keychainService, account: account)
                 authManager.login(with: renamed)
                 var userInfo: [String: Any] = [:]
-                if let heldUntil = Self.parseChangeTime(fields.formerUsernameHeldUntil) {
+                if let formerUsername = fields.formerUsername,
+                   let heldUntil = Self.parseChangeTime(fields.formerUsernameHeldUntil) {
+                    userInfo["formerUsername"] = formerUsername
                     userInfo["formerUsernameHeldUntil"] = heldUntil
                 }
                 notificationCenter.post(name: .usernameChanged, object: fields.username, userInfo: userInfo)

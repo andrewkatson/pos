@@ -136,13 +136,16 @@ struct CurrentUserFields: Codable {
 struct ChangeUsernameFields: Codable {
     let username: String
     var nextUsernameChangeTime: String? = nil
-    /// Until when the name just given up stays reserved for this account (ISO
-    /// time); content under it counts as the user's own only until then.
+    /// The name this account gave up that is still reserved for it, and until
+    /// when (ISO time). Content under exactly that name counts as the user's
+    /// own only until then.
+    var formerUsername: String? = nil
     var formerUsernameHeldUntil: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case username
         case nextUsernameChangeTime = "next_username_change_time"
+        case formerUsername = "former_username"
         case formerUsernameHeldUntil = "former_username_held_until"
     }
 }

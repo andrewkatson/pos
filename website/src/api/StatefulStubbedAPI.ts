@@ -205,6 +205,8 @@ interface UserMock {
   /** A new address waiting on its confirmation link (issue #594). */
   pendingEmail?: string | null
   pendingEmailToken?: string | null
+  /** The name given up at the last rename, held for as long as the cooldown. */
+  formerUsername?: string
 }
 
 /** Mirrors USERNAME_CHANGE_COOLDOWN_DAYS in backend/user_system/constants.py. */
@@ -885,6 +887,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       has_password: !user.passwordHash.startsWith('no-password-'),
       next_username_change_time: this.nextUsernameChangeTime(user),
       // The hold on the given-up name is as long as the cooldown (both 30 days).
+      former_username: this.nextUsernameChangeTime(user) ? (user.formerUsername ?? null) : null,
       former_username_held_until: this.nextUsernameChangeTime(user),
     }
   }
@@ -908,11 +911,13 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     if (body.username.toLowerCase().includes('negative')) {
       throw new ApiError(400, 'Username is not positive because it is negative.')
     }
+    user.formerUsername = user.username
     user.username = body.username
     user.usernameChangedAt = Date.now()
     return {
       username: user.username,
       next_username_change_time: this.nextUsernameChangeTime(user),
+      former_username: user.formerUsername ?? null,
       former_username_held_until: this.nextUsernameChangeTime(user),
       message: 'Your username has been changed.',
     }

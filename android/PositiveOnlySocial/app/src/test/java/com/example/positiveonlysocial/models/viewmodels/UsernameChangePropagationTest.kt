@@ -40,7 +40,7 @@ class UsernameChangePropagationTest {
         assertEquals("before_rename", feed.postActions.currentUsername.value)
 
         val heldUntil = System.currentTimeMillis() + 60_000
-        SessionEvents.usernameChanged("after_rename", heldUntil)
+        SessionEvents.usernameChanged("after_rename", "before_rename", heldUntil)
         advanceUntilIdle()
 
         assertEquals("after_rename", home.currentUsername.value)
@@ -62,9 +62,26 @@ class UsernameChangePropagationTest {
             .thenReturn(UserSession("token123", "old_name_here", "1", false, null, null))
         val feed = FeedViewModel(api, keychainHelper)
 
-        SessionEvents.usernameChanged("new_name_here", null)
+        SessionEvents.usernameChanged("new_name_here", null, null)
         advanceUntilIdle()
 
         assertFalse(feed.postActions.isOwnPost(Post("p1", "url", "caption", "old_name_here", 0)))
+    }
+
+    @Test
+    fun `after a missed rename only the server-confirmed held name counts`() = runTest {
+        // Cached "name_a_then" but missed A -> B -> C elsewhere: the live hold is
+        // on B, and A may belong to someone else now.
+        val api = mock<PositiveOnlySocialAPI>()
+        val keychainHelper = mock<KeychainHelperProtocol>()
+        whenever(keychainHelper.load(any<Class<UserSession>>(), any(), any()))
+            .thenReturn(UserSession("token123", "name_a_then", "1", false, null, null))
+        val feed = FeedViewModel(api, keychainHelper)
+
+        SessionEvents.usernameChanged("name_c_now", "name_b_then", System.currentTimeMillis() + 60_000)
+        advanceUntilIdle()
+
+        assertTrue(feed.postActions.isOwnPost(Post("p1", "url", "caption", "name_b_then", 0)))
+        assertFalse(feed.postActions.isOwnPost(Post("p2", "url", "caption", "name_a_then", 0)))
     }
 }

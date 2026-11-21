@@ -62,15 +62,18 @@ class PostListActions(
     // carrying it — are still the user's own; after it, someone else may hold it.
     private val formerUsernames = mutableMapOf<String, Long>()
 
-    /** Remembers the name being replaced only with a hold that hasn't ended:
-     * without one (a name read back from the keychain, say), it may already
-     * belong to someone else. */
-    private fun setCurrentUsername(username: String?, formerHeldUntilMillis: Long? = null) {
-        val previous = _currentUsername.value
-        if (previous != null && username != null && previous != username &&
+    /** Remembers only the old name the server says is still held, and only
+     * until its hold ends — never the name cached here, which after a rename
+     * missed elsewhere may already belong to someone else. */
+    private fun setCurrentUsername(
+        username: String?,
+        formerUsername: String? = null,
+        formerHeldUntilMillis: Long? = null,
+    ) {
+        if (formerUsername != null && formerUsername != username &&
             formerHeldUntilMillis != null && formerHeldUntilMillis > System.currentTimeMillis()
         ) {
-            formerUsernames[previous] = formerHeldUntilMillis
+            formerUsernames[formerUsername] = formerHeldUntilMillis
         }
         if (username != null) formerUsernames.remove(username)
         _currentUsername.value = username
@@ -120,7 +123,9 @@ class PostListActions(
         }
         // Ownership checks follow a rename made in Settings (issue #594).
         scope.launch {
-            SessionEvents.usernameChanges.collect { setCurrentUsername(it.username, it.formerHeldUntilMillis) }
+            SessionEvents.usernameChanges.collect {
+                setCurrentUsername(it.username, it.formerUsername, it.formerHeldUntilMillis)
+            }
         }
         // Likewise keep the lock-comments menu action in sync with a toggle made
         // on the post detail screen (issue #492).

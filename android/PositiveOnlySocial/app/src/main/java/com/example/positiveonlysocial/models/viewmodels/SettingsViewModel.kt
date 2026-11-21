@@ -433,7 +433,7 @@ class SettingsViewModel(
                     val heldUntil = body.formerUsernameHeldUntil?.let {
                         try { java.time.Instant.parse(it).toEpochMilli() } catch (e: Exception) { null }
                     }
-                    SessionEvents.usernameChanged(body.username, heldUntil)
+                    SessionEvents.usernameChanged(body.username, body.formerUsername, heldUntil)
                     _currentUser.value = _currentUser.value?.copy(
                         username = body.username,
                         nextUsernameChangeTime = body.nextUsernameChangeTime,

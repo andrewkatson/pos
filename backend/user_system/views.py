@@ -2142,14 +2142,17 @@ def _next_username_change_time(user, now=None):
     return allowed_at if allowed_at > (now or timezone.now()) else None
 
 
-def _former_username_held_until(user, now=None):
-    """Until when the name `user` gave up at its last rename stays held for it,
-    or None if it has not renamed within USERNAME_HOLD_DAYS. The hold is
-    created with the rename, so it ends USERNAME_HOLD_DAYS after it."""
-    if user.username_changed_time is None:
-        return None
-    held_until = user.username_changed_time + timedelta(days=USERNAME_HOLD_DAYS)
-    return held_until if held_until > (now or timezone.now()) else None
+def _former_username_fields(user):
+    """The name `user` gave up whose hold is still running, with its expiry
+    (issue #594) — read from the hold itself, so a client that missed a rename
+    elsewhere learns which name is actually reserved rather than pairing an
+    expiry with whatever name it had cached. Both None when there is no live
+    hold. The cooldown equals the hold, so at most one is ever running."""
+    hold = UsernameHold.objects.filter(user=user, expires__gt=timezone.now()).order_by('-expires').first()
+    return {
+        Fields.former_username: hold.username if hold else None,
+        Fields.former_username_held_until: hold.expires if hold else None,
+    }
 
 
 def _username_too_soon_response(endpoint, allowed_at):
@@ -2257,7 +2260,7 @@ def change_username(request):
     return log_and_return_json("change_username", {
         Fields.username: locked.username,
         Fields.next_username_change_time: _next_username_change_time(locked),
-        Fields.former_username_held_until: _former_username_held_until(locked),
+        **_former_username_fields(locked),
         'message': "Your username has been changed.",
     })
 
@@ -6470,7 +6473,7 @@ def get_current_user(request):
         Fields.pending_email: request.user.pending_email,
         Fields.has_password: request.user.has_usable_password(),
         Fields.next_username_change_time: _next_username_change_time(request.user),
-        Fields.former_username_held_until: _former_username_held_until(request.user),
+        **_former_username_fields(request.user),
     }
     logger.info(f"Get current user successful for user_id: {request.user.id}")
     response = log_and_return_json("get_current_user", data, status=200)

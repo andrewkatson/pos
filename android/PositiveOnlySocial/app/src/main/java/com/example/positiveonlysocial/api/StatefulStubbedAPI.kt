@@ -710,11 +710,12 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         if (request.username.lowercase().contains("negative")) {
             return errorGeneric(400, "Username is not positive because it is negative.")
         }
+        val formerUsername = user.username
         user.username = request.username
         user.usernameChangedAtMillis = System.currentTimeMillis()
         // The hold on the given-up name is as long as the cooldown (both 30 days).
         val heldUntil = nextUsernameChangeTime(user)
-        return Response.success(ChangeUsernameResponse(user.username, heldUntil, heldUntil))
+        return Response.success(ChangeUsernameResponse(user.username, heldUntil, formerUsername, heldUntil))
     }
 
     override suspend fun requestEmailChange(

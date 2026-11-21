@@ -125,12 +125,14 @@ final class PostActionsViewModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] notification in
                 guard let self, let username = notification.object as? String else { return }
-                // Remembered only with a hold that hasn't ended: without one, the
-                // old name may already belong to someone else.
-                if let previous = self.currentUsername, previous != username,
+                // Only the name the server says is still held, and only until its
+                // hold ends — never the name cached here, which after a rename
+                // missed elsewhere may already belong to someone else.
+                if let formerUsername = notification.userInfo?["formerUsername"] as? String,
+                   formerUsername != username,
                    let heldUntil = notification.userInfo?["formerUsernameHeldUntil"] as? Date,
                    heldUntil > Date() {
-                    self.formerUsernames[previous] = heldUntil
+                    self.formerUsernames[formerUsername] = heldUntil
                 }
                 self.formerUsernames[username] = nil
                 self.currentUsername = username

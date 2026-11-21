@@ -99,7 +99,7 @@ void refreshRememberMeSession().finally(() => {
         // A slow response must not undo a rename made in this tab meanwhile, or
         // write the previous account's name into a session that replaced it.
         if (getStoredSessionToken() !== requestedToken || getCurrentUsername() !== requestedUsername) return
-        updateStoredUsername(user.username, user.former_username_held_until)
+        updateStoredUsername(user.username, user)
       })
       .catch(() => {
         // Best-effort; an auth failure is handled by the handlers above.

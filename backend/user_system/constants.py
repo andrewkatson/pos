@@ -452,9 +452,11 @@ class Fields:
     pending_email = "pending_email"
     has_password = "has_password"
     next_username_change_time = "next_username_change_time"
-    # Until when the name given up at the last rename stays reserved for this
-    # account (issue #594); null when there is no such hold. Clients count that
-    # name as the user's own only until then — after it, someone else may hold it.
+    # The name this account gave up whose hold is still running, and until when
+    # (issue #594); both null when there is no such hold. Clients count that
+    # exact name — not whatever name they had cached — as the user's own only
+    # until then: after it, or for any other old name, someone else may hold it.
+    former_username = "former_username"
     former_username_held_until = "former_username_held_until"
     follow_request_pending = "follow_request_pending"
     follow_request_count = "follow_request_count"

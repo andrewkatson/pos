@@ -234,22 +234,35 @@ class ChangeUsernameTests(PositiveOnlySocialTestCase):
 
     def test_former_name_hold_is_reported_until_it_ends(self):
         me = self.client.get(reverse('get_current_user'), **self.header).json()
+        self.assertIsNone(me[Fields.former_username])
         self.assertIsNone(me[Fields.former_username_held_until])
 
         renamed = self._rename(self.new_name).json()
+        self.assertEqual(renamed[Fields.former_username], self.local_username)
         self.assertIsNotNone(renamed[Fields.former_username_held_until])
         hold = UsernameHold.objects.get(username=self.local_username)
         me = self.client.get(reverse('get_current_user'), **self.header).json()
+        self.assertEqual(me[Fields.former_username], self.local_username)
         reported = timezone.datetime.fromisoformat(me[Fields.former_username_held_until].replace('Z', '+00:00'))
         self.assertLess(abs((reported - hold.expires).total_seconds()), 1)
 
         # Once the hold is over the name may belong to someone else, so the
         # client must stop counting it as the user's own.
-        get_user_model().objects.filter(pk=self.user.pk).update(
-            username_changed_time=timezone.now() - timedelta(days=USERNAME_HOLD_DAYS, minutes=1))
+        UsernameHold.objects.filter(pk=hold.pk).update(expires=timezone.now() - timedelta(seconds=1))
         me = self.client.get(reverse('get_current_user'), **self.header).json()
+        self.assertIsNone(me[Fields.former_username])
         self.assertIsNone(me[Fields.former_username_held_until])
 
+    def test_reports_the_name_actually_held_after_two_renames(self):
+        # A -> B, then (once A's hold and the cooldown are over) B -> C:
+        # the live hold is on B, never A, whatever a client had cached.
+        self._rename(self.new_name)
+        UsernameHold.objects.filter(username=self.local_username).update(expires=timezone.now() - timedelta(seconds=1))
+        get_user_model().objects.filter(pk=self.user.pk).update(
+            username_changed_time=timezone.now() - timedelta(days=USERNAME_CHANGE_COOLDOWN_DAYS, minutes=1))
+        self._rename('sunnyrenamed_two')
+        me = self.client.get(reverse('get_current_user'), **self.header).json()
+        self.assertEqual(me[Fields.former_username], self.new_name)
 
 @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
 class HeldNameRaceTests(PositiveOnlySocialTestCase):
