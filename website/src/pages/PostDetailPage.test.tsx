@@ -197,6 +197,17 @@ test('hides the like control on the current user’s own comment', async () => {
   expect(screen.queryByRole('button', { name: 'Like comment' })).not.toBeInTheDocument()
 })
 
+test('a post under a name the account gave up this session is still its own (#594)', async () => {
+  // Renamed from "ada" to "ada_renamed": the old name is reserved for this
+  // account, so content still carrying it must keep owner controls.
+  localStorage.setItem('session_token', 'token')
+  localStorage.setItem('username', 'ada_renamed')
+  localStorage.setItem('former_usernames', 'ada')
+  renderDetail()
+  await screen.findByText('sunshine')
+  expect(screen.queryByRole('button', { name: 'Like post' })).not.toBeInTheDocument()
+})
+
 // ---- Audience badge (issue #518) ----
 
 test('shows who can see your own post', async () => {

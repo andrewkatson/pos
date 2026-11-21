@@ -77,6 +77,17 @@ final class PostActionsViewModel: ObservableObject {
     /// Published and kept current across a rename (issue #594).
     @Published private(set) var currentUsername: String?
 
+    /// Names this account gave up while this view model was alive (issue #594).
+    /// A renamed-away name stays reserved for its former owner, so rows fetched
+    /// before the rename — still carrying it — are still the user's own.
+    private(set) var formerUsernames: Set<String> = []
+
+    /// Whether `username` is the signed-in account, under its current name or
+    /// one it gave up this session.
+    func isOwnUsername(_ username: String) -> Bool {
+        username == currentUsername || formerUsernames.contains(username)
+    }
+
     private let api: Networking
     private let keychainHelper: KeychainHelperProtocol
     private let account: String
@@ -109,8 +120,12 @@ final class PostActionsViewModel: ObservableObject {
         usernameChangedCancellable = notificationCenter.publisher(for: .usernameChanged)
             .receive(on: RunLoop.main)
             .sink { [weak self] notification in
-                guard let username = notification.object as? String else { return }
-                self?.currentUsername = username
+                guard let self, let username = notification.object as? String else { return }
+                if let previous = self.currentUsername, previous != username {
+                    self.formerUsernames.insert(previous)
+                }
+                self.formerUsernames.remove(username)
+                self.currentUsername = username
             }
 
         commentsLockCancellable = notificationCenter.publisher(for: .postCommentsDisabledChanged)
@@ -137,7 +152,7 @@ final class PostActionsViewModel: ObservableObject {
     /// acted on it this session, otherwise the state the server sent with the list.
     func state(for post: Post) -> InteractionState {
         var state = overrides[post.id] ?? InteractionState(
-            isOwn: post.authorUsername == currentUsername,
+            isOwn: isOwnUsername(post.authorUsername),
             isLiked: post.isLiked,
             likeCount: post.postLikes,
             isSaved: post.isSaved,

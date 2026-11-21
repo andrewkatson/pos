@@ -9,6 +9,9 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import com.example.positiveonlysocial.data.model.Post
 import org.junit.Rule
 import org.junit.Test
 import org.mockito.kotlin.any
@@ -41,5 +44,10 @@ class UsernameChangePropagationTest {
 
         assertEquals("after_rename", home.currentUsername.value)
         assertEquals("after_rename", feed.postActions.currentUsername.value)
+        // Rows fetched before the rename still carry the old name, which stays
+        // reserved for this account, so they are still its own.
+        assertTrue(feed.postActions.isOwnPost(Post("p1", "url", "caption", "before_rename", 0)))
+        assertTrue(feed.postActions.isOwnPost(Post("p2", "url", "caption", "after_rename", 0)))
+        assertFalse(feed.postActions.isOwnPost(Post("p3", "url", "caption", "someone_else", 0)))
     }
 }

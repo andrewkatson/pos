@@ -5,6 +5,7 @@ import App from './App'
 import { apiClient } from './api/client'
 import {
   clearRememberMeTokens,
+  getCurrentUsername,
   getStoredSessionToken,
   loadRememberMeTokens,
   saveRememberMeTokens,
@@ -89,10 +90,17 @@ installAuthFailureHandlers({
 // The old name keeps resolving for a while, so a stale cache is not urgent.
 void refreshRememberMeSession().finally(() => {
   void registerForPush()
-  if (getStoredSessionToken()) {
+  const requestedToken = getStoredSessionToken()
+  if (requestedToken) {
+    const requestedUsername = getCurrentUsername()
     apiClient
       .getCurrentUser()
-      .then(user => updateStoredUsername(user.username))
+      .then(user => {
+        // A slow response must not undo a rename made in this tab meanwhile, or
+        // write the previous account's name into a session that replaced it.
+        if (getStoredSessionToken() !== requestedToken || getCurrentUsername() !== requestedUsername) return
+        updateStoredUsername(user.username)
+      })
       .catch(() => {
         // Best-effort; an auth failure is handled by the handlers above.
       })

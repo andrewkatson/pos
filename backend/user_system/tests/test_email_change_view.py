@@ -1,3 +1,4 @@
+import hashlib
 import re
 from datetime import timedelta
 from unittest.mock import patch
@@ -315,3 +316,68 @@ class EmailChangeReviewFixTests(PositiveOnlySocialTestCase):
         self.user.refresh_from_db()
         self.assertIsNone(self.user.verification_token)
         self.assertIsNone(self.user.verification_token_expires)
+
+
+@override_settings(GOOGLE_OAUTH_CLIENT_IDS=['test-client-id.apps.googleusercontent.com'])
+class EmailChangeSecondReviewTests(PositiveOnlySocialTestCase):
+    """Second review round of issue #594: account recovery drops a pending
+    change, and Google linking / reset codes are judged on the locked row."""
+
+    def setUp(self):
+        super().setUp()
+        super().register_user_and_setup_local_fields()
+        self.header = {'HTTP_AUTHORIZATION': f'Bearer {self.session_management_token}'}
+        self.user = get_user_model().objects.get(username=self.local_username)
+        self.client.post(reverse('request_email_change'), data={
+            Fields.email: 'attacker@example.com', Fields.password: self.local_password},
+            content_type='application/json', **self.header)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.pending_email, 'attacker@example.com')
+
+    def test_password_change_drops_a_pending_email_change(self):
+        response = self.client.post(reverse('change_password'), data={
+            'password': self.local_password, 'new_password': 'BrandNewPass123-'},
+            content_type='application/json', **self.header)
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.pending_email)
+        self.assertIsNone(self.user.pending_email_token)
+
+    def test_password_reset_drops_a_pending_email_change(self):
+        reset_token = 'c' * 64
+        get_user_model().objects.filter(pk=self.user.pk).update(
+            reset_token=hashlib.sha256(reset_token.encode()).hexdigest(),
+            reset_token_expires=timezone.now() + timedelta(hours=1))
+        response = self.client.post(reverse('reset_password'), data={
+            Fields.username: self.local_username, Fields.email: self.local_email,
+            Fields.password: 'BrandNewPass123-', Fields.reset_token: reset_token},
+            content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.pending_email)
+
+    def test_google_link_refuses_an_account_that_moved_off_the_address(self):
+        stale = get_user_model().objects.get(pk=self.user.pk)   # still holds the old email in memory
+        get_user_model().objects.filter(pk=self.user.pk).update(email='moved@example.com')
+        linked = views._link_google_identity(
+            stale, {'sub': 'late-google', 'email': self.local_email, 'email_verified': True})
+        self.assertIsNone(linked)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.google_sub)
+
+    def test_google_link_still_links_the_current_holder(self):
+        linked = views._link_google_identity(
+            self.user, {'sub': 'right-google', 'email': self.local_email.upper(), 'email_verified': True})
+        self.assertEqual(linked.pk, self.user.pk)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.google_sub, 'right-google')
+
+    def test_reset_code_goes_to_the_address_on_the_locked_row(self):
+        stale = get_user_model().objects.get(pk=self.user.pk)
+        get_user_model().objects.filter(pk=self.user.pk).update(email='moved@example.com')
+        mail.outbox.clear()
+        with patch.object(views, 'get_user_with_username_or_email', return_value=stale):
+            response = self.client.post(reverse('request_reset'), data={
+                Fields.username_or_email: self.local_username}, content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mail.outbox[-1].to, ['moved@example.com'])

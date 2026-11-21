@@ -12,7 +12,9 @@
 import { apiClient } from './client'
 import { USERNAME_CHANGED_EVENT } from './sessionEvents'
 
-const SESSION_KEYS = ['session_token', 'user_id', 'username'] as const
+// former_usernames: names this account gave up during the session (issue #594),
+// newline-separated. See getOwnUsernames.
+const SESSION_KEYS = ['session_token', 'user_id', 'username', 'former_usernames'] as const
 
 function readSessionValue(key: string): string | null {
   return localStorage.getItem(key) ?? sessionStorage.getItem(key)
@@ -32,6 +34,8 @@ export function persistSession(
   const other = rememberMe ? sessionStorage : localStorage
   store.setItem('session_token', session.session_management_token)
   store.setItem('user_id', session.user_id)
+  // A fresh sign-in starts with no names given up.
+  store.removeItem('former_usernames')
   if (session.username) {
     store.setItem('username', session.username)
   } else {
@@ -57,8 +61,14 @@ export function getCurrentUsername(): string | null {
 export function updateStoredUsername(username: string): void {
   for (const store of [localStorage, sessionStorage]) {
     if (store.getItem('session_token') !== null) {
-      if (store.getItem('username') === username) return
+      const previous = store.getItem('username')
+      if (previous === username) return
       store.setItem('username', username)
+      if (previous) {
+        const former = (store.getItem('former_usernames') ?? '').split('\n').filter(Boolean)
+        if (!former.includes(previous)) former.push(previous)
+        store.setItem('former_usernames', former.filter(name => name !== username).join('\n'))
+      }
       // Lets views that already read the old name re-render (useCurrentUsername).
       window.dispatchEvent(new Event(USERNAME_CHANGED_EVENT))
       return

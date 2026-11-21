@@ -314,6 +314,11 @@ struct Positive_Only_SocialTests_SettingsViewModel {
 
         #expect(postActions.currentUsername == "renamed_notify_one")
         #expect(home.currentUsername == "renamed_notify_one")
+        // Rows fetched before the rename still carry the old name, which stays
+        // reserved for this account, so they are still its own.
+        #expect(postActions.isOwnUsername("renameNotifyUser"))
+        #expect(postActions.isOwnUsername("renamed_notify_one"))
+        #expect(!postActions.isOwnUsername("someone_else"))
     }
 
     @Test func testChangeUsername_SecondRenameTooSoon_ShowsCopy() async throws {

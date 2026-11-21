@@ -93,7 +93,16 @@ tells views that already read it: the website through `useCurrentUsername`
 view models kept alive across tabs listen to. The website also refreshes the
 cache from `GET /me/` on startup and when Settings opens, so a rename made on
 another device catches up, and a view that rendered with the old name updates
-when the refresh lands. The website's `/profile/<old name>` page replaces itself
+when the refresh lands (a startup response is dropped if the session or the
+cached name changed while it was in flight).
+
+Rows already on screen — and loads that started before the rename — still
+carry the old author name. Rather than refetch, each client remembers the names
+the account gave up during the session and counts them as the user's own for
+"is this mine?" checks (website `useOwnUsernames`, iOS
+`PostActionsViewModel.isOwnUsername`, Android `PostListActions.isOwnPost`).
+That is safe because a given-up name is held for its former owner: nobody else
+can be posting under it. The website's `/profile/<old name>` page replaces itself
 with the current name once the profile loads; the native clients rely on the
 backend resolving the old name.
 
@@ -137,6 +146,15 @@ change is a request that only takes effect once the new address is proven:
    the reset token), since they went to the old address. The **old address is then emailed** that the change happened, so an
    owner whose account was taken over hears about it where they still read
    mail.
+
+A password change or password reset clears any pending email change: it was
+authorized by the old credentials, and a reset is account recovery, so a change
+someone else requested before it must not be completable after. Issuing a
+password-reset code locks and re-reads the account (the lock confirmation
+takes), so a reset in flight can't store a code for the old mailbox after a
+confirmation voided reset codes. Linking a Google identity to an account found
+by its email does the same and refuses to link if the account no longer holds
+that address — the sign-in then proceeds as if nothing matched.
 
 Other sessions are not signed out by an email change. Google sign-in keeps
 working because it finds the account by `google_sub`, not by email. Password

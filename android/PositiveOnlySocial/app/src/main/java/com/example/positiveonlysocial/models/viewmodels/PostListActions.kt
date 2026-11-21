@@ -56,6 +56,18 @@ class PostListActions(
     private val _currentUsername = MutableStateFlow<String?>(null)
     val currentUsername: StateFlow<String?> = _currentUsername.asStateFlow()
 
+    // Names this account gave up while these actions were alive (issue #594). A
+    // renamed-away name stays reserved for its former owner, so rows fetched
+    // before the rename — still carrying it — are still the user's own.
+    private val formerUsernames = mutableSetOf<String>()
+
+    private fun setCurrentUsername(username: String?) {
+        val previous = _currentUsername.value
+        if (previous != null && username != null && previous != username) formerUsernames.add(previous)
+        if (username != null) formerUsernames.remove(username)
+        _currentUsername.value = username
+    }
+
     private val _alertMessage = MutableStateFlow<String?>(null)
     val alertMessage: StateFlow<String?> = _alertMessage.asStateFlow()
 
@@ -100,7 +112,7 @@ class PostListActions(
         }
         // Ownership checks follow a rename made in Settings (issue #594).
         scope.launch {
-            SessionEvents.usernameChanges.collect { _currentUsername.value = it }
+            SessionEvents.usernameChanges.collect { setCurrentUsername(it) }
         }
         // Likewise keep the lock-comments menu action in sync with a toggle made
         // on the post detail screen (issue #492).
@@ -161,7 +173,7 @@ class PostListActions(
     /** Whether [post] was authored by the signed-in user. */
     fun isOwnPost(post: Post): Boolean {
         val username = _currentUsername.value ?: return false
-        return post.authorUsername == username
+        return post.authorUsername == username || post.authorUsername in formerUsernames
     }
 
     fun dismissAlert() {
@@ -457,7 +469,7 @@ class PostListActions(
             _alertMessage.value = "Not logged in."
             return null
         }
-        _currentUsername.value = session.username
+        setCurrentUsername(session.username)
         return session.sessionToken
     }
 

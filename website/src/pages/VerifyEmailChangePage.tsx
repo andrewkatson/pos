@@ -13,7 +13,9 @@ interface ConfirmResult {
   message?: string
 }
 
-const BODY_STYLE = { color: 'rgba(255,255,255,0.8)', textAlign: 'center', lineHeight: 1.5, margin: 0 } as const
+// The auth pages are light (see LoginPage.css), so body copy takes the auth
+// foreground token rather than a hard-coded colour.
+const BODY_STYLE = { color: 'var(--auth-fg-strong)', textAlign: 'center', lineHeight: 1.5, margin: 0 } as const
 
 // Landing page for the link sent to a new email address
 // (https://smiling.social/verify-email-change?token=..., issue #594). Confirms

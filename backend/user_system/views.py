@@ -1133,19 +1133,30 @@ def _link_google_identity(user, claims):
     """Attach a Google identity to the account we matched by verified email.
 
     Returns the account that ends up holding it: normally `user`, but the row a
-    concurrent request linked first if that one won the race.
+    concurrent request linked first if that one won the race — or None if
+    `user` stopped holding the address before it could be linked (issue #594),
+    in which case the caller carries on as if nothing matched.
     """
-    user.google_sub = claims['sub']
-    # Google vouching for the address settles our own verification too: an
-    # account still sitting on an unclicked link is now proven.
-    user.email_verified = True
-    user.email_verification_token = None
-    user.email_verification_token_expires = None
     try:
         # Named columns only, so a concurrent write to anything else on this row
         # — a bio edit, a profile photo — isn't clobbered by a whole-row save
         # from an instance that was read moments ago.
         with transaction.atomic():
+            # The match was made by email, outside any lock; an email change
+            # confirmed since (issue #594) means this account no longer holds
+            # the address Google vouched for, so it is not the same person's.
+            # Re-read under the row lock that confirmation also takes.
+            locked = get_user_model().objects.select_for_update(no_key=True).filter(pk=user.pk).first()
+            if locked is None or (locked.email or "").lower() != claims['email'].lower():
+                logger.info("Google sign-in: matched account no longer holds that address; not linking")
+                return None
+            user = locked
+            user.google_sub = claims['sub']
+            # Google vouching for the address settles our own verification too:
+            # an account still sitting on an unclicked link is now proven.
+            user.email_verified = True
+            user.email_verification_token = None
+            user.email_verification_token_expires = None
             user.save(update_fields=[
                 'google_sub', 'email_verified',
                 'email_verification_token', 'email_verification_token_expires',
@@ -1871,20 +1882,27 @@ def request_reset(request):
         token = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
 
+        # The code is stored and addressed from a freshly locked row, the lock
+        # confirming an email change also takes (issue #594): a reset in flight
+        # can't write a code meant for the old mailbox after that change voided
+        # reset codes, and the mail goes to whichever address the account holds
+        # once the code is saved.
+        with transaction.atomic():
+            user = get_user_model().objects.select_for_update(no_key=True).get(pk=user.pk)
+            user.verification_token = token_hash
+            user.verification_token_expires = timezone.now() + timedelta(hours=1)
+            user.reset_token = None
+            user.reset_token_expires = None
+            user.verification_failed_attempts = 0
+            user.verification_lockout_until = None
+            user.save(update_fields=['verification_token', 'verification_token_expires', 'reset_token', 'reset_token_expires', 'verification_failed_attempts', 'verification_lockout_until'])
+
         send_mail(
             "Password Reset",
             f"Your password reset verification token is:\n\n{token}\n\nEnter this in the app to proceed. It expires in 1 hour.",
             settings.EMAIL_HOST_USER,
             [user.email],
         )
-
-        user.verification_token = token_hash
-        user.verification_token_expires = timezone.now() + timedelta(hours=1)
-        user.reset_token = None
-        user.reset_token_expires = None
-        user.verification_failed_attempts = 0
-        user.verification_lockout_until = None
-        user.save(update_fields=['verification_token', 'verification_token_expires', 'reset_token', 'reset_token_expires', 'verification_failed_attempts', 'verification_lockout_until'])
         logger.info(f"Password reset request successful for user_id: {user.id}")
         return log_and_return_json("request_reset", {'message': 'Reset email sent'})
     else:
@@ -2028,7 +2046,13 @@ def reset_password(request):
             user.set_password(password)
             user.reset_token = None
             user.reset_token_expires = None
-            user.save(update_fields=['password', 'reset_token', 'reset_token_expires'])
+            # A reset is account recovery: an email change someone requested
+            # before it (issue #594) must not survive it.
+            user.pending_email = None
+            user.pending_email_token = None
+            user.pending_email_token_expires = None
+            user.save(update_fields=['password', 'reset_token', 'reset_token_expires',
+                                     'pending_email', 'pending_email_token', 'pending_email_token_expires'])
             Session.objects.filter(management_user=user).delete()
             LoginCookie.objects.filter(cookie_user=user).delete()
     except get_user_model().DoesNotExist:
@@ -2091,7 +2115,12 @@ def change_password(request):
             )
 
         user.set_password(new_password)
-        user.save(update_fields=['password'])
+        # A pending email change (issue #594) was authorized by the old
+        # password; whoever asked for it must not be able to finish it now.
+        user.pending_email = None
+        user.pending_email_token = None
+        user.pending_email_token_expires = None
+        user.save(update_fields=['password', 'pending_email', 'pending_email_token', 'pending_email_token_expires'])
         # Evict other devices but keep the session that made this request, so the
         # caller isn't logged out of the device they just changed the password on.
         Session.objects.filter(management_user=user).exclude(management_token=request.token).delete()

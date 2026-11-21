@@ -702,7 +702,8 @@ fun PostItem(
         // the tap that opens the post.
         PostActionBar(
             post = post,
-            isOwnPost = post.authorUsername == currentUsername,
+            // Former names count too (issue #594); reading currentUsername keeps this recomposing.
+            isOwnPost = currentUsername != null && actions.isOwnPost(post),
             onToggleLike = { actions.toggleLike(post) },
             onOpenMenu = { actions.setPostForAction(post) },
             onOpenComments = {
@@ -714,7 +715,7 @@ fun PostItem(
                     actions,
                     post,
                     expanded = openMenuPostId == post.postIdentifier,
-                    isOwn = post.authorUsername == currentUsername
+                    isOwn = currentUsername != null && actions.isOwnPost(post)
                 )
             }
         )

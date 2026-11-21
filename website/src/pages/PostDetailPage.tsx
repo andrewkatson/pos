@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { apiClient } from '../api/client'
-import { useCurrentUsername } from '../api/useCurrentUsername'
+import { useOwnUsernames } from '../api/useCurrentUsername'
 import type {
   Comment,
   CommentFormatSpan,
@@ -134,12 +134,20 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
   const navigate = useNavigate()
   const location = useLocation()
 
-  // The signed-in user. Used to hide the like control on the user's own
-  // post/comments since the backend rejects liking your own content. Null for a
-  // signed-out visitor, who owns nothing on the page. Reactive, so a rename
-  // picked up after mount (issue #594) updates the owner controls.
-  const cachedUsername = useCurrentUsername()
-  const currentUsername = isSignedIn ? cachedUsername : null
+  // Every name the signed-in account answers to, for hiding the like control
+  // on its own post/comments (the backend rejects liking your own content).
+  // Empty for a signed-out visitor, who owns nothing on the page. Includes names
+  // given up this session (issue #594), which stay reserved for the account, so
+  // content fetched under an old name is still the user's. A load reads it
+  // through the ref, so one that started before a rename — or a queued re-run of
+  // it — marks comments with the latest names rather than the ones its closure
+  // captured.
+  const allOwnUsernames = useOwnUsernames()
+  const ownUsernames = useMemo(() => (isSignedIn ? allOwnUsernames : []), [isSignedIn, allOwnUsernames])
+  const ownUsernamesRef = useRef(ownUsernames)
+  useEffect(() => {
+    ownUsernamesRef.current = ownUsernames
+  }, [ownUsernames])
 
   // The comment a shared `#comment-<id>` link points at, so the page can scroll
   // to it once the threads have rendered.
@@ -266,7 +274,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
         isLiked: c.is_liked ?? likedCommentIds.current.has(c.comment_identifier),
         isReported: c.is_reported ?? reportedCommentIds.current.has(c.comment_identifier),
         reportReason: c.report_reason ?? reportedCommentReasons.current.get(c.comment_identifier) ?? null,
-        isOwn: c.author_username === currentUsername,
+        isOwn: ownUsernamesRef.current.includes(c.author_username),
       })
 
       // A failure to load the post itself is the only "not found" case. Comment
@@ -396,7 +404,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
     } finally {
       isLoadingRef.current = false
     }
-  }, [postId, currentUsername, commentGroup, isSignedIn, targetCommentId])
+  }, [postId, commentGroup, isSignedIn, targetCommentId])
 
   // Kick the initial load off a microtask so the fetch's setState calls don't
   // run synchronously inside the effect (React flags that as cascading renders).
@@ -432,7 +440,7 @@ function PostDetailView({ postId, isSignedIn }: { postId: string; isSignedIn: bo
   // ---- Post actions ----
 
   // The backend rejects liking your own post, so don't optimistically like it.
-  const isOwnPost = post?.author_username === currentUsername
+  const isOwnPost = post ? ownUsernames.includes(post.author_username) : false
 
   async function togglePostLike() {
     if (isOwnPost || !isSignedIn) return
