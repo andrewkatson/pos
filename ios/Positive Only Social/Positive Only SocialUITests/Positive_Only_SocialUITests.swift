@@ -935,6 +935,55 @@ final class Positive_Only_SocialUITests: XCTestCase {
         assertOnHomeView(app: app)
     }
     
+    /// A first Google sign-in from the login screen must not create an account
+    /// until the user agrees to the privacy policy and terms (PR #622). Under
+    /// UI tests the Google step is stubbed (StubbedGoogleSignIn) and the
+    /// stubbed backend applies the same consent gate as login_user_google.
+    @MainActor
+    func testGoogleSignUpFromLoginAsksForConsentFirst() throws {
+        try returnToWelcomeIfSignedIn(app: app)
+        assertOnWelcomeView(app: app)
+        tapClearingSystemAlerts(app.buttons["LoginText"])
+        assertOnLoginView(app: app)
+
+        let googleButton = app.buttons["GoogleSignInButton"]
+        XCTAssertTrue(googleButton.waitForExistence(timeout: TestConstants.shortTimeout), "Google sign-in button not present")
+        googleButton.tap()
+
+        // Nobody holds the stub's Google account yet, so the app asks first.
+        let consent = app.alerts["Create your account"]
+        XCTAssertTrue(consent.waitForExistence(timeout: TestConstants.timeout), "Consent alert did not appear")
+        XCTAssertFalse(app.alerts["Login Failed"].exists, "Asking for consent is not a failure")
+
+        // Declining creates nothing and leaves the user on the login screen.
+        // firstMatch: an alert's buttons can show up twice in the
+        // accessibility tree.
+        consent.buttons["Cancel"].firstMatch.tap()
+        XCTAssertTrue(waitForNonExistence(consent), "Consent alert should close on Cancel")
+        assertOnLoginView(app: app)
+
+        // Reading the terms goes through a sheet and comes back to the alert,
+        // with the Google token still held.
+        googleButton.tap()
+        XCTAssertTrue(consent.waitForExistence(timeout: TestConstants.timeout), "Consent alert did not reappear")
+        consent.buttons["Read Terms of Service"].firstMatch.tap()
+        let termsDone = app.buttons["TermsOfServiceDoneButton"]
+        XCTAssertTrue(termsDone.waitForExistence(timeout: TestConstants.timeout), "Terms of Service sheet did not open")
+        termsDone.tap()
+        XCTAssertTrue(consent.waitForExistence(timeout: TestConstants.timeout), "Consent alert should return after reading the terms")
+
+        // Agreeing creates the account and signs straight in.
+        consent.buttons["Agree and Create Account"].firstMatch.tap()
+        assertOnHomeView(app: app)
+    }
+
+    /// Waits for an element to disappear, as XCUIElement.waitForNonExistence
+    /// does on newer SDKs.
+    private func waitForNonExistence(_ element: XCUIElement, timeout: TimeInterval = TestConstants.shortTimeout) -> Bool {
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
+        return XCTWaiter().wait(for: [gone], timeout: timeout) == .completed
+    }
+
     @MainActor
     func testDeleteAccount() throws {
         
