@@ -66,8 +66,10 @@ final class HomeViewModel: ObservableObject {
                 self?.performSearch(for: searchText)
             }
 
+        // DispatchQueue.main rather than RunLoop.main, so the update isn't held
+        // back while the user is scrolling (RunLoop.main runs in .default mode).
         usernameChangedCancellable = notificationCenter.publisher(for: .usernameChanged)
-            .receive(on: RunLoop.main)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] notification in
                 guard let username = notification.object as? String else { return }
                 self?.currentUsername = username

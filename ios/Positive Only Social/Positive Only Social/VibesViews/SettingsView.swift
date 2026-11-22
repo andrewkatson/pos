@@ -18,6 +18,20 @@ struct SettingsView: View {
     private static let privateAccountFooter =
         "Only people you approve can see your posts. Your comments keep the audience you pick for each one."
 
+    // Changing the username or email (issue #594).
+    private static let changeUsernameDescription =
+        "You can change your username once every 30 days. Your old username stays reserved for you for 30 days, so links to your profile keep working."
+    private static let changeEmailDescription =
+        "We'll send a link to your new address. Your email changes once you open it — until then, your current address keeps working."
+    private static let invalidUsernameHint =
+        "Use 10 to 150 letters, numbers, and underscores, different from your current username."
+    private static let invalidEmailHint =
+        "Enter a valid email address that's different from your current one."
+    /// Mirrors Patterns.username: 10–150 letters, digits and underscores.
+    private static let usernamePattern = "^[\\p{L}\\p{N}_]{10,150}$"
+    /// Mirrors Patterns.email.
+    private static let emailPattern = "^[^@]+@[^@]+\\.[^@]+$"
+
     // The AuthenticationManager is still needed to trigger the final UI change.
     @EnvironmentObject private var authManager: AuthenticationManager
 
@@ -550,10 +564,9 @@ struct SettingsView: View {
         }
     }
 
-    /// Mirrors Patterns.username: 10–150 letters, digits and underscores.
     private var newUsernameIsValid: Bool {
         let trimmed = newUsername.trimmingCharacters(in: .whitespaces)
-        return trimmed.range(of: "^[\\p{L}\\p{N}_]{10,150}$", options: .regularExpression) != nil
+        return trimmed.range(of: Self.usernamePattern, options: .regularExpression) != nil
             && trimmed != viewModel.currentUsername
     }
 
@@ -563,7 +576,7 @@ struct SettingsView: View {
                 .font(.headline)
                 .padding(.top)
 
-            Text("You can change your username once every 30 days. Your old username stays reserved for you for 30 days, so links to your profile keep working.")
+            Text(Self.changeUsernameDescription)
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
 
@@ -582,7 +595,7 @@ struct SettingsView: View {
                 .accessibilityIdentifier("NewUsernameField")
 
             if !newUsername.isEmpty && !newUsernameIsValid {
-                Text("Use 10 to 150 letters, numbers, and underscores, different from your current username.")
+                Text(Self.invalidUsernameHint)
                     .font(.footnote)
                     .foregroundColor(.red)
                     .multilineTextAlignment(.center)
@@ -611,7 +624,7 @@ struct SettingsView: View {
 
     private var newEmailIsValid: Bool {
         let trimmed = newEmail.trimmingCharacters(in: .whitespaces)
-        return trimmed.range(of: "^[^@]+@[^@]+\\.[^@]+$", options: .regularExpression) != nil
+        return trimmed.range(of: Self.emailPattern, options: .regularExpression) != nil
             && trimmed.lowercased() != viewModel.currentEmail?.lowercased()
     }
 
@@ -621,7 +634,7 @@ struct SettingsView: View {
                 .font(.headline)
                 .padding(.top)
 
-            Text("We'll send a link to your new address. Your email changes once you open it — until then, your current address keeps working.")
+            Text(Self.changeEmailDescription)
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
 
@@ -642,7 +655,7 @@ struct SettingsView: View {
                 .accessibilityIdentifier("NewEmailField")
 
             if !newEmail.isEmpty && !newEmailIsValid {
-                Text("Enter a valid email address that's different from your current one.")
+                Text(Self.invalidEmailHint)
                     .font(.footnote)
                     .foregroundColor(.red)
                     .multilineTextAlignment(.center)

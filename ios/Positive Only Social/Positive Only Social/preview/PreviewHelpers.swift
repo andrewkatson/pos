@@ -134,7 +134,9 @@ struct MockedAPI: Networking {
     }
 
     func getCurrentUser(sessionManagementToken: String) async throws -> Data {
-        return try encode(CurrentUserFields(username: "preview_user", email: "preview@example.com"))
+        return try encode(CurrentUserFields(username: "preview_user", email: "preview@example.com",
+                                            isPrivate: false, pendingEmail: nil, hasPassword: true,
+                                            nextUsernameChangeTime: nil))
     }
 
     func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data {
@@ -142,7 +144,8 @@ struct MockedAPI: Networking {
     }
 
     func changeUsername(sessionManagementToken: String, newUsername: String) async throws -> Data {
-        return try encode(ChangeUsernameFields(username: newUsername))
+        return try encode(ChangeUsernameFields(username: newUsername, nextUsernameChangeTime: nil,
+                                               formerUsername: nil, formerUsernameHeldUntil: nil))
     }
 
     func requestEmailChange(sessionManagementToken: String, email: String, password: String?, idToken: String?) async throws -> Data {

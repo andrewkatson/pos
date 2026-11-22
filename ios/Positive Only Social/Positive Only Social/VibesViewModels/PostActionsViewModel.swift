@@ -121,8 +121,10 @@ final class PostActionsViewModel: ObservableObject {
             UserSession.self, from: GVOAppConstants.keychainService, account: account
         )?.username
 
+        // DispatchQueue.main rather than RunLoop.main, so the update isn't held
+        // back while the user is scrolling (RunLoop.main runs in .default mode).
         usernameChangedCancellable = notificationCenter.publisher(for: .usernameChanged)
-            .receive(on: RunLoop.main)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] notification in
                 guard let self, let username = notification.object as? String else { return }
                 // Only the name the server says is still held, and only until its

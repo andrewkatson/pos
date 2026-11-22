@@ -121,11 +121,17 @@ final class RealAPI: Networking {
         let username: String
     }
 
-    /// Exactly one of `password` / `id_token` is sent; a nil one is omitted.
+    /// Exactly one of `password` / `idToken` is sent; a nil one is omitted.
     private struct RequestEmailChangeBody: Encodable {
         let email: String
         let password: String?
-        let id_token: String?
+        let idToken: String?
+
+        enum CodingKeys: String, CodingKey {
+            case email
+            case password
+            case idToken = "id_token"
+        }
     }
 
     private struct ResetPasswordBody: Encodable {
@@ -478,7 +484,7 @@ final class RealAPI: Networking {
 
     /// Asks to move the signed-in account to a new email (issue #594).
     func requestEmailChange(sessionManagementToken: String, email: String, password: String?, idToken: String?) async throws -> Data {
-        let requestBody = try encode(RequestEmailChangeBody(email: email, password: password, id_token: idToken))
+        let requestBody = try encode(RequestEmailChangeBody(email: email, password: password, idToken: idToken))
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentMe, GVOAppConstants.pathSegmentEmail],
             method: .post,
