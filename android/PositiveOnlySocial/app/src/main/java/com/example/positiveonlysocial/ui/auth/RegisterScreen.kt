@@ -108,7 +108,8 @@ fun RegisterScreen(
                                     interestCategories = selectedInterestSlugs.ifEmpty { null },
                                     interestFreeform = freeformInterests.ifEmpty { null },
                                     // Only reachable through this dialog's Ok.
-                                    acceptedPolicies = true
+                                    acceptedPolicies = true,
+                                    policyVersion = Constants.POLICY_VERSION
                                 )
 
                                 val response = api.register(

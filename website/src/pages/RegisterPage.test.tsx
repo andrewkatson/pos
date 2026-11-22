@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach } from 'vitest'
 import RegisterPage from './RegisterPage'
+import { POLICY_VERSION } from '../privacyPolicy'
 
 vi.mock('../api/client', () => ({
   apiClient: {
@@ -288,6 +289,7 @@ test('includes picked interests in the register call', async () => {
       interest_categories: ['nature'],
       interest_freeform: ['jazz'],
       accepted_policies: true,
+      policy_version: POLICY_VERSION,
     }),
   )
 })
@@ -370,6 +372,7 @@ test('accepting the policy creates the account and greets the new member', async
   expect(mockLoginWithGoogle).toHaveBeenCalledWith({
     id_token: 'a.google.token',
     accepted_policies: true,
+    policy_version: POLICY_VERSION,
   })
   expect(await screen.findByText(/You're member #7!/)).toBeInTheDocument()
   // Google has already verified the address, so there is no inbox to visit.

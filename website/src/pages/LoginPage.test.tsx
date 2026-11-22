@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach } from 'vitest'
 import LoginPage from './LoginPage'
+import { POLICY_VERSION } from '../privacyPolicy'
 
 vi.mock('../api/client', async importOriginal => {
   const actual = await importOriginal<typeof import('../api/client')>()
@@ -550,6 +551,7 @@ test('agreeing retries the same Google credential with consent and enters the ap
     id_token: 'a.google.token',
     remember_me: true,
     accepted_policies: true,
+    policy_version: POLICY_VERSION,
   })
   expect(localStorageMock.setItem).toHaveBeenCalledWith('session_token', 'google-token')
 })

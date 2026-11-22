@@ -22,7 +22,7 @@ import {
   persistSession,
   saveRememberMeTokens,
 } from '../api/session'
-import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
+import { POLICY_VERSION, PRIVACY_POLICY_TEXT } from '../privacyPolicy'
 import { registerForPush } from '../push/webPush'
 import './LoginPage.css'
 
@@ -174,7 +174,7 @@ function LoginPage() {
       const response = await apiClient.loginWithGoogle({
         id_token: idToken,
         remember_me: rememberMe,
-        ...(acceptedPolicies ? { accepted_policies: true } : {}),
+        ...(acceptedPolicies ? { accepted_policies: true, policy_version: POLICY_VERSION } : {}),
       })
       if (isTwoFactorRequired(response)) {
         // Same reasoning as the password path: no session has been issued yet,

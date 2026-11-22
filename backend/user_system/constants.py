@@ -298,10 +298,14 @@ GOOGLE_EMAIL_AMBIGUOUS = "google_email_ambiguous"
 # tokens stay valid for an hour) plus the flag. A stable code, like those above.
 POLICY_ACCEPTANCE_REQUIRED = "policy_acceptance_required"
 
-# Identifies the privacy policy and terms of service a new member agreed to,
-# stamped on PositiveOnlySocialUser.policies_accepted_version at sign-up. Bump it
-# (to the date of the change) whenever either document changes materially, so
-# accounts that agreed to an older version can be told apart from current ones.
+# The current version of the privacy policy and terms of service, as the date of
+# the last material change to either. Every client bundles its own copy of both
+# texts and sends the version of the copy it actually showed (`policy_version`),
+# and that is what PositiveOnlySocialUser.policies_accepted_version records — an
+# old app build showing older text records the older date, not this one. Bump it,
+# and the matching constant on each client (website/src/privacyPolicy.ts,
+# GVOAppConstants.policyVersion, Constants.POLICY_VERSION), with every material
+# change, so accounts that agreed to an older version can be told apart.
 POLICY_VERSION = "2026-11-22"
 
 # A Google account carries no username, so the first sign-in generates one from
@@ -345,6 +349,8 @@ class Patterns:
     phone_number = r"^(\+\d{1,2}\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}$"
     alphanumeric_with_spaces = r"^[\w ]{5,100}$"
     email = r"^[^@]+@[^@]+\.[^@]+$"
+    # A policy version: the YYYY-MM-DD date of the policies a client displayed.
+    policy_version = r"^\d{4}-\d{2}-\d{2}\Z"
     uuid4 = r"^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}\Z$"
     boolean = r"^(?i)(true|false)$"
     json_dict_of_upper_and_lower_case_chars = r"^[\]\[{}:\"\\, a-zA-Z]{2,5000}$"
@@ -388,6 +394,7 @@ class Params:
     login_cookie_token = "LOGIN_COOKIE_TOKEN"
     remember_me = "REMEMBER_ME"
     accepted_policies = "ACCEPTED_POLICIES"
+    policy_version = "POLICY_VERSION"
     caption = "CAPTION"
     caption_font = "CAPTION_FONT"
     background_color = "BACKGROUND_COLOR"
@@ -522,6 +529,9 @@ class Fields:
     # of service. Required by login/google/ before it will create an account
     # (see POLICY_ACCEPTANCE_REQUIRED); recorded, when sent, by register/.
     accepted_policies = "accepted_policies"
+    # Which version (a POLICY_VERSION-style date) of the policies the client
+    # showed when the user agreed. Recorded as-is alongside accepted_policies.
+    policy_version = "policy_version"
     totp_code = "totp_code"
     recovery_code = "recovery_code"
     totp_secret = "totp_secret"

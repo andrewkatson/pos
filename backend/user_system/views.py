@@ -55,7 +55,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, \
     DEVICE_PLATFORMS, MAX_DEVICE_TOKEN_LENGTH, \
     PUSH_TYPE_TREE, PUSH_TYPES, \
     GOOGLE_SIGN_IN_UNAVAILABLE, INVALID_GOOGLE_TOKEN, GOOGLE_EMAIL_UNVERIFIED, \
-    GOOGLE_EMAIL_AMBIGUOUS, POLICY_ACCEPTANCE_REQUIRED, POLICY_VERSION, \
+    GOOGLE_EMAIL_AMBIGUOUS, POLICY_ACCEPTANCE_REQUIRED, \
     GENERATED_USERNAME_FALLBACK_PREFIX, MIN_GENERATED_USERNAME_LENGTH, \
     MAX_GENERATED_USERNAME_ATTEMPTS
 from .feed_algorithm import feed_algorithm
@@ -716,12 +716,32 @@ def _read_optional_bool(data, field, param, invalid_fields):
         return False
 
 
-def _record_policy_acceptance(user):
+def _read_policy_version(data, invalid_fields):
+    """Read the optional `policy_version`: the version of the privacy policy and
+    terms the client actually displayed. Absent or null means the client didn't
+    say; anything else must be a YYYY-MM-DD date like POLICY_VERSION."""
+    raw = data.get(Fields.policy_version)
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not is_valid_pattern(raw, Patterns.policy_version):
+        invalid_fields.append(Params.policy_version)
+        return None
+    return raw
+
+
+def _record_policy_acceptance(user, policy_version):
     """Stamp when, and to which version of, the privacy policy and terms the
     user agreed. Called only at account creation, and only when the request
-    carried `accepted_policies: true`. Does not save."""
+    carried `accepted_policies: true`. Does not save.
+
+    The version is the one the client says it showed, not POLICY_VERSION: each
+    client bundles its own copy of the texts, so an app build from before a
+    policy change shows — and gets agreement to — the older version. Recording
+    the server's current version would claim consent to text the user never
+    saw. Null when the client didn't say.
+    """
     user.policies_accepted_time = timezone.now()
-    user.policies_accepted_version = POLICY_VERSION
+    user.policies_accepted_version = policy_version
 
 
 def _create_authenticated_session(view_name, request, user, ip, remember_me, extra_response_fields=None):
@@ -830,6 +850,7 @@ def register(request):
     # and sends this flag once they are agreed to. Recorded rather than required
     # here, so a client build from before the flag existed can still register.
     accepted_policies = _read_accepted_policies(data, invalid_fields)
+    policy_version = _read_policy_version(data, invalid_fields)
 
     if len(invalid_fields) > 0:
         logger.warning(f"Registration failed: Invalid fields {invalid_fields}")
@@ -865,7 +886,7 @@ def register(request):
     new_user.identity_is_verified = True if date_of_birth_str else False
     new_user.is_adult = is_adult
     if accepted_policies:
-        _record_policy_acceptance(new_user)
+        _record_policy_acceptance(new_user, policy_version)
     new_user.save()
 
     # Stamp their join number now, in creation order, so the client can greet
@@ -1120,7 +1141,7 @@ def _link_google_identity(user, claims):
     return user
 
 
-def _create_user_for_google(request, claims, ip):
+def _create_user_for_google(request, claims, ip, policy_version):
     """Create the account behind a first-ever Google sign-in.
 
     Returns `(user, created)`. `created` is False when a concurrent request beat
@@ -1153,7 +1174,7 @@ def _create_user_for_google(request, claims, ip):
                 new_user.google_sub = claims['sub']
                 new_user.email_verified = True
                 # The caller refuses to get here without accepted_policies.
-                _record_policy_acceptance(new_user)
+                _record_policy_acceptance(new_user, policy_version)
                 new_user.save()
         except IntegrityError:
             # Two columns here are unique, and only one of them is worth
@@ -1220,6 +1241,7 @@ def login_user_google(request):
         invalid_fields.append(Params.id_token)
     remember_me = _read_remember_me(data, invalid_fields)
     accepted_policies = _read_accepted_policies(data, invalid_fields)
+    policy_version = _read_policy_version(data, invalid_fields)
     if len(invalid_fields) > 0:
         return log_and_return_json("login_user_google", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
@@ -1273,7 +1295,7 @@ def login_user_google(request):
         return log_and_return_json("login_user_google", {'error': POLICY_ACCEPTANCE_REQUIRED}, status=403)
 
     if existing is None:
-        existing, created_account = _create_user_for_google(request, claims, ip)
+        existing, created_account = _create_user_for_google(request, claims, ip, policy_version)
         if existing is None:
             return log_and_return_json("login_user_google", {
                 'error': "Could not create an account for that Google identity. Please try again.",

@@ -169,6 +169,7 @@ fun LoginScreen(
                     rememberMe = rememberMe.toString(),
                     ip = "127.0.0.1",
                     acceptedPolicies = if (acceptedPolicies) true else null,
+                    policyVersion = if (acceptedPolicies) Constants.POLICY_VERSION else null,
                 )
             )
             if (response.isSuccessful) {

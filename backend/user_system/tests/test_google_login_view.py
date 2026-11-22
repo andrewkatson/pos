@@ -44,15 +44,19 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
         super().setUp()
         self.url = reverse('login_user_google')
 
-    def _sign_in(self, token_claims=None, remember_me=false, accepted_policies=true, expect_status=200):
+    def _sign_in(self, token_claims=None, remember_me=false, accepted_policies=true,
+                 policy_version=POLICY_VERSION, expect_status=200):
         """POST to login/google/ with `verify_google_id_token` stubbed to `token_claims`.
 
-        Sends `accepted_policies` by default, since most tests are about what
-        happens once an account may be created; pass None to leave it out.
+        Sends `accepted_policies` (and the version a client would have shown)
+        by default, since most tests are about what happens once an account may
+        be created; pass None to leave either out.
         """
         data = {'id_token': FAKE_ID_TOKEN, 'remember_me': remember_me}
         if accepted_policies is not None:
             data['accepted_policies'] = accepted_policies
+        if policy_version is not None:
+            data['policy_version'] = policy_version
         with patch(VERIFY_PATH, return_value=token_claims or claims()), \
                 patch(CLASSIFIER_PATH) as classify:
             classify.return_value = True
@@ -146,7 +150,7 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
             user_model.objects, 'create_user',
             side_effect=IntegrityError('duplicate key value violates unique constraint "google_sub"'),
         ), patch(CLASSIFIER_PATH, return_value=True):
-            adopted, created = views._create_user_for_google(None, claims(), '127.0.0.1')
+            adopted, created = views._create_user_for_google(None, claims(), '127.0.0.1', POLICY_VERSION)
 
         self.assertEqual(adopted, winner)
         # The winner created it, not this request — so the caller must not greet
@@ -168,7 +172,7 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
 
         with patch.object(user_model.objects, 'create_user', side_effect=create_once_taken), \
                 patch(CLASSIFIER_PATH, return_value=True):
-            created_user, created = views._create_user_for_google(None, claims(), '127.0.0.1')
+            created_user, created = views._create_user_for_google(None, claims(), '127.0.0.1', POLICY_VERSION)
 
         self.assertTrue(created)
         self.assertEqual(len(attempts), 2)
@@ -252,6 +256,29 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
         user = get_user_model().objects.get(id=body[Fields.user_id])
         self.assertIsNotNone(user.policies_accepted_time)
         self.assertEqual(user.policies_accepted_version, POLICY_VERSION)
+
+    def test_the_version_recorded_is_the_one_the_client_showed(self):
+        """An app build from before a policy change shows the older text, and
+        its users agreed to that — not to whatever the server holds now."""
+        body = self._sign_in(policy_version='2026-01-01').json()
+
+        user = get_user_model().objects.get(id=body[Fields.user_id])
+        self.assertEqual(user.policies_accepted_version, '2026-01-01')
+        self.assertIsNotNone(user.policies_accepted_time)
+
+    def test_consent_without_a_version_records_the_time_but_no_version(self):
+        body = self._sign_in(policy_version=None).json()
+
+        user = get_user_model().objects.get(id=body[Fields.user_id])
+        self.assertIsNotNone(user.policies_accepted_time)
+        self.assertIsNone(user.policies_accepted_version)
+
+    def test_a_malformed_policy_version_is_a_validation_error(self):
+        for bad in ['latest', '2026-11-22\n', 20261122]:
+            with self.subTest(policy_version=bad):
+                response = self._sign_in(policy_version=bad, expect_status=400)
+                self.assertIn('POLICY_VERSION', response.json()['error'])
+        self.assertFalse(get_user_model().objects.filter(google_sub='google-sub-1').exists())
 
     def test_the_string_true_is_accepted_like_remember_me(self):
         body = self._sign_in(accepted_policies='true').json()

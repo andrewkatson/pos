@@ -16,8 +16,10 @@ export interface RegisterRequest {
    * server-side and silently dropped if rejected. */
   interest_freeform?: string[]
   /** The user agreed to the privacy policy and terms of service before
-   * submitting; the backend records when, and which version. */
+   * submitting; the backend records when. */
   accepted_policies?: boolean
+  /** The version (POLICY_VERSION) of the policies the user was shown. */
+  policy_version?: string
 }
 
 export interface AuthResponse {
@@ -64,6 +66,8 @@ export interface GoogleLoginRequest {
    * and retries with the same token plus this flag.
    */
   accepted_policies?: boolean
+  /** The version (POLICY_VERSION) of the policies the user was shown. */
+  policy_version?: string
 }
 
 /**

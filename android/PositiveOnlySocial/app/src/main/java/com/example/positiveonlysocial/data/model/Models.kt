@@ -18,7 +18,9 @@ data class RegisterRequest(
     @SerializedName("interest_freeform") val interestFreeform: List<String>? = null,
     // The user agreed to the privacy policy and terms before submitting; the
     // backend records when, and which version. Nullable so Gson omits it.
-    @SerializedName("accepted_policies") val acceptedPolicies: Boolean? = null
+    @SerializedName("accepted_policies") val acceptedPolicies: Boolean? = null,
+    // The version (Constants.POLICY_VERSION) of the policies the user was shown.
+    @SerializedName("policy_version") val policyVersion: String? = null
 )
 
 data class IdentityVerificationRequest(
@@ -81,7 +83,9 @@ data class GoogleLoginRequest(
     // create an account without it, answering `policy_acceptance_required`, so
     // the login screen asks and retries with the same token. Nullable so Gson
     // omits it on a plain sign-in.
-    @SerializedName("accepted_policies") val acceptedPolicies: Boolean? = null
+    @SerializedName("accepted_policies") val acceptedPolicies: Boolean? = null,
+    // The version (Constants.POLICY_VERSION) of the policies the user was shown.
+    @SerializedName("policy_version") val policyVersion: String? = null
 )
 
 /** Second login step: exactly one of totpCode / recoveryCode is set (Gson omits nulls). */
