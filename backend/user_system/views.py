@@ -726,6 +726,12 @@ def _read_policy_version(data, invalid_fields):
     if not isinstance(raw, str) or not is_valid_pattern(raw, Patterns.policy_version):
         invalid_fields.append(Params.policy_version)
         return None
+    # The pattern only checks the shape; 2026-02-30 or 0000-11-22 are not dates.
+    try:
+        datetime.strptime(raw, '%Y-%m-%d')
+    except ValueError:
+        invalid_fields.append(Params.policy_version)
+        return None
     return raw
 
 

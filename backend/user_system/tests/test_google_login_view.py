@@ -274,7 +274,7 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
         self.assertIsNone(user.policies_accepted_version)
 
     def test_a_malformed_policy_version_is_a_validation_error(self):
-        for bad in ['latest', '2026-11-22\n', 20261122]:
+        for bad in ['latest', '2026-08-13\n', 20260813, '2026-02-30', '2026-99-99', '0000-08-13']:
             with self.subTest(policy_version=bad):
                 response = self._sign_in(policy_version=bad, expect_status=400)
                 self.assertIn('POLICY_VERSION', response.json()['error'])

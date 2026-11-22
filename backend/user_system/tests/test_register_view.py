@@ -261,14 +261,17 @@ class RegisterTests(PositiveOnlySocialTestCase):
         self.assertEqual(user.policies_accepted_version, '2026-01-01')
 
     def test_malformed_policy_version_is_a_validation_error(self):
-        data = self.valid_data.copy()
-        data['accepted_policies'] = true
-        data['policy_version'] = 'latest'
+        # Shaped like a date but not one counts as malformed too.
+        for bad in ['latest', '2026-02-30', '0000-08-13']:
+            with self.subTest(policy_version=bad):
+                data = self.valid_data.copy()
+                data['accepted_policies'] = true
+                data['policy_version'] = bad
 
-        response = self.client.post(self.url, data=data, content_type='application/json')
+                response = self.client.post(self.url, data=data, content_type='application/json')
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('POLICY_VERSION', response.json()['error'])
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('POLICY_VERSION', response.json()['error'])
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_registering_without_the_flag_still_works_but_records_nothing(self):
