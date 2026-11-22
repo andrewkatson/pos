@@ -117,10 +117,9 @@ class TestClassifiers(PositiveOnlySocialTestCase):
 
     @patch.dict(os.environ, _OPENROUTER_KEY, clear=True)
     def test_get_available_apis_is_full_priority_order_with_key(self):
-        # Cheapest model first, Claude last (issue #393).
+        # Cheapest model first, priciest last (issues #393, #618).
         self.assertEqual(get_available_apis(), list(CASCADE_ORDER))
-        self.assertEqual(get_available_apis()[0], API_GEMMA)
-        self.assertEqual(get_available_apis()[-1], API_CLAUDE)
+        self.assertEqual(get_available_apis(), [API_GEMMA, API_OPENAI, API_CLAUDE, API_GEMINI])
 
     @patch.dict(os.environ, {}, clear=True)
     def test_model_for_uses_defaults(self):

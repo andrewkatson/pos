@@ -14,8 +14,8 @@ from .classifier_constants import (
 
 logger = logging.getLogger(__name__)
 
-# Logical cascade tiers, consulted in this order: the cheapest model first and
-# Claude only as a last resort (issue #393). Every call is routed through OpenRouter
+# Logical cascade tiers, consulted in CASCADE_ORDER: cheapest model first, the
+# priciest only as a last resort (issues #393, #618). Every call is routed through OpenRouter
 # (one OPENROUTER_API_KEY), so the concrete model behind each tier can be
 # swapped via env without a code change. All four defaults are vision-capable,
 # so the same tiers serve both the text and image cascades.
@@ -24,23 +24,25 @@ API_GEMINI = 'gemini'
 API_OPENAI = 'openai'
 API_CLAUDE = 'claude'
 
-# Priority order: Gemma (the cheapest) first, Claude as the last resort.
-#
-# This order used to run strictly from cheapest to most expensive. With the
-# November 2026 defaults it no longer does: per token, Gemini 3.1 Flash Lite is
-# now the priciest tier, and GPT-6 Luna and Claude Haiku 5.5 cost about the same.
-# The order is kept because it also sets the stage weights below and which
-# tier is the fallback, so changing it is a moderation decision, not a pricing
-# update.
+# Priority order: cheapest first, most expensive last, by OpenRouter's
+# per-token price for each tier's default model (see _DEFAULT_MODELS). Re-check
+# this whenever the defaults change. As of November 2026 (issue #618):
+#   gemma  (Gemma 4 26B)           ~$0.07 in / $0.23 out per million tokens
+#   openai (GPT-6 Luna)            ~$0.10 / $0.50
+#   claude (Claude Haiku 5.5)      ~$0.10 / $0.50
+#   gemini (Gemini 3.1 Flash Lite) ~$0.25 / $1.50
+# GPT-6 Luna and Haiku 5.5 cost the same, so they keep their old relative order.
+# Until #618 the order was gemma, gemini, openai, claude, back when Claude was
+# by far the priciest tier.
 #
 # NOTE: classify_with_thresholds consults at most THREE tiers (it decides by the
 # 3rd usable score), so on the normal path where the first three tiers all
-# return a usable score, Claude is never called. Listing it 4th is deliberate:
-# it makes Claude a genuine *last resort*, reached only when one of the cheaper
+# return a usable score, the 4th tier (now Gemini) is never called. That makes
+# the 4th tier a genuine *last resort*, reached only when one of the cheaper
 # tiers yields no usable score (an error or an unparseable response) and is
 # skipped — never adding a 4th vote on top of three good ones. Reorder this
 # tuple to change which tier is the fallback.
-CASCADE_ORDER = (API_GEMMA, API_GEMINI, API_OPENAI, API_CLAUDE)
+CASCADE_ORDER = (API_GEMMA, API_OPENAI, API_CLAUDE, API_GEMINI)
 
 # Default OpenRouter model ID per tier. Override any one of them with the env
 # var OPENROUTER_MODEL_<TIER> (e.g. OPENROUTER_MODEL_GEMMA) to switch models
@@ -53,7 +55,7 @@ CASCADE_ORDER = (API_GEMMA, API_GEMINI, API_OPENAI, API_CLAUDE)
 # Don't use `:free` slugs here: OpenRouter rate-limits free variants and pulls
 # them without warning. When the free Gemma 3 12B was retired it 404'd ("unavailable
 # for free"), so the whole first tier failed on every call and fell through to
-# the pricier Gemini tier. Paid Gemma is still the cheapest tier.
+# the next tier. Paid Gemma is still the cheapest tier.
 #
 # When choosing a model, check its `reasoning` entry in
 # https://openrouter.ai/api/v1/models: it must not be `mandatory` (see
@@ -88,7 +90,7 @@ def model_for(api_name):
 
 
 def get_available_apis():
-    """Cascade tiers to consult, in priority order (cheapest first, Claude last).
+    """Cascade tiers to consult, in priority order (cheapest first, priciest last).
 
     Everything routes through OpenRouter, so the whole cascade is available
     when OPENROUTER_API_KEY is set, and nothing is otherwise.
@@ -222,8 +224,8 @@ def classify_with_thresholds(available_apis, call_fn):
     - If the cascade needs another AI and none is available, the content is
       rejected; it is appealable only if the last score was in the middle zone.
 
-    APIs are consulted in the given priority order (cheapest models first, Claude
-    last — issue #393), so clear content is usually settled by the cheap tier
+    APIs are consulted in the given priority order (cheapest models first, the
+    priciest last — issues #393, #618), so clear content is usually settled by the cheap tier
     and only ambiguous content escalates to the pricier ones. An API that
     errors or returns an unparseable score is skipped as if unavailable. With
     no usable scores at all the content is rejected and not appealable.
