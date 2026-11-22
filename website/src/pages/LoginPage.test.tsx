@@ -479,3 +479,115 @@ test('an unmapped failure keeps its own readable message', async () => {
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Network error. Please try again.')
 })
+
+// ---------------------------------------------------------------------------
+// Consent before a Google sign-in creates an account
+// ---------------------------------------------------------------------------
+
+async function rejectWithPolicyAcceptanceRequired() {
+  const { ApiError, POLICY_ACCEPTANCE_REQUIRED } = await import('../api/client')
+  mockLoginWithGoogle.mockRejectedValueOnce(new ApiError(403, POLICY_ACCEPTANCE_REQUIRED))
+}
+
+test('an existing member signing in with Google is never asked to consent', async () => {
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    session_management_token: 'google-token',
+    user_id: 'u1',
+    username: 'hopefulperson',
+    created_account: false,
+  })
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+
+  await screen.findByText('Home')
+  expect(mockLoginWithGoogle).toHaveBeenCalledTimes(1)
+  expect(mockLoginWithGoogle.mock.calls[0][0]).not.toHaveProperty('accepted_policies')
+})
+
+test('a Google sign-in that would create an account asks for consent first', async () => {
+  await rejectWithPolicyAcceptanceRequired()
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+
+  const dialog = await screen.findByRole('dialog', { name: 'Create your account' })
+  expect(dialog).toHaveTextContent('Privacy Policy')
+  expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute(
+    'href',
+    '/terms-of-service',
+  )
+  expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute(
+    'href',
+    '/privacy-policy',
+  )
+  // The refusal is a question for the user, not an error to show.
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('session_token', expect.anything())
+})
+
+test('agreeing retries the same Google credential with consent and enters the app', async () => {
+  await rejectWithPolicyAcceptanceRequired()
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    session_management_token: 'google-token',
+    user_id: 'u1',
+    username: 'hopefulperson',
+    created_account: true,
+    membership_number: 7,
+  })
+  renderLoginPage()
+
+  await userEvent.click(screen.getByLabelText('Remember me'))
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Agree and create account' }))
+
+  await screen.findByText('Home')
+  expect(mockLoginWithGoogle).toHaveBeenNthCalledWith(1, {
+    id_token: 'a.google.token',
+    remember_me: true,
+  })
+  expect(mockLoginWithGoogle).toHaveBeenNthCalledWith(2, {
+    id_token: 'a.google.token',
+    remember_me: true,
+    accepted_policies: true,
+  })
+  expect(localStorageMock.setItem).toHaveBeenCalledWith('session_token', 'google-token')
+})
+
+test('cancelling the consent modal creates nothing and stays on the login page', async () => {
+  await rejectWithPolicyAcceptanceRequired()
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(mockLoginWithGoogle).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument()
+  expect(screen.getByLabelText('Password')).not.toBeDisabled()
+})
+
+test('Escape declines the consent modal', async () => {
+  await rejectWithPolicyAcceptanceRequired()
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+  await screen.findByRole('dialog', { name: 'Create your account' })
+  await userEvent.keyboard('{Escape}')
+
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(mockLoginWithGoogle).toHaveBeenCalledTimes(1)
+})
+
+test('a refusal after consenting is shown like any other Google failure', async () => {
+  const { ApiError, ACCOUNT_BANNED, ACCOUNT_SUSPENDED_MESSAGE } = await import('../api/client')
+  await rejectWithPolicyAcceptanceRequired()
+  mockLoginWithGoogle.mockRejectedValueOnce(new ApiError(403, ACCOUNT_BANNED))
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Agree and create account' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(ACCOUNT_SUSPENDED_MESSAGE)
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})

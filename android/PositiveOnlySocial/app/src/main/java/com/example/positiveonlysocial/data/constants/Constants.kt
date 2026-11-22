@@ -52,6 +52,13 @@ object Constants {
     const val GOOGLE_EMAIL_AMBIGUOUS_MESSAGE =
         "More than one account already uses that email address. Please sign in with your password."
     const val GOOGLE_SIGN_IN_FAILED_MESSAGE = "Google sign-in failed. Please try again."
+    // Not an error to show: login/google/ answers with this when the sign-in
+    // would create an account and the user hasn't yet agreed to the privacy
+    // policy and terms. LoginScreen asks, then retries with consent.
+    const val POLICY_ACCEPTANCE_REQUIRED = "policy_acceptance_required"
+    const val GOOGLE_SIGN_UP_CONSENT_TITLE = "Create your account"
+    const val GOOGLE_SIGN_UP_CONSENT_INTRO =
+        "There's no Good Vibes Only account for that Google account yet. Signing in will create one. By creating an account you agree to our Terms of Service and this Privacy Policy:"
 
     // Support address shown under "Contact Us" in Settings for feedback and help
     // (issue #194). Distinct from the user's own contact info, which is loaded

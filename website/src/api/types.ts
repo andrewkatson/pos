@@ -15,6 +15,9 @@ export interface RegisterRequest {
   /** Freeform interest terms typed during sign-up; each is positivity-checked
    * server-side and silently dropped if rejected. */
   interest_freeform?: string[]
+  /** The user agreed to the privacy policy and terms of service before
+   * submitting; the backend records when, and which version. */
+  accepted_policies?: boolean
 }
 
 export interface AuthResponse {
@@ -54,6 +57,13 @@ export interface LoginRequest {
 export interface GoogleLoginRequest {
   id_token: string
   remember_me?: boolean
+  /**
+   * The user has agreed to the privacy policy and terms of service. Required
+   * when the sign-in would create an account: without it the backend answers
+   * `policy_acceptance_required` instead, and the client shows both documents
+   * and retries with the same token plus this flag.
+   */
+  accepted_policies?: boolean
 }
 
 /**

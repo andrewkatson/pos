@@ -48,6 +48,12 @@ import Foundation
     static let googleSignInUnavailableError = "google_sign_in_unavailable"
     static let googleSignInUnavailableMessage = "Google sign-in isn't available right now. Please sign in with your password."
     static let googleSignInFailedMessage = "Google sign-in failed. Please try again."
+    // Not an error to show: login/google/ answers with this when the sign-in
+    // would create an account and the user hasn't yet agreed to the privacy
+    // policy and terms. LoginView asks, then retries with consent.
+    static let policyAcceptanceRequiredError = "policy_acceptance_required"
+    static let googleSignUpConsentTitle = "Create your account"
+    static let googleSignUpConsentIntro = "There's no Good Vibes Only account for that Google account yet. Signing in will create one. By creating an account you agree to our Terms of Service and this Privacy Policy:"
     static let encodingError = "Failed to encode the request body: "
     static let emptyString = ""
     static let get = "GET"

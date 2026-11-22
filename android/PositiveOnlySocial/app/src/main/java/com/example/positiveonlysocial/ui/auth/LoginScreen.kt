@@ -1,6 +1,8 @@
 package com.example.positiveonlysocial.ui.auth
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -36,6 +38,7 @@ import com.example.positiveonlysocial.data.model.LoginTwoFactorRequest
 import com.example.positiveonlysocial.data.model.RememberMeTokens
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
+import com.example.positiveonlysocial.ui.components.TermsOfServiceDialog
 import com.example.positiveonlysocial.ui.dismissKeyboardOnTap
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
@@ -66,6 +69,13 @@ fun LoginScreen(
         var twoFactorChallengeToken by remember { mutableStateOf<String?>(null) }
         var twoFactorCode by remember { mutableStateOf("") }
         var useRecoveryCode by remember { mutableStateOf(false) }
+
+        // A Google ID token for which no account exists yet. The backend won't
+        // create one until the user agrees to the privacy policy and terms, so
+        // the token waits here while the consent dialog is up, then is retried
+        // with consent. Google's ID tokens stay valid for an hour.
+        var pendingGoogleIdToken by remember { mutableStateOf<String?>(null) }
+        var showingTermsOfService by remember { mutableStateOf(false) }
 
         val scope = rememberCoroutineScope()
         val focusManager = LocalFocusManager.current
@@ -142,6 +152,114 @@ fun LoginScreen(
             navController.navigate(Screen.Home.route) {
                 popUpTo(Screen.Login.route) { inclusive = true }
             }
+        }
+
+        /**
+         * Trades a Google ID token for a session (issue #10). The first attempt
+         * never claims consent: an existing member needs none, and if the token
+         * belongs to nobody yet the backend refuses with
+         * `policy_acceptance_required` — the cue to show the privacy policy and
+         * terms and ask before an account is created. Network failures are left
+         * to the caller.
+         */
+        suspend fun exchangeGoogleToken(idToken: String, acceptedPolicies: Boolean) {
+            val response = api.loginWithGoogle(
+                GoogleLoginRequest(
+                    idToken = idToken,
+                    rememberMe = rememberMe.toString(),
+                    ip = "127.0.0.1",
+                    acceptedPolicies = if (acceptedPolicies) true else null,
+                )
+            )
+            if (response.isSuccessful) {
+                val body = response.body()
+                val challenge = body?.challengeToken
+                if (body?.twoFactorRequired == true && !challenge.isNullOrBlank()) {
+                    // Holding the Google account is a first factor, not a
+                    // bypass of the second.
+                    twoFactorChallengeToken = challenge
+                    twoFactorCode = ""
+                    useRecoveryCode = false
+                } else {
+                    completeLogin(
+                        sessionToken = body?.sessionToken,
+                        username = body?.username,
+                        userId = body?.userId,
+                        seriesIdentifier = body?.seriesIdentifier,
+                        loginCookieToken = body?.loginCookieToken
+                    )
+                }
+                return
+            }
+            val code = ApiErrors.messageFor(response, fallback = Constants.GOOGLE_SIGN_IN_FAILED_MESSAGE)
+            when (val refusal = googleSignInRefusal(code)) {
+                // Not a failure: this sign-in would create an account. Ask first.
+                GoogleSignInRefusal.NeedsConsent -> pendingGoogleIdToken = idToken
+                is GoogleSignInRefusal.Show -> {
+                    errorMessage = refusal.message
+                    showingErrorAlert = true
+                }
+            }
+        }
+
+        pendingGoogleIdToken?.let { heldToken ->
+            AlertDialog(
+                // Dismissing is a decline, and declining discards the token.
+                onDismissRequest = { pendingGoogleIdToken = null },
+                title = { Text(Constants.GOOGLE_SIGN_UP_CONSENT_TITLE) },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .verticalScroll(rememberScrollState())
+                            .testTag("GoogleConsentDialog"),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(Constants.GOOGLE_SIGN_UP_CONSENT_INTRO)
+                        Text(Constants.PRIVACY_POLICY_TEXT)
+                        TextButton(
+                            onClick = { showingTermsOfService = true },
+                            modifier = Modifier.testTag("GoogleConsentTermsButton")
+                        ) {
+                            Text("Read Terms of Service")
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            pendingGoogleIdToken = null
+                            scope.launch {
+                                isLoading = true
+                                try {
+                                    exchangeGoogleToken(heldToken, acceptedPolicies = true)
+                                } catch (e: Exception) {
+                                    errorMessage = "Google sign-in failed. Please check your network connection."
+                                    showingErrorAlert = true
+                                } finally {
+                                    isLoading = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.testTag("GoogleConsentAgreeButton")
+                    ) {
+                        Text("Agree and create account")
+                    }
+                },
+                dismissButton = {
+                    Button(
+                        onClick = { pendingGoogleIdToken = null },
+                        modifier = Modifier.testTag("GoogleConsentCancelButton")
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        // Shown over the consent dialog, which stays up underneath so the held
+        // token survives reading the terms.
+        if (showingTermsOfService) {
+            TermsOfServiceDialog(onDismiss = { showingTermsOfService = false })
         }
 
         if (showingErrorAlert) {
@@ -419,53 +537,7 @@ fun LoginScreen(
                                 isLoading = true
                                 try {
                                     val idToken = googleSignIn.signIn(context)
-                                    val response = api.loginWithGoogle(
-                                        GoogleLoginRequest(
-                                            idToken = idToken,
-                                            rememberMe = rememberMe.toString(),
-                                            ip = "127.0.0.1",
-                                        )
-                                    )
-                                    if (response.isSuccessful) {
-                                        val body = response.body()
-                                        val challenge = body?.challengeToken
-                                        if (body?.twoFactorRequired == true && !challenge.isNullOrBlank()) {
-                                            // Holding the Google account is a
-                                            // first factor, not a bypass of the
-                                            // second.
-                                            twoFactorChallengeToken = challenge
-                                            twoFactorCode = ""
-                                            useRecoveryCode = false
-                                        } else {
-                                            completeLogin(
-                                                sessionToken = body?.sessionToken,
-                                                username = body?.username,
-                                                userId = body?.userId,
-                                                seriesIdentifier = body?.seriesIdentifier,
-                                                loginCookieToken = body?.loginCookieToken
-                                            )
-                                        }
-                                    } else {
-                                        val errorMsg = ApiErrors.messageFor(
-                                            response,
-                                            fallback = "Google sign-in failed. Please try again."
-                                        )
-                                        // The backend answers with stable codes
-                                        // rather than prose (see constants.py),
-                                        // so the copy lives here. An unmapped
-                                        // message is a transport failure that
-                                        // already reads well on its own.
-                                        errorMessage = when (errorMsg) {
-                                            Constants.ACCOUNT_BANNED -> Constants.ACCOUNT_SUSPENDED_MESSAGE
-                                            Constants.EMAIL_NOT_VERIFIED -> Constants.EMAIL_NOT_VERIFIED_MESSAGE
-                                            Constants.GOOGLE_SIGN_IN_UNAVAILABLE -> Constants.GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE
-                                            Constants.GOOGLE_EMAIL_UNVERIFIED -> Constants.GOOGLE_EMAIL_UNVERIFIED_MESSAGE
-                                            Constants.GOOGLE_EMAIL_AMBIGUOUS -> Constants.GOOGLE_EMAIL_AMBIGUOUS_MESSAGE
-                                            Constants.INVALID_GOOGLE_TOKEN -> Constants.GOOGLE_SIGN_IN_FAILED_MESSAGE
-                                            else -> errorMsg
-                                        }
-                                        showingErrorAlert = true
-                                    }
+                                    exchangeGoogleToken(idToken, acceptedPolicies = false)
                                 } catch (e: GoogleSignInFailure.Cancelled) {
                                     // Dismissing the account picker is a choice,
                                     // not a failure to report.
@@ -493,6 +565,31 @@ fun LoginScreen(
             Spacer(modifier = Modifier.weight(1f))
         }
     }
+}
+
+/** What the login screen does with an error code from login/google/. */
+internal sealed interface GoogleSignInRefusal {
+    /** The sign-in would create an account: show the policies and ask. */
+    data object NeedsConsent : GoogleSignInRefusal
+
+    /** A real refusal, with the copy to show for it. */
+    data class Show(val message: String) : GoogleSignInRefusal
+}
+
+/**
+ * The backend answers with stable codes rather than prose (see constants.py),
+ * so the copy lives here. An unmapped message is a transport failure that
+ * already reads well on its own.
+ */
+internal fun googleSignInRefusal(code: String): GoogleSignInRefusal = when (code) {
+    Constants.POLICY_ACCEPTANCE_REQUIRED -> GoogleSignInRefusal.NeedsConsent
+    Constants.ACCOUNT_BANNED -> GoogleSignInRefusal.Show(Constants.ACCOUNT_SUSPENDED_MESSAGE)
+    Constants.EMAIL_NOT_VERIFIED -> GoogleSignInRefusal.Show(Constants.EMAIL_NOT_VERIFIED_MESSAGE)
+    Constants.GOOGLE_SIGN_IN_UNAVAILABLE -> GoogleSignInRefusal.Show(Constants.GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE)
+    Constants.GOOGLE_EMAIL_UNVERIFIED -> GoogleSignInRefusal.Show(Constants.GOOGLE_EMAIL_UNVERIFIED_MESSAGE)
+    Constants.GOOGLE_EMAIL_AMBIGUOUS -> GoogleSignInRefusal.Show(Constants.GOOGLE_EMAIL_AMBIGUOUS_MESSAGE)
+    Constants.INVALID_GOOGLE_TOKEN -> GoogleSignInRefusal.Show(Constants.GOOGLE_SIGN_IN_FAILED_MESSAGE)
+    else -> GoogleSignInRefusal.Show(code)
 }
 
 @Preview(showBackground = true)

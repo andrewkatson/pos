@@ -122,6 +122,8 @@ function RegisterPage() {
         date_of_birth: dateOfBirth,
         interest_categories: selectedInterests,
         interest_freeform: freeformInterests,
+        // Only reachable through the privacy-policy modal's Ok button.
+        accepted_policies: true,
       })
       // Drop the registration session and any persisted session/remember-me
       // tokens right away: the account can't act until email verification, and
@@ -156,7 +158,9 @@ function RegisterPage() {
     setPendingGoogleToken(null)
     setIsLoading(true)
     try {
-      const response = await apiClient.loginWithGoogle({ id_token: idToken })
+      // Only reachable through the privacy-policy modal's Ok button. Without the
+      // flag a brand-new Google account would be refused (see LoginPage).
+      const response = await apiClient.loginWithGoogle({ id_token: idToken, accepted_policies: true })
 
       if (isTwoFactorRequired(response)) {
         // Only an *existing* account can owe a second factor, so this is

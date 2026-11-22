@@ -289,6 +289,21 @@ GOOGLE_EMAIL_UNVERIFIED = "google_email_unverified"
 # clients can show their own copy without depending on backend wording.
 GOOGLE_EMAIL_AMBIGUOUS = "google_email_ambiguous"
 
+# Returned by login/google/ when the token belongs to nobody yet — so the call
+# would create an account — but the request did not carry
+# `accepted_policies: true`. Signing in to an existing account needs no consent
+# step, but creating one does: a first Google sign-in from a login screen would
+# otherwise make a member who never saw the privacy policy or the terms. Clients
+# answer this code by showing both and retrying with the same ID token (Google's
+# tokens stay valid for an hour) plus the flag. A stable code, like those above.
+POLICY_ACCEPTANCE_REQUIRED = "policy_acceptance_required"
+
+# Identifies the privacy policy and terms of service a new member agreed to,
+# stamped on PositiveOnlySocialUser.policies_accepted_version at sign-up. Bump it
+# (to the date of the change) whenever either document changes materially, so
+# accounts that agreed to an older version can be told apart from current ones.
+POLICY_VERSION = "2026-11-22"
+
 # A Google account carries no username, so the first sign-in generates one from
 # the email local part. Generated names must still satisfy Patterns.username
 # (at least 10 word characters), so a short local part is padded and a taken name
@@ -372,6 +387,7 @@ class Params:
     series_identifier = "SERIES_IDENTIFIER"
     login_cookie_token = "LOGIN_COOKIE_TOKEN"
     remember_me = "REMEMBER_ME"
+    accepted_policies = "ACCEPTED_POLICIES"
     caption = "CAPTION"
     caption_font = "CAPTION_FONT"
     background_color = "BACKGROUND_COLOR"
@@ -502,6 +518,10 @@ class Fields:
     # in to an existing one (so clients can greet a brand-new member).
     id_token = "id_token"
     created_account = "created_account"
+    # Sent by a client once the user has agreed to the privacy policy and terms
+    # of service. Required by login/google/ before it will create an account
+    # (see POLICY_ACCEPTANCE_REQUIRED); recorded, when sent, by register/.
+    accepted_policies = "accepted_policies"
     totp_code = "totp_code"
     recovery_code = "recovery_code"
     totp_secret = "totp_secret"

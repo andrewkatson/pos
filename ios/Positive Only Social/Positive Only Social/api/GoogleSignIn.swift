@@ -260,6 +260,17 @@ enum GoogleOAuth {
 // MARK: - Provider
 
 /// Injectable so views (and tests) never reach for ASWebAuthenticationSession.
+/// The consent step in front of a Google sign-up (see LoginView).
+enum GoogleSignUpConsent {
+    /// Whether login/google/ refused because the sign-in would create an
+    /// account the user hasn't agreed to the policies for yet. That refusal is
+    /// a question for the user, not a failure to report.
+    static func isRequired(by error: Error) -> Bool {
+        guard case APIError.serverError(_, let code) = error else { return false }
+        return code == GVOAppConstants.policyAcceptanceRequiredError
+    }
+}
+
 protocol GoogleSignInProviding {
     /// False when no client ID is configured, in which case the button is hidden.
     var isConfigured: Bool { get }

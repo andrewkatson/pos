@@ -55,7 +55,7 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, \
     DEVICE_PLATFORMS, MAX_DEVICE_TOKEN_LENGTH, \
     PUSH_TYPE_TREE, PUSH_TYPES, \
     GOOGLE_SIGN_IN_UNAVAILABLE, INVALID_GOOGLE_TOKEN, GOOGLE_EMAIL_UNVERIFIED, \
-    GOOGLE_EMAIL_AMBIGUOUS, \
+    GOOGLE_EMAIL_AMBIGUOUS, POLICY_ACCEPTANCE_REQUIRED, POLICY_VERSION, \
     GENERATED_USERNAME_FALLBACK_PREFIX, MIN_GENERATED_USERNAME_LENGTH, \
     MAX_GENERATED_USERNAME_ATTEMPTS
 from .feed_algorithm import feed_algorithm
@@ -693,14 +693,35 @@ def _read_remember_me(data, invalid_fields):
     Shared by register, login_user and login_user_google so they cannot drift
     apart on what a missing or malformed flag means.
     """
-    raw = data.get(Fields.remember_me)
+    return _read_optional_bool(data, Fields.remember_me, Params.remember_me, invalid_fields)
+
+
+def _read_accepted_policies(data, invalid_fields):
+    """Read the optional `accepted_policies` flag: whether the user has agreed
+    to the privacy policy and terms of service. Same rules as remember_me —
+    absent or null means no, an unparseable value is a validation error — since
+    a consent flag is the last place to guess what a malformed value meant."""
+    return _read_optional_bool(data, Fields.accepted_policies, Params.accepted_policies, invalid_fields)
+
+
+def _read_optional_bool(data, field, param, invalid_fields):
+    """Shared reader behind _read_remember_me and _read_accepted_policies."""
+    raw = data.get(field)
     if raw is None:
         return False
     try:
         return convert_to_bool(raw)
     except TypeError:
-        invalid_fields.append(Params.remember_me)
+        invalid_fields.append(param)
         return False
+
+
+def _record_policy_acceptance(user):
+    """Stamp when, and to which version of, the privacy policy and terms the
+    user agreed. Called only at account creation, and only when the request
+    carried `accepted_policies: true`. Does not save."""
+    user.policies_accepted_time = timezone.now()
+    user.policies_accepted_version = POLICY_VERSION
 
 
 def _create_authenticated_session(view_name, request, user, ip, remember_me, extra_response_fields=None):
@@ -805,6 +826,10 @@ def register(request):
         pass
 
     remember_me = _read_remember_me(data, invalid_fields)
+    # Every client shows the privacy policy and terms before calling register
+    # and sends this flag once they are agreed to. Recorded rather than required
+    # here, so a client build from before the flag existed can still register.
+    accepted_policies = _read_accepted_policies(data, invalid_fields)
 
     if len(invalid_fields) > 0:
         logger.warning(f"Registration failed: Invalid fields {invalid_fields}")
@@ -839,6 +864,8 @@ def register(request):
     new_user.set_password(password)
     new_user.identity_is_verified = True if date_of_birth_str else False
     new_user.is_adult = is_adult
+    if accepted_policies:
+        _record_policy_acceptance(new_user)
     new_user.save()
 
     # Stamp their join number now, in creation order, so the client can greet
@@ -1125,6 +1152,8 @@ def _create_user_for_google(request, claims, ip):
                 new_user.set_unusable_password()
                 new_user.google_sub = claims['sub']
                 new_user.email_verified = True
+                # The caller refuses to get here without accepted_policies.
+                _record_policy_acceptance(new_user)
                 new_user.save()
         except IntegrityError:
             # Two columns here are unique, and only one of them is worth
@@ -1190,6 +1219,7 @@ def login_user_google(request):
     if not raw_token or not is_valid_pattern(raw_token, Patterns.google_id_token):
         invalid_fields.append(Params.id_token)
     remember_me = _read_remember_me(data, invalid_fields)
+    accepted_policies = _read_accepted_policies(data, invalid_fields)
     if len(invalid_fields) > 0:
         return log_and_return_json("login_user_google", {'error': f"Invalid fields {invalid_fields}"}, status=400)
 
@@ -1231,6 +1261,16 @@ def login_user_google(request):
             }, status=409)
         if candidates:
             existing = _link_google_identity(candidates[0], claims)
+
+    if existing is None and not accepted_policies:
+        # Nobody holds this Google identity, so continuing would create an
+        # account — and nobody becomes a member without agreeing to the privacy
+        # policy and terms. The login screens' Google buttons reach this point
+        # with no consent step of their own, so the gate lives here, where no
+        # client can skip it. The client shows both documents and retries with
+        # the same token plus the flag; nothing has been written yet.
+        logger.info("Google sign-in would create an account; asking the client for policy acceptance first")
+        return log_and_return_json("login_user_google", {'error': POLICY_ACCEPTANCE_REQUIRED}, status=403)
 
     if existing is None:
         existing, created_account = _create_user_for_google(request, claims, ip)
