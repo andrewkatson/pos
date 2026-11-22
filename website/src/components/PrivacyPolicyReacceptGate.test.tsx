@@ -49,15 +49,23 @@ function signIn() {
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/" element={<div>Landing</div>} />
-        <Route path="/home" element={<div>Home</div>} />
-        <Route path="/login" element={<div>Login</div>} />
-        <Route path="/delete-account" element={<div>Delete Account</div>} />
-        <Route path="/privacy-policy" element={<div>Policy Page</div>} />
-        <Route path="/profile/:username" element={<div>Profile</div>} />
-      </Routes>
-      <PrivacyPolicyReacceptGate />
+      <PrivacyPolicyReacceptGate>
+        <Routes>
+          <Route path="/" element={<div>Landing</div>} />
+          <Route
+              path="/home"
+              element={
+                <div>
+                  Home <button type="button">Open settings</button>
+                </div>
+              }
+            />
+          <Route path="/login" element={<div>Login</div>} />
+          <Route path="/delete-account" element={<div>Delete Account</div>} />
+          <Route path="/privacy-policy" element={<div>Policy Page</div>} />
+          <Route path="/profile/:username" element={<div>Profile</div>} />
+        </Routes>
+      </PrivacyPolicyReacceptGate>
     </MemoryRouter>,
   )
 }
@@ -92,6 +100,37 @@ test('gates nested authenticated routes too, not just /home', () => {
   renderAt('/profile/someone')
 
   expect(screen.getByRole('dialog', { name: 'Privacy Policy Updated' })).toBeInTheDocument()
+})
+
+test('keeps the page behind the dialog inert until the user answers', async () => {
+  signIn()
+  renderAt('/home')
+
+  // Inert content is unreachable by mouse and by Tab, so the dialog's own
+  // buttons are the only controls left.
+  const pageButton = screen.getByText('Open settings', { selector: 'button' })
+  expect(pageButton.closest('[inert]')).not.toBeNull()
+  expect(screen.getByRole('button', { name: 'Accept' }).closest('[inert]')).toBeNull()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Accept' }))
+
+  expect(pageButton.closest('[inert]')).toBeNull()
+})
+
+test('the policy text scrolls inside the dialog, apart from the buttons', () => {
+  signIn()
+  renderAt('/home')
+
+  const policy = screen.getByRole('region', { name: 'Privacy Policy' })
+  expect(policy).toHaveClass('privacy-reaccept__policy')
+  expect(policy).toHaveTextContent(PRIVACY_POLICY_TEXT)
+  expect(policy).not.toContainElement(screen.getByRole('button', { name: 'Accept' }))
+})
+
+test('the page is not inert when there is nothing to answer', () => {
+  renderAt('/home')
+
+  expect(screen.getByText('Open settings', { selector: 'button' }).closest('[inert]')).toBeNull()
 })
 
 test('accepting closes the dialog and keeps the user signed in', async () => {

@@ -23,10 +23,15 @@ import com.example.positiveonlysocial.data.constants.Constants
  * PrivacyPolicyReacceptGate.
  *
  * It can't be dismissed by tapping outside or pressing back: the only ways out
- * are accepting it or logging out.
+ * are accepting it or logging out. [enabled] is false while a Log Out is in
+ * progress, so the dialog keeps covering the app until the user has left it.
  */
 @Composable
-fun PrivacyPolicyReacceptDialog(onAccept: () -> Unit, onLogOut: () -> Unit) {
+fun PrivacyPolicyReacceptDialog(
+    onAccept: () -> Unit,
+    onLogOut: () -> Unit,
+    enabled: Boolean = true
+) {
     AlertDialog(
         onDismissRequest = { /* A choice is required. */ },
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
@@ -49,12 +54,12 @@ fun PrivacyPolicyReacceptDialog(onAccept: () -> Unit, onLogOut: () -> Unit) {
             }
         },
         confirmButton = {
-            Button(onClick = onAccept) {
+            Button(onClick = onAccept, enabled = enabled) {
                 Text("Accept")
             }
         },
         dismissButton = {
-            TextButton(onClick = onLogOut) {
+            TextButton(onClick = onLogOut, enabled = enabled) {
                 Text("Log Out")
             }
         }

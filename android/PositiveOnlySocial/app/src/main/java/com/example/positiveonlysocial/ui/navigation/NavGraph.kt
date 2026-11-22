@@ -6,6 +6,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -18,9 +19,14 @@ import com.example.positiveonlysocial.data.auth.AuthenticationManager
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.fcm.PushNavigator
 import com.example.positiveonlysocial.fcm.PushRegistrar
+import com.example.positiveonlysocial.ui.components.PrivacyPolicyReacceptDialog
+import android.util.Log
+import kotlinx.coroutines.launch
 import com.example.positiveonlysocial.models.viewmodels.FollowListMode
 import com.example.positiveonlysocial.ui.auth.*
 import com.example.positiveonlysocial.ui.main.*
+
+private const val TAG = "NavGraph"
 
 @Composable
 fun NavGraph(
@@ -59,11 +65,17 @@ fun NavGraph(
     // This is also why PostDetail carries no navDeepLink: NavHost would resolve
     // the incoming VIEW intent itself and build a back stack straight to an
     // authenticated screen, with no session behind it.
+    //
+    // Requests also wait while the privacy-policy re-accept prompt is open
+    // (issue #620): opening a root destination would leave the signed-in app
+    // usable without an answer. Keying on the flag replays them on Accept.
     val pendingPostId by PushNavigator.pendingPostId.collectAsState()
     val pushIsLoggedIn by authManager.isLoggedIn.collectAsState()
-    LaunchedEffect(pendingPostId, pushIsLoggedIn) {
+    val needsPrivacyPolicyAcceptance by authManager.needsPrivacyPolicyAcceptance.collectAsState()
+    val canOpenSignedInRequests = pushIsLoggedIn && !needsPrivacyPolicyAcceptance
+    LaunchedEffect(pendingPostId, canOpenSignedInRequests) {
         val postId = pendingPostId ?: return@LaunchedEffect
-        if (!pushIsLoggedIn) return@LaunchedEffect
+        if (!canOpenSignedInRequests) return@LaunchedEffect
         PushNavigator.clearRequest()
         navController.navigate(Screen.PostDetail.createRoute(postId)) {
             launchSingleTop = true
@@ -83,9 +95,9 @@ fun NavGraph(
     // request swaps the old "private" view for the posts it unlocked without
     // leaving a duplicate behind it.
     val pendingProfileUsername by PushNavigator.pendingProfileUsername.collectAsState()
-    LaunchedEffect(pendingProfileUsername, pushIsLoggedIn) {
+    LaunchedEffect(pendingProfileUsername, canOpenSignedInRequests) {
         val username = pendingProfileUsername ?: return@LaunchedEffect
-        if (!pushIsLoggedIn) return@LaunchedEffect
+        if (!canOpenSignedInRequests) return@LaunchedEffect
         PushNavigator.clearProfileRequest()
         val top = navController.currentBackStackEntry
         val sameProfileOnTop = top != null && top.destination.route == Screen.Profile.route &&
@@ -105,12 +117,56 @@ fun NavGraph(
     // ViewModel that loads the list again, so the requester the notification
     // announced is actually on it.
     val pendingFollowRequests by PushNavigator.pendingFollowRequests.collectAsState()
-    LaunchedEffect(pendingFollowRequests, pushIsLoggedIn) {
-        if (!pendingFollowRequests || !pushIsLoggedIn) return@LaunchedEffect
+    LaunchedEffect(pendingFollowRequests, canOpenSignedInRequests) {
+        if (!pendingFollowRequests || !canOpenSignedInRequests) return@LaunchedEffect
         PushNavigator.clearFollowRequestsRequest()
         navController.navigate(Screen.FollowRequests.route) {
             popUpTo(Screen.FollowRequests.route) { inclusive = true }
         }
+    }
+
+    // Re-accept the privacy policy on opening the app (issue #620). Shown here,
+    // above every destination, rather than inside MainScreen, so no screen on
+    // the root stack (a pushed post or profile) can sit outside it.
+    //
+    // Declining clears the local session first, then leaves for the login
+    // screen; telling the backend is best-effort and comes last. The dialog
+    // stays up, its buttons disabled, until that navigation has happened, so
+    // the signed-in app is never usable in between. This scope belongs to the
+    // root composable, so leaving Home doesn't cancel the backend call.
+    val scope = rememberCoroutineScope()
+    var isDecliningPrivacyPolicy by remember { mutableStateOf(false) }
+    if ((pushIsLoggedIn && needsPrivacyPolicyAcceptance) || isDecliningPrivacyPolicy) {
+        PrivacyPolicyReacceptDialog(
+            enabled = !isDecliningPrivacyPolicy,
+            onAccept = { authManager.acceptPrivacyPolicy() },
+            onLogOut = {
+                isDecliningPrivacyPolicy = true
+                val sessionToken = authManager.session.value?.sessionToken
+                scope.launch {
+                    try {
+                        authManager.logout()
+                        navController.navigate(Screen.Login.route) {
+                            // Clear the whole back stack: Home and anything
+                            // pushed above it.
+                            popUpTo(navController.graph.id) { inclusive = true }
+                        }
+                    } finally {
+                        isDecliningPrivacyPolicy = false
+                    }
+                    if (sessionToken != null) {
+                        try {
+                            val response = api.logout(sessionToken)
+                            if (!response.isSuccessful) {
+                                Log.w(TAG, "Backend logout failed: ${response.message()}")
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Backend logout failed", e)
+                        }
+                    }
+                }
+            }
+        )
     }
 
     NavHost(

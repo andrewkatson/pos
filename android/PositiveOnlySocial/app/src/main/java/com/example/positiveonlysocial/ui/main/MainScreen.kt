@@ -21,11 +21,6 @@ import com.example.positiveonlysocial.ui.preview.PreviewHelpers
 import com.example.positiveonlysocial.ui.navigation.ProfileTabNavigator
 import com.example.positiveonlysocial.ui.navigation.Screen
 import com.example.positiveonlysocial.ui.theme.PositiveOnlySocialTheme
-import com.example.positiveonlysocial.ui.components.PrivacyPolicyReacceptDialog
-import android.util.Log
-import kotlinx.coroutines.launch
-
-private const val TAG = "MainScreen"
 
 @Composable
 fun MainScreen(
@@ -48,41 +43,7 @@ fun MainScreen(
         }
     }
 
-    // Re-accept the privacy policy on opening the app (issue #620). Declining
-    // signs out the same way Settings' logout does: tell the backend
-    // (best-effort), clear the local session, and land on the login screen.
-    // Navigating last matters — leaving Home disposes this scope.
-    val needsPrivacyPolicyAcceptance by authManager.needsPrivacyPolicyAcceptance.collectAsState()
-    val scope = rememberCoroutineScope()
-    var isDecliningPrivacyPolicy by remember { mutableStateOf(false) }
-
     PositiveOnlySocialTheme {
-        if (needsPrivacyPolicyAcceptance && !isDecliningPrivacyPolicy) {
-            PrivacyPolicyReacceptDialog(
-                onAccept = { authManager.acceptPrivacyPolicy() },
-                onLogOut = {
-                    isDecliningPrivacyPolicy = true
-                    val sessionToken = authManager.session.value?.sessionToken
-                    scope.launch {
-                        if (sessionToken != null) {
-                            try {
-                                val response = api.logout(sessionToken)
-                                if (!response.isSuccessful) {
-                                    Log.w(TAG, "Backend logout failed: ${response.message()}")
-                                }
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Backend logout failed", e)
-                            }
-                        }
-                        authManager.logout()
-                        rootNavController.navigate(Screen.Login.route) {
-                            popUpTo(Screen.Home.route) { inclusive = true }
-                        }
-                    }
-                }
-            )
-        }
-
         Scaffold(
             bottomBar = {
                 NavigationBar {

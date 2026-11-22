@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.espresso.Espresso
 import com.example.positiveonlysocial.di.DependencyProvider
+import com.example.positiveonlysocial.fcm.PushNavigator
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -312,6 +313,34 @@ class PositiveOnlySocialIntegrationTests {
             composeTestRule.onAllNodesWithText("Username or Email").fetchSemanticsNodes().isNotEmpty()
         }
         assertOnLoginView()
+        composeTestRule.onNodeWithText("Privacy Policy Updated").assertDoesNotExist()
+    }
+
+    @Test
+    fun testSharedLinkWaitsForPrivacyPolicyAcceptance() {
+        registerUserViaApi(testUsername, strongPassword)
+        registerUserViaApi(otherTestUsername, strongPassword)
+
+        composeTestRule.onNodeWithText("Login").performClick()
+        assertOnLoginView()
+        composeTestRule.onNodeWithText("Username or Email").performTextInput(testUsername)
+        composeTestRule.onNodeWithText("Password").performTextInput(strongPassword)
+        composeTestRule.onNodeWithText("Login").performClick()
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // A shared profile link arrives while the re-accept prompt is open
+        // (issue #620). Opening it would push a screen outside the prompt, so
+        // it has to wait.
+        PushNavigator.openProfile(otherTestUsername)
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Privacy Policy Updated").assertExists()
+        composeTestRule.onAllNodesWithTag("tag_Posts").assertCountEquals(0)
+
+        // Accepting replays it.
+        composeTestRule.onNodeWithText("Accept").performClick()
+        assertOnProfileView()
         composeTestRule.onNodeWithText("Privacy Policy Updated").assertDoesNotExist()
     }
 

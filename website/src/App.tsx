@@ -24,7 +24,9 @@ import PrivacyPolicyReacceptGate from './components/PrivacyPolicyReacceptGate'
 
 function App() {
   return (
-    <>
+    // Asks a signed-in user to re-accept the privacy policy (issue #620), and
+    // keeps the page behind it inert until they answer.
+    <PrivacyPolicyReacceptGate>
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
@@ -50,9 +52,7 @@ function App() {
         <Route path="/support" element={<SupportPage />} />
         <Route path="/delete-account" element={<DeleteAccountPage />} />
       </Routes>
-      {/* Asks a signed-in user to re-accept the privacy policy (issue #620). */}
-      <PrivacyPolicyReacceptGate />
-    </>
+    </PrivacyPolicyReacceptGate>
   )
 }
 

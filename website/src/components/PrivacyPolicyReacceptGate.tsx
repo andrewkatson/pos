@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react'
+import { useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
 import { clearSession, getStoredSessionToken } from '../api/session'
@@ -37,11 +37,14 @@ function isSignedOutFlowPath(pathname: string): boolean {
 
 /**
  * Asks a signed-in user to accept the privacy policy again before using the app
- * (issue #620). Rendered once beside the routes so it covers every authenticated
- * page. The dialog can't be dismissed: the only ways out are accepting it or
- * logging out.
+ * (issue #620). It wraps the routes so it covers every authenticated page. The
+ * dialog can't be dismissed: the only ways out are accepting it or logging out.
+ *
+ * While it is open the wrapped page is `inert`, so neither the mouse nor Tab
+ * can reach the app behind it — the dialog's own controls are the only ones
+ * left to focus. The wrapper is `display: contents` so it adds no layout box.
  */
-function PrivacyPolicyReacceptGate() {
+function PrivacyPolicyReacceptGate({ children }: { children: ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
   const accepted = useSyncExternalStore(
@@ -53,9 +56,7 @@ function PrivacyPolicyReacceptGate() {
   // Read on every render rather than cached: login and logout change storage and
   // then navigate, and the navigation is what re-renders this component.
   const signedIn = getStoredSessionToken() !== null
-  if (accepted || !signedIn || isSignedOutFlowPath(location.pathname)) {
-    return null
-  }
+  const open = !accepted && signedIn && !isSignedOutFlowPath(location.pathname)
 
   async function handleLogOut() {
     setIsLoggingOut(true)
@@ -70,31 +71,47 @@ function PrivacyPolicyReacceptGate() {
   }
 
   return (
-    <Modal
-      title="Privacy Policy Updated"
-      body="Please review our Privacy Policy. You need to accept it to keep using Good Vibes Only."
-    >
-      <p className="modal__body">{PRIVACY_POLICY_TEXT}</p>
-      <div className="modal__actions">
-        <button
-          type="button"
-          className="modal__cancel"
-          onClick={handleLogOut}
-          disabled={isLoggingOut}
-        >
-          Log Out
-        </button>
-        <button
-          type="button"
-          className="modal__confirm"
-          onClick={markPrivacyPolicyAccepted}
-          disabled={isLoggingOut}
-          autoFocus
-        >
-          Accept
-        </button>
+    <>
+      <div className="privacy-reaccept__page" inert={open}>
+        {children}
       </div>
-    </Modal>
+      {open && (
+        <Modal
+          title="Privacy Policy Updated"
+          body="Please review our Privacy Policy. You need to accept it to keep using Good Vibes Only."
+        >
+          {/* Scrolls on its own so a short screen or enlarged text can't push
+              the two buttons out of reach. Focusable so it scrolls by keyboard. */}
+          <div
+            className="privacy-reaccept__policy"
+            role="region"
+            aria-label="Privacy Policy"
+            tabIndex={0}
+          >
+            <p className="modal__body">{PRIVACY_POLICY_TEXT}</p>
+          </div>
+          <div className="modal__actions">
+            <button
+              type="button"
+              className="modal__cancel"
+              onClick={handleLogOut}
+              disabled={isLoggingOut}
+            >
+              Log Out
+            </button>
+            <button
+              type="button"
+              className="modal__confirm"
+              onClick={markPrivacyPolicyAccepted}
+              disabled={isLoggingOut}
+              autoFocus
+            >
+              Accept
+            </button>
+          </div>
+        </Modal>
+      )}
+    </>
   )
 }
 
