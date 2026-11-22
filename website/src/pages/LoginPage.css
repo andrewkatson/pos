@@ -470,6 +470,10 @@
   z-index: 100;
 }
 
+/* Never taller than the overlay's padded area, so on a short screen or with
+   enlarged text the Cancel/Ok row can't end up off screen. A long body (the
+   privacy policy) shrinks and scrolls first, keeping the title and actions in
+   view; the dialog itself scrolls only as a fallback when even that can't fit. */
 .modal {
   background: var(--auth-surface);
   border: 1px solid var(--auth-border-modal);
@@ -477,6 +481,8 @@
   padding: 1.75rem;
   max-width: 480px;
   width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
@@ -491,6 +497,8 @@
 
 .modal__body {
   margin: 0;
+  min-height: 0;
+  overflow-y: auto;
   font-size: 0.9rem;
   line-height: 1.55;
   color: var(--auth-fg-strong);
