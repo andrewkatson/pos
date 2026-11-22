@@ -77,6 +77,8 @@ class RememberMeLoginTest {
         composeTestRule.waitUntil(timeoutMillis = 10_000) {
             composeTestRule.onAllNodesWithText("Settings").fetchSemanticsNodes().isNotEmpty()
         }
+        // Reopening the app asks for the privacy policy again (issue #620).
+        acceptPrivacyPolicyUpdate()
         assertOnHomeView()
     }
 
@@ -97,6 +99,21 @@ class RememberMeLoginTest {
         composeTestRule.onNodeWithText("Login").assertExists()
         composeTestRule.onNodeWithText("Remember Me").assertExists()
         composeTestRule.onNodeWithText("Forgot Password?").assertExists()
+    }
+
+    /**
+     * Accepts the privacy-policy re-accept dialog (issue #620). It is
+     * unconditional for now, so it comes up after every sign-in and every
+     * remember-me auto-login, and Home can't be used until it is answered.
+     */
+    private fun acceptPrivacyPolicyUpdate() {
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText("Accept").performClick()
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isEmpty()
+        }
     }
 
     private fun assertOnHomeView() {
@@ -144,6 +161,7 @@ class RememberMeLoginTest {
         composeTestRule.onNodeWithText("Password").performTextInput(password)
         composeTestRule.onNodeWithText("Login").performClick()
 
+        acceptPrivacyPolicyUpdate()
         assertOnHomeView()
     }
 
@@ -169,6 +187,7 @@ class RememberMeLoginTest {
         composeTestRule.onNodeWithTag("RememberMeToggle").performClick()
 
         composeTestRule.onNodeWithText("Login").performClick()
+        acceptPrivacyPolicyUpdate()
         assertOnHomeView()
     }
 }

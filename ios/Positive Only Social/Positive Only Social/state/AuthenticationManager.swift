@@ -14,6 +14,16 @@ final class AuthenticationManager: ObservableObject {
     
     // This is the new source of truth for the session data
     @Published var session: UserSession?
+
+    /// Whether the signed-in user still has to accept the privacy policy before
+    /// using the app (issue #620).
+    ///
+    /// For now this is unconditional: nothing records which version of the
+    /// policy a user accepted, so every launch that restores a session, and
+    /// every fresh login, asks again. It lives in memory only, so relaunching
+    /// the app counts as "opening the app" and re-prompts. Once the backend
+    /// records an acceptance timestamp, this is the flag to drive from it.
+    @Published private(set) var needsPrivacyPolicyAcceptance: Bool = false
     
     // Unique identifiers for Keychain
     private let keychainService = GVOAppConstants.keychainService
@@ -82,6 +92,8 @@ final class AuthenticationManager: ObservableObject {
                 // We're logged in, and we have the user data
                 self.session = loadedSession
                 self.isLoggedIn = true
+                // Opening the app with a saved session asks again (#620).
+                self.needsPrivacyPolicyAcceptance = true
             } else {
                 // No session object found
                 self.session = nil
@@ -93,8 +105,14 @@ final class AuthenticationManager: ObservableObject {
         }
     }
     
-    /// Call this after your API login call succeeds
-    func login(with sessionData: UserSession) {
+    /// Call this after your API login call succeeds.
+    ///
+    /// - Parameter keepPrivacyPolicyAcceptance: Pass true only when updating the
+    ///   session of a user who is already signed in and using the app (identity
+    ///   verification rewrites it in place), so they aren't asked to accept the
+    ///   privacy policy again mid-session (#620). Every other login — a sign-in,
+    ///   or remember-me auto-login — asks.
+    func login(with sessionData: UserSession, keepPrivacyPolicyAcceptance: Bool = false) {
         
         // --- Acquire lock for thread-safety ---
         lock.lock()
@@ -104,7 +122,13 @@ final class AuthenticationManager: ObservableObject {
         do {
             // Save the *entire* session object to the Keychain
             try keychainHelper.save(sessionData, for: keychainService, account: sessionAccount)
-            
+
+            // Signing in has to accept the privacy policy (#620), unless this
+            // only updates the session of someone already using the app.
+            if !keepPrivacyPolicyAcceptance || !self.isLoggedIn {
+                self.needsPrivacyPolicyAcceptance = true
+            }
+
             // Publish the new session and state
             self.session = sessionData
             self.isLoggedIn = true
@@ -115,9 +139,19 @@ final class AuthenticationManager: ObservableObject {
         }
     }
     
+    /// Records that the signed-in user accepted the privacy policy (#620).
+    func acceptPrivacyPolicy() {
+        needsPrivacyPolicyAcceptance = false
+    }
+
     func logout() {
         logoutCallCount += 1
-        
+
+        // Drop the prompt synchronously rather than in the Task below: logging
+        // out is also how the user declines the policy, and the alert must not
+        // re-present itself in the moment before the session is cleared.
+        needsPrivacyPolicyAcceptance = false
+
         Task {
             // Delete the *entire* session object
             try? keychainHelper.delete(service: keychainService, account: sessionAccount)

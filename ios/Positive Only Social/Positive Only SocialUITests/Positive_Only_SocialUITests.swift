@@ -345,6 +345,32 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: TestConstants.shortTimeout), "Settings tab not present")
     }
     
+    /// Accepts the privacy-policy re-accept alert (issue #620).
+    ///
+    /// It is unconditional for now, so it comes up after every sign-in and on
+    /// every launch that restores a session; anything that lands on Home that
+    /// way has to clear it before Home can be used. The Save Password prompt
+    /// can land on top of it, so both the wait and the tap clear that first.
+    private func acceptPrivacyPolicyUpdate(app: XCUIApplication) {
+        let alert = app.alerts["Privacy Policy Updated"]
+        // SwiftUI exposes this alert's buttons more than once in the tree (the
+        // same reason ConfirmLogoutButton needs .firstMatch), hence firstMatch.
+        let acceptButton = alert.buttons["Accept"].firstMatch
+        XCTAssertTrue(
+            waitForExistenceClearingSystemAlerts(acceptButton, timeout: TestConstants.timeout),
+            "Privacy policy re-accept alert not present")
+        // Keep tapping until the alert is really gone: a Save Password prompt
+        // landing mid-tap swallows the touch silently, leaving the alert up.
+        XCTAssertTrue(
+            poll(timeout: TestConstants.timeout, interval: 0.5, until: {
+                guard alert.exists else { return true }
+                dismissSavePasswordNow()
+                if acceptButton.exists { acceptButton.tap() }
+                return !alert.exists
+            }),
+            "Privacy policy re-accept alert did not close after accepting")
+    }
+
     private func assertOnSettingsView(app: XCUIApplication) {
         // Logout is near the top and always on screen, so it's the reliable
         // marker that we're on Settings. Delete Account is deliberately not
@@ -421,7 +447,16 @@ final class Positive_Only_SocialUITests: XCTestCase {
         )
 
         if profileTab.exists {
-            try logoutUserFromHome(app: app)
+            // A restored session opens behind the privacy-policy re-accept
+            // alert (issue #620), which covers the Settings tab; its Log Out
+            // button is the quicker way back to Welcome anyway.
+            let declineButton = app.alerts["Privacy Policy Updated"].buttons["Log Out"].firstMatch
+            if waitForExistenceClearingSystemAlerts(declineButton, timeout: TestConstants.shortTimeout) {
+                tapClearingSystemAlerts(declineButton)
+                assertOnWelcomeView(app: app)
+            } else {
+                try logoutUserFromHome(app: app)
+            }
         }
     }
     
@@ -512,6 +547,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(loginButton.waitForExistence(timeout: TestConstants.shortTimeout))
         tapClearingSystemAlerts(loginButton)
 
+        acceptPrivacyPolicyUpdate(app: app)
+
         assertOnHomeView(app: app)
 
         dismissSavePassword(app: app)
@@ -588,6 +625,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         let loginButton2 = app.buttons["LoginButton"]
         XCTAssertTrue(loginButton2.waitForExistence(timeout: TestConstants.shortTimeout))
         tapClearingSystemAlerts(loginButton2)
+
+        acceptPrivacyPolicyUpdate(app: app)
 
         assertOnHomeView(app: app)
 
@@ -932,7 +971,44 @@ final class Positive_Only_SocialUITests: XCTestCase {
         app.launch()
         
         // If we end the app and relaunch after remember me we should automatically be on the HomeView
+        // — behind the privacy-policy re-accept alert, which reopening the app
+        // brings up again (issue #620).
+        acceptPrivacyPolicyUpdate(app: app)
         assertOnHomeView(app: app)
+    }
+
+    @MainActor
+    func testDecliningPrivacyPolicyUpdateLogsOut() throws {
+
+        try returnToWelcomeIfSignedIn(app: app)
+
+        // Sign in without going through loginUser, which accepts the alert.
+        assertOnWelcomeView(app: app)
+        tapClearingSystemAlerts(app.buttons["LoginText"])
+        assertOnLoginView(app: app)
+        dismissKeyboardIfPresent(app)
+
+        let usernameOrEmailTextField = app.textFields["UsernameOrEmailTextField"]
+        XCTAssertTrue(usernameOrEmailTextField.waitForExistence(timeout: TestConstants.shortTimeout))
+        usernameOrEmailTextField.tap()
+        typeText(element: usernameOrEmailTextField, text: testUsername)
+
+        let passwordSecureField = app.secureTextFields["PasswordSecureField"]
+        XCTAssertTrue(passwordSecureField.waitForExistence(timeout: TestConstants.shortTimeout))
+        passwordSecureField.tap()
+        typeText(element: passwordSecureField, text: strongPassword)
+
+        dismissKeyboardIfPresent(app)
+        tapClearingSystemAlerts(app.buttons["LoginButton"])
+
+        // The re-accept alert comes up over Home; Log Out declines it.
+        let declineButton = app.alerts["Privacy Policy Updated"].buttons["Log Out"].firstMatch
+        XCTAssertTrue(
+            waitForExistenceClearingSystemAlerts(declineButton, timeout: TestConstants.timeout),
+            "Privacy policy re-accept alert not present")
+        tapClearingSystemAlerts(declineButton)
+
+        assertOnWelcomeView(app: app)
     }
     
     @MainActor
@@ -1062,6 +1138,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         dismissSavePassword(app: app)
         
+        // Resetting signs the user in, which asks for the policy (issue #620).
+        acceptPrivacyPolicyUpdate(app: app)
+
         assertOnHomeView(app: app)
         
         dismissSavePassword(app: app)
@@ -1092,6 +1171,8 @@ final class Positive_Only_SocialUITests: XCTestCase {
         
         dismissSavePassword(app: app)
         
+        acceptPrivacyPolicyUpdate(app: app)
+
         assertOnHomeView(app: app)
     }
     

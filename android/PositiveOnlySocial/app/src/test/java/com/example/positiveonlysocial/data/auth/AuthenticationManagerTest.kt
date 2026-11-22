@@ -132,4 +132,108 @@ class AuthenticationManagerTest {
             )
         )
     }
+
+    // --- Privacy policy re-accept (issue #620) ---
+
+    @Test
+    fun `a restored session has to accept the privacy policy again`() {
+        val keychain = FakeKeychainHelper()
+        keychain.save(session, "positive-only-social.Positive-Only-Social", "userSessionToken")
+
+        val manager = AuthenticationManager(keychain, shouldAutoLogin = true)
+
+        assertTrue(manager.isLoggedIn.value)
+        assertTrue(manager.needsPrivacyPolicyAcceptance.value)
+    }
+
+    @Test
+    fun `nobody signed in means nobody to ask`() {
+        val manager = AuthenticationManager(FakeKeychainHelper(), shouldAutoLogin = true)
+
+        assertFalse(manager.isLoggedIn.value)
+        assertFalse(manager.needsPrivacyPolicyAcceptance.value)
+    }
+
+    @Test
+    fun `a fresh login has to accept the privacy policy`() = runTest {
+        val manager = AuthenticationManager(FakeKeychainHelper())
+
+        manager.login(session)
+
+        assertTrue(manager.needsPrivacyPolicyAcceptance.value)
+    }
+
+    @Test
+    fun `accepting clears the prompt and keeps the user signed in`() = runTest {
+        val manager = AuthenticationManager(FakeKeychainHelper())
+        manager.login(session)
+
+        manager.acceptPrivacyPolicy()
+
+        assertFalse(manager.needsPrivacyPolicyAcceptance.value)
+        assertTrue(manager.isLoggedIn.value)
+    }
+
+    @Test
+    fun `updating a live session in place keeps the answer already given`() = runTest {
+        // Identity verification rewrites the session of someone already using
+        // the app; they shouldn't be asked again.
+        val manager = AuthenticationManager(FakeKeychainHelper())
+        manager.login(session)
+        manager.acceptPrivacyPolicy()
+
+        manager.login(session.copy(isIdentityVerified = true), keepPrivacyPolicyAcceptance = true)
+
+        assertFalse(manager.needsPrivacyPolicyAcceptance.value)
+    }
+
+    @Test
+    fun `logging in again while still marked logged in asks again`() = runTest {
+        // The manager is a process-wide singleton, so reopening the app in a
+        // process that outlived its Activity finds it still "logged in"; the
+        // remember-me auto-login that follows must still ask.
+        val manager = AuthenticationManager(FakeKeychainHelper())
+        manager.login(session)
+        manager.acceptPrivacyPolicy()
+
+        manager.login(session.copy(sessionToken = "rotated"))
+
+        assertTrue(manager.needsPrivacyPolicyAcceptance.value)
+    }
+
+    @Test
+    fun `keeping acceptance has no effect when nobody was signed in`() = runTest {
+        val manager = AuthenticationManager(FakeKeychainHelper())
+
+        manager.login(session, keepPrivacyPolicyAcceptance = true)
+
+        assertTrue(manager.needsPrivacyPolicyAcceptance.value)
+    }
+
+    @Test
+    fun `a failed login does not raise the prompt`() = runTest {
+        val manager = AuthenticationManager(
+            FakeKeychainHelper(saveFailure = GeneralSecurityException("keystore unavailable"))
+        )
+
+        try {
+            manager.login(session)
+            fail("expected SessionPersistenceException")
+        } catch (_: SessionPersistenceException) {
+        }
+
+        assertFalse(manager.needsPrivacyPolicyAcceptance.value)
+    }
+
+    @Test
+    fun `logging out clears the prompt and the next login asks again`() = runTest {
+        val manager = AuthenticationManager(FakeKeychainHelper())
+        manager.login(session)
+
+        manager.logout()
+        assertFalse(manager.needsPrivacyPolicyAcceptance.value)
+
+        manager.login(session)
+        assertTrue(manager.needsPrivacyPolicyAcceptance.value)
+    }
 }

@@ -10,6 +10,7 @@
 // Reads check both stores so callers don't need to know which one was used.
 
 import { apiClient } from './client'
+import { resetPrivacyPolicyAcceptance } from '../auth/privacyPolicyConsent'
 
 const SESSION_KEYS = ['session_token', 'user_id', 'username'] as const
 
@@ -38,6 +39,9 @@ export function persistSession(
     store.removeItem('username')
   }
   SESSION_KEYS.forEach(key => other.removeItem(key))
+  // Every sign-in is asked to accept the privacy policy (issue #620), even one
+  // that replaces a session nobody logged out of first.
+  resetPrivacyPolicyAcceptance()
 }
 
 export function getStoredSessionToken(): string | null {
@@ -60,6 +64,8 @@ export function clearSession(): void {
     sessionStorage.removeItem(key)
   })
   clearRememberMeTokens()
+  // Acceptance belongs to the session that gave it; the next sign-in asks again.
+  resetPrivacyPolicyAcceptance()
 }
 
 // "Remember Me" tokens persisted across browser restarts so the app can rotate

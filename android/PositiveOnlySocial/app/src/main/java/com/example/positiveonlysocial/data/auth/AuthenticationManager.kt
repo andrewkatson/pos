@@ -69,6 +69,20 @@ class AuthenticationManager(
      */
     val forcedLogout: StateFlow<Boolean> = _forcedLogout.asStateFlow()
 
+    // Backing property for needsPrivacyPolicyAcceptance
+    private val _needsPrivacyPolicyAcceptance = MutableStateFlow(false)
+    /**
+     * Whether the signed-in user still has to accept the privacy policy before
+     * using the app (issue #620).
+     *
+     * For now this is unconditional: nothing records which version of the policy
+     * a user accepted, so every launch that restores a session, and every fresh
+     * login, asks again. It lives in memory only, so reopening the app counts as
+     * "opening the app" and re-prompts. Once the backend records an acceptance
+     * timestamp, this is the flag to drive from it.
+     */
+    val needsPrivacyPolicyAcceptance: StateFlow<Boolean> = _needsPrivacyPolicyAcceptance.asStateFlow()
+
     // --- Private Properties ---
 
     // Identifiers for secure storage
@@ -112,6 +126,8 @@ class AuthenticationManager(
                 // We're logged in, publish the session
                 _session.value = loadedSession
                 _isLoggedIn.value = true
+                // Opening the app with a saved session asks again (#620).
+                _needsPrivacyPolicyAcceptance.value = true
             } else {
                 // No session object found
                 _session.value = null
@@ -141,8 +157,14 @@ class AuthenticationManager(
      * issue #503 was: signed-in shell, nothing behind it. Whatever was in the
      * keychain before is not a fallback — when the store is unopenable it can't
      * be read either, and no screen consults this object's copy.
+     *
+     * @param keepPrivacyPolicyAcceptance Pass true only when updating the session
+     * of a user who is already signed in and using the app (identity
+     * verification rewrites it in place), so they aren't asked to accept the
+     * privacy policy again mid-session (#620). Every other login — a sign-in, or
+     * remember-me auto-login when the app opens — asks.
      */
-    suspend fun login(sessionData: UserSession) {
+    suspend fun login(sessionData: UserSession, keepPrivacyPolicyAcceptance: Boolean = false) {
         // Use mutex.withLock to ensure atomic operation
         mutex.withLock {
             try {
@@ -168,6 +190,15 @@ class AuthenticationManager(
                 throw SessionPersistenceException(e)
             }
 
+            // Signing in, or being signed in automatically when the app opens,
+            // has to accept the privacy policy (#620). This deliberately doesn't
+            // look at isLoggedIn: this manager is a process-wide singleton, so it
+            // can still read "logged in" when the app is reopened in a process
+            // that outlived its Activity.
+            if (!keepPrivacyPolicyAcceptance || !_isLoggedIn.value) {
+                _needsPrivacyPolicyAcceptance.value = true
+            }
+
             // Publish the new session and state
             _session.value = sessionData
             _isLoggedIn.value = true
@@ -175,10 +206,22 @@ class AuthenticationManager(
     }
 
     /**
+     * Records that the signed-in user accepted the privacy policy (#620).
+     */
+    fun acceptPrivacyPolicy() {
+        _needsPrivacyPolicyAcceptance.value = false
+    }
+
+    /**
      * Call this to log the user out.
      * This function is 'suspend' as it performs secure disk I/O.
      */
     suspend fun logout() {
+        // Drop the prompt before waiting on the lock: logging out is also how
+        // the user declines the policy, and the dialog should close at once
+        // rather than linger until the session is cleared.
+        _needsPrivacyPolicyAcceptance.value = false
+
         // Use mutex.withLock to ensure atomic operation
         mutex.withLock {
             logoutCallCount += 1

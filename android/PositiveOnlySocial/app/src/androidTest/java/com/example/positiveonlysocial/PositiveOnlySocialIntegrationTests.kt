@@ -63,6 +63,21 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Forgot Password?").assertExists()
     }
 
+    /**
+     * Accepts the privacy-policy re-accept dialog (issue #620). It is
+     * unconditional for now, so it comes up after every sign-in and every
+     * remember-me auto-login, and Home can't be used until it is answered.
+     */
+    private fun acceptPrivacyPolicyUpdate() {
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText("Accept").performClick()
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isEmpty()
+        }
+    }
+
     private fun assertOnHomeView() {
         // Bottom navigation items. The first destination is the signed-in user's
         // own profile now, so it is labelled "Profile" (issue #347).
@@ -162,6 +177,7 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Password").performTextInput(password)
         composeTestRule.onNodeWithText("Login").performClick()
 
+        acceptPrivacyPolicyUpdate()
         assertOnHomeView()
     }
 
@@ -182,6 +198,7 @@ class PositiveOnlySocialIntegrationTests {
         }
 
         composeTestRule.onNodeWithText("Login").performClick()
+        acceptPrivacyPolicyUpdate()
         assertOnHomeView()
     }
 
@@ -275,6 +292,30 @@ class PositiveOnlySocialIntegrationTests {
     }
 
     @Test
+    fun testDecliningPrivacyPolicyUpdateLogsOut() {
+        registerUserViaApi(testUsername, strongPassword)
+
+        // Sign in by hand: loginUser accepts the dialog.
+        composeTestRule.onNodeWithText("Login").performClick()
+        assertOnLoginView()
+        composeTestRule.onNodeWithText("Username or Email").performTextInput(testUsername)
+        composeTestRule.onNodeWithText("Password").performTextInput(strongPassword)
+        composeTestRule.onNodeWithText("Login").performClick()
+
+        // The re-accept dialog (issue #620) comes up over Home; Log Out declines it.
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText("Log Out").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithText("Username or Email").fetchSemanticsNodes().isNotEmpty()
+        }
+        assertOnLoginView()
+        composeTestRule.onNodeWithText("Privacy Policy Updated").assertDoesNotExist()
+    }
+
+    @Test
     fun testResetPassword() {
         // Register
         registerUser(testUsername, strongPassword)
@@ -310,6 +351,7 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Username or Email").performTextInput(testUsername)
         composeTestRule.onNodeWithText("Password").performTextInput(newStrongPassword)
         composeTestRule.onNodeWithText("Login").performClick()
+        acceptPrivacyPolicyUpdate()
         assertOnHomeView()
     }
 

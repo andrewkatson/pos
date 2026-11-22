@@ -138,6 +138,40 @@ line covering both the form and the Google button; its links open in a new tab
 so reading them cannot discard a half-filled form or a Google credential still
 waiting on the privacy-policy confirmation.
 
+## Privacy policy re-accept (issue #620)
+
+Signed-in users are asked to accept the privacy policy again when they open the
+app, so a change to the policy reaches people who agreed to an older version at
+signup. The prompt shows the current policy text (the same per-client copy
+Register shows) under a "Privacy Policy Updated" title, and offers exactly two
+choices: **Accept**, which lets them carry on, or **Log Out**, which signs them
+out the same way Settings does (best-effort backend logout, then the local
+session is cleared). It can't be dismissed any other way — no Escape, back
+button, or tap outside.
+
+**For now the prompt is unconditional.** Nothing records which version a user
+accepted, so every client asks on every "open":
+
+| Surface | Asks when | Acceptance is held in |
+| --- | --- | --- |
+| Website | Any signed-in page after a page load or a sign-in; not on the signed-out flows (`/`, `/login`, `/register`, email/reset pages, `/delete-account`) or the public legal/support pages | `website/src/auth/privacyPolicyConsent.ts`, shown by `PrivacyPolicyReacceptGate` beside the routes |
+| iOS | A launch that restores a saved session, or a fresh sign-in | `AuthenticationManager.needsPrivacyPolicyAcceptance`, shown as an alert over `HomeView` |
+| Android | A fresh sign-in, including remember-me auto-login at launch | `AuthenticationManager.needsPrivacyPolicyAcceptance`, shown as `PrivacyPolicyReacceptDialog` over `MainScreen` |
+
+The acceptance lives in memory only and is dropped on logout (including a ban
+or unverified-email sign-out), so reopening the app or signing in again asks
+again. Every login asks, including remember-me auto-login at launch; the one
+exception is identity verification in Settings, which rewrites the session of
+someone already using the app and keeps the answer they gave. (Android's
+`AuthenticationManager` is a process-wide singleton that can still read "logged
+in" when the app is reopened, so the prompt keys off the login, not that flag.) A website Google
+sign-up counts as accepting, since Register has just shown the policy, so the
+new member isn't asked twice on landing at `/home`.
+
+Recording an acceptance timestamp on the backend, so the prompt only appears
+when the policy is newer than what the user accepted, is the planned follow-up;
+each client's flag above is the single place that decision plugs into.
+
 ## Support page
 
 Apple requires a **Support URL** on every App Store listing, so the website
