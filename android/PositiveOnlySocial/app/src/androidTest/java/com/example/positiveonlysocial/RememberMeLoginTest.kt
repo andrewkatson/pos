@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.positiveonlysocial.di.DependencyProvider
+import com.example.positiveonlysocial.fcm.PushNavigator
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -41,7 +42,13 @@ class RememberMeLoginTest {
     private var scenario: ActivityScenario<MainActivity>? = null
 
     @Before
-    fun clearPersistedAuth() = clearKeychain()
+    fun clearPersistedAuth() {
+        clearKeychain()
+        // The AuthenticationManager singleton outlives Activities too; start
+        // each test signed out so a launch isn't treated as reopening the app
+        // with a live session (issue #620).
+        kotlinx.coroutines.runBlocking { DependencyProvider.authManager.logout() }
+    }
 
     @After
     fun tearDown() {
@@ -80,6 +87,33 @@ class RememberMeLoginTest {
         // Reopening the app asks for the privacy policy again (issue #620).
         acceptPrivacyPolicyUpdate()
         assertOnHomeView()
+    }
+
+    @Test
+    fun testRelaunchWithLinkAsksForPrivacyPolicyFirst() {
+        // Sign in and accept, then close the Activity. The process (and the
+        // signed-in AuthenticationManager singleton) survives.
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        registerUser(testUsername, strongPassword)
+        scenario?.close()
+
+        // A shared profile link opens a brand-new Activity (issue #620): this
+        // opening must ask again before the link is honoured.
+        PushNavigator.openProfile(testUsername)
+        try {
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            composeTestRule.waitUntil(timeoutMillis = 10_000) {
+                composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isNotEmpty()
+            }
+            composeTestRule.onAllNodesWithTag("tag_Posts").assertCountEquals(0)
+
+            composeTestRule.onNodeWithText("Accept").performClick()
+            composeTestRule.waitUntil(timeoutMillis = 10_000) {
+                composeTestRule.onAllNodesWithTag("tag_Posts").fetchSemanticsNodes().isNotEmpty()
+            }
+        } finally {
+            PushNavigator.clearProfileRequest()
+        }
     }
 
     // MARK: Helpers (mirrored from PositiveOnlySocialIntegrationTests)

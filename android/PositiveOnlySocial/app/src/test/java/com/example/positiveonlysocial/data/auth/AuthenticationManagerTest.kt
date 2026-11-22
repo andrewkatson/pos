@@ -236,4 +236,39 @@ class AuthenticationManagerTest {
         manager.login(session)
         assertTrue(manager.needsPrivacyPolicyAcceptance.value)
     }
+
+    @Test
+    fun `opening the app asks a still-signed-in user again`() = runTest {
+        // A fresh Activity in a process that outlived the last one finds the
+        // manager signed in and already accepted.
+        val manager = AuthenticationManager(FakeKeychainHelper())
+        manager.login(session)
+        manager.acceptPrivacyPolicy()
+
+        manager.onAppOpened()
+
+        assertTrue(manager.needsPrivacyPolicyAcceptance.value)
+    }
+
+    @Test
+    fun `opening the app signed out asks nobody`() {
+        val manager = AuthenticationManager(FakeKeychainHelper())
+
+        manager.onAppOpened()
+
+        assertFalse(manager.needsPrivacyPolicyAcceptance.value)
+    }
+
+    @Test
+    fun `remember-me rotation after opening the app asks only once`() = runTest {
+        val manager = AuthenticationManager(FakeKeychainHelper())
+        manager.login(session)
+        manager.acceptPrivacyPolicy()
+        manager.onAppOpened()
+        manager.acceptPrivacyPolicy() // answered this opening's prompt
+
+        manager.login(session.copy(sessionToken = "rotated"), keepPrivacyPolicyAcceptance = true)
+
+        assertFalse(manager.needsPrivacyPolicyAcceptance.value)
+    }
 }

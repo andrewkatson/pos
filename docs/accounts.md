@@ -150,7 +150,8 @@ session is cleared). It can't be dismissed any other way — no Escape, back
 button, or tap outside — and nothing behind it is reachable: the website marks
 the page behind it `inert`, and the policy scrolls inside the dialog so both
 buttons stay on screen. On Android, shared links and notification taps that
-arrive while it is open wait for Accept and open afterwards, and Log Out keeps
+arrive while it is open — including the one that launched the app — wait for
+Accept and open afterwards, and Log Out keeps
 the dialog up (buttons disabled) until the local session is gone.
 
 **For now the prompt is unconditional.** Nothing records which version a user
@@ -160,7 +161,7 @@ accepted, so every client asks on every "open":
 | --- | --- | --- |
 | Website | Any signed-in page after a page load or a sign-in; not on the signed-out flows (`/`, `/login`, `/register`, email/reset pages, `/delete-account`) or the public legal/support pages | `website/src/auth/privacyPolicyConsent.ts`, shown by `PrivacyPolicyReacceptGate` beside the routes |
 | iOS | Every login, including a launch that restores a saved session | `AuthenticationManager.needsPrivacyPolicyAcceptance`, shown as an alert over `HomeView` |
-| Android | Every login, including remember-me auto-login at launch | `AuthenticationManager.needsPrivacyPolicyAcceptance`, shown as `PrivacyPolicyReacceptDialog` from `NavGraph`, above every destination |
+| Android | Every login, and every fresh launch of the app's Activity while still signed in (the process can outlive it) | `AuthenticationManager.needsPrivacyPolicyAcceptance`, shown as `PrivacyPolicyReacceptDialog` from `NavGraph`, above every destination |
 
 The acceptance lives in memory only and is dropped on logout (including a ban
 or unverified-email sign-out), so reopening the app or signing in again asks

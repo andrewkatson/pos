@@ -161,8 +161,8 @@ class AuthenticationManager(
      * @param keepPrivacyPolicyAcceptance Pass true only when updating the session
      * of a user who is already signed in and using the app (identity
      * verification rewrites it in place), so they aren't asked to accept the
-     * privacy policy again mid-session (#620). Every other login — a sign-in, or
-     * remember-me auto-login when the app opens — asks.
+     * privacy policy again mid-session (#620), or when rotating the session of
+     * one the app opening already asked ([onAppOpened]). Every other login asks.
      */
     suspend fun login(sessionData: UserSession, keepPrivacyPolicyAcceptance: Boolean = false) {
         // Use mutex.withLock to ensure atomic operation
@@ -202,6 +202,17 @@ class AuthenticationManager(
             // Publish the new session and state
             _session.value = sessionData
             _isLoggedIn.value = true
+        }
+    }
+
+    /**
+     * Called when the app is opened (a fresh Activity launch). A user who is
+     * still signed in — this manager outlives Activities in a surviving process
+     * — has to accept the privacy policy again for this opening (#620).
+     */
+    fun onAppOpened() {
+        if (_isLoggedIn.value) {
+            _needsPrivacyPolicyAcceptance.value = true
         }
     }
 

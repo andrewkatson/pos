@@ -30,6 +30,12 @@ class PositiveOnlySocialIntegrationTests {
         val keychain = DependencyProvider.keychainHelper
         keychain.delete("positive-only-social.Positive-Only-Social", "userRememberMeTokens")
         keychain.delete("positive-only-social.Positive-Only-Social", "userSessionToken")
+        // The AuthenticationManager singleton also outlives each test's
+        // Activity. Left signed in, the fresh launch would treat this as
+        // reopening the app and put the privacy-policy prompt over Welcome
+        // (issue #620); logging it out clears that too.
+        kotlinx.coroutines.runBlocking { DependencyProvider.authManager.logout() }
+        composeTestRule.waitForIdle()
     }
 
     private val testUsername = "test_user_${UUID.randomUUID().toString().take(5)}"

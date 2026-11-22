@@ -35,6 +35,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A fresh launch is "opening the app", even in a process that outlived
+        // the last Activity and still holds an accepted, signed-in session:
+        // ask for the privacy policy again before anything renders, so a link
+        // this launch carries waits behind the prompt (issue #620). A
+        // configuration change restores state and is not a new opening.
+        if (savedInstanceState == null) {
+            DependencyProvider.authManager.onAppOpened()
+        }
         // Before any push can arrive in the background and name a channel.
         PosFirebaseMessagingService.ensureChannels(this)
         maybeRequestNotificationPermission()

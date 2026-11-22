@@ -93,7 +93,11 @@ fun WelcomeScreen(
                         isIdentityVerified = existingSession.isIdentityVerified
                     )
 
-                    authManager.login(userSession)
+                    // A rotation, not a new sign-in, for a session still held in
+                    // a surviving process: onAppOpened already asked this
+                    // opening, so don't ask twice. On a cold start nobody is
+                    // logged in yet and this asks as usual (#620).
+                    authManager.login(userSession, keepPrivacyPolicyAcceptance = true)
 
                     // Update the "Remember Me" tokens
                     val newTokens = RememberMeTokens(tokens.seriesId, loginDetails.newLoginCookieToken)
