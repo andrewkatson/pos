@@ -12,6 +12,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.UUID
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 
 @RunWith(AndroidJUnit4::class)
 class PositiveOnlySocialIntegrationTests {
@@ -333,15 +335,28 @@ class PositiveOnlySocialIntegrationTests {
         // A shared profile link arrives while the re-accept prompt is open
         // (issue #620). Opening it would push a screen outside the prompt, so
         // it has to wait.
-        PushNavigator.openProfile(otherTestUsername)
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithText("Privacy Policy Updated").assertExists()
-        composeTestRule.onAllNodesWithTag("tag_Posts").assertCountEquals(0)
+        try {
+            PushNavigator.openProfile(otherTestUsername)
+            composeTestRule.waitForIdle()
+            composeTestRule.onNodeWithText("Privacy Policy Updated").assertExists()
+            // Still held, not consumed. (The Home tab is the user's own profile,
+            // which has no Follow button; the other user's profile would.)
+            assertEquals(otherTestUsername, PushNavigator.pendingProfileUsername.value)
+            composeTestRule.onAllNodes(hasText("Follow") and hasClickAction()).assertCountEquals(0)
 
-        // Accepting replays it.
-        composeTestRule.onNodeWithText("Accept").performClick()
-        assertOnProfileView()
-        composeTestRule.onNodeWithText("Privacy Policy Updated").assertDoesNotExist()
+            // Accepting replays it.
+            composeTestRule.onNodeWithText("Accept").performClick()
+            composeTestRule.waitUntil(timeoutMillis = 10_000) {
+                composeTestRule.onAllNodes(hasText("Follow") and hasClickAction())
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            assertNull(PushNavigator.pendingProfileUsername.value)
+            composeTestRule.onNodeWithText("Privacy Policy Updated").assertDoesNotExist()
+        } finally {
+            // PushNavigator is process-wide: a request left behind by a failure
+            // here would open in whichever test signs in next.
+            PushNavigator.clearProfileRequest()
+        }
     }
 
     @Test
