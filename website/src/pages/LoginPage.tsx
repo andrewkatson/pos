@@ -55,10 +55,12 @@ function LoginPage() {
   // the credential waits here while the consent modal is up, then is retried
   // with the flag. Google's ID tokens stay valid for an hour, which is plenty.
   const [pendingGoogleToken, setPendingGoogleToken] = useState<string | null>(null)
-  // Whatever had focus when the dialog opened (normally Google's button). It
-  // gets focus back when the dialog closes, so keyboard users aren't dropped
-  // at the top of the page. Captured when opening, because the dialog's
-  // autoFocus moves focus before any effect could see it.
+  // Whatever had focus when the Google sign-in began (normally Google's
+  // button). It gets focus back when the dialog is declined, so keyboard users
+  // aren't dropped at the top of the page. Captured before the request, not
+  // when the dialog opens: GoogleSignInButton hides itself while a request is
+  // in flight, which takes focus off it before the refusal ever arrives, and
+  // the dialog's autoFocus would move it again anyway.
   const focusBeforeConsent = useRef<Element | null>(null)
 
   useEffect(() => {
@@ -168,6 +170,7 @@ function LoginPage() {
    */
   async function handleGoogleCredential(idToken: string, acceptedPolicies = false) {
     if (isLoading) return
+    const focusedBeforeRequest = document.activeElement
     setErrorMessage(null)
     setIsLoading(true)
     try {
@@ -188,7 +191,7 @@ function LoginPage() {
       const apiErr = err as ApiError
       if (apiErr.message === POLICY_ACCEPTANCE_REQUIRED) {
         // Not a failure: this sign-in would make a new account. Ask first.
-        focusBeforeConsent.current = document.activeElement
+        focusBeforeConsent.current = focusedBeforeRequest
         setPendingGoogleToken(idToken)
         return
       }
@@ -238,6 +241,9 @@ function LoginPage() {
   function acceptPoliciesAndSignUp() {
     const idToken = pendingGoogleToken
     if (!idToken) return
+    // Agreeing starts the sign-up request, which hides the Google button
+    // again; there is nothing useful to hand focus back to.
+    focusBeforeConsent.current = null
     setPendingGoogleToken(null)
     void handleGoogleCredential(idToken, true)
   }

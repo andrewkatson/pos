@@ -25,19 +25,36 @@ vi.mock('../api/client', async importOriginal => {
 // The Google button is Google's own iframe, drawn by a script we never load in
 // tests. Stub the component down to a plain button that hands back a canned
 // credential, so the page's behaviour around it is what gets tested.
-vi.mock('../components/GoogleSignInButton', () => ({
-  default: ({
-    onCredential,
-    disabled,
-  }: {
-    onCredential: (idToken: string) => void
-    disabled?: boolean
-  }) => (
-    <button type="button" disabled={disabled} onClick={() => onCredential('a.google.token')}>
-      Sign in with Google
-    </button>
-  ),
-}))
+// Like the real component it is hidden, not disabled (Google's button can't
+// be), while a request is in flight. A browser takes focus off an element that
+// becomes hidden; jsdom doesn't, so the stub blurs itself to match.
+vi.mock('../components/GoogleSignInButton', async () => {
+  const { useEffect, useRef } = await vi.importActual<typeof import('react')>('react')
+  return {
+    default: function GoogleSignInButtonStub({
+      onCredential,
+      disabled,
+    }: {
+      onCredential: (idToken: string) => void
+      disabled?: boolean
+    }) {
+      const ref = useRef<HTMLButtonElement>(null)
+      useEffect(() => {
+        if (disabled) ref.current?.blur()
+      }, [disabled])
+      return (
+        <button
+          ref={ref}
+          type="button"
+          hidden={disabled}
+          onClick={() => onCredential('a.google.token')}
+        >
+          Sign in with Google
+        </button>
+      )
+    },
+  }
+})
 
 import { apiClient } from '../api/client'
 const mockLogin = vi.mocked(apiClient.login)
@@ -487,7 +504,14 @@ test('an unmapped failure keeps its own readable message', async () => {
 
 async function rejectWithPolicyAcceptanceRequired() {
   const { ApiError, POLICY_ACCEPTANCE_REQUIRED } = await import('../api/client')
-  mockLoginWithGoogle.mockRejectedValueOnce(new ApiError(403, POLICY_ACCEPTANCE_REQUIRED))
+  // Answers on a later tick, like a real request: by then the page has
+  // re-rendered with the request in flight and hidden the Google button.
+  mockLoginWithGoogle.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new ApiError(403, POLICY_ACCEPTANCE_REQUIRED)), 0),
+      ),
+  )
 }
 
 test('an existing member signing in with Google is never asked to consent', async () => {
@@ -606,6 +630,18 @@ test('the login form behind the consent modal is inert until it closes', async (
 
   await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
   expect(screen.getByLabelText('Password').closest('.auth-card')).not.toHaveAttribute('inert')
+})
+
+test('Escape hands focus back to the Google button too', async () => {
+  await rejectWithPolicyAcceptanceRequired()
+  renderLoginPage()
+
+  const googleButton = screen.getByRole('button', { name: 'Sign in with Google' })
+  await userEvent.click(googleButton)
+  await screen.findByRole('dialog', { name: 'Create your account' })
+  await userEvent.keyboard('{Escape}')
+
+  expect(googleButton).toHaveFocus()
 })
 
 test('closing the consent modal hands focus back to the Google button', async () => {
