@@ -471,10 +471,18 @@ export class ApiClient implements PositiveOnlySocialAPI {
     // This runs on page load, so the user can log out — the privacy-policy
     // re-accept prompt (issue #620) offers it straight away — or sign in again
     // before the response lands. Applying it then would undo that.
+    // A failure is checked too: the caller clears remember-me tokens on error,
+    // which would wipe the ones a newer remembered sign-in just wrote.
     const generation = this.sessionGeneration
-    const result = await this.request<LoginWithRememberMeResponse>('POST', '/login/remember/', {
-      body,
-    })
+    let result: LoginWithRememberMeResponse
+    try {
+      result = await this.request<LoginWithRememberMeResponse>('POST', '/login/remember/', {
+        body,
+      })
+    } catch (err) {
+      if (generation !== this.sessionGeneration) throw new SessionSupersededError()
+      throw err
+    }
     if (generation !== this.sessionGeneration) {
       throw new SessionSupersededError()
     }

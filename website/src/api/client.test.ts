@@ -522,6 +522,35 @@ describe('loginWithRememberMe and a session that changes mid-flight (issue #620)
     expect(client.getToken()).toBeNull()
   })
 
+  test('a failure after a newer sign-in is reported as superseded, not as a failure', async () => {
+    // The caller clears remember-me tokens on an ordinary failure; doing that
+    // here would wipe the ones the newer remembered sign-in wrote.
+    let reject: () => void = () => {}
+    const fetchFn = vi.fn(
+      () =>
+        new Promise<Response>((_, rejectFetch) => {
+          reject = () => rejectFetch(new TypeError('network down'))
+        }),
+    )
+    const client = new ApiClient({ token: 'old-token', fetchFn })
+
+    const pending = client.loginWithRememberMe(refreshBody)
+    client.setToken('fresh-login-token')
+    reject()
+
+    await expect(pending).rejects.toBeInstanceOf(SessionSupersededError)
+    expect(client.getToken()).toBe('fresh-login-token')
+  })
+
+  test('a failure with nothing changed is still an ordinary failure', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(401, { error: 'invalid' }))
+    const client = new ApiClient({ token: 'old-token', fetchFn })
+
+    await expect(client.loginWithRememberMe(refreshBody)).rejects.not.toBeInstanceOf(
+      SessionSupersededError,
+    )
+  })
+
   test('a newer sign-in during the refresh keeps its own token', async () => {
     const { fetchFn, release } = heldFetch()
     const client = new ApiClient({ token: 'old-token', fetchFn })
