@@ -8,10 +8,10 @@ provider can never surface as a gateway timeout.
 
 All non-prefilter classifier calls go through **OpenRouter** (issue #393), an
 OpenAI-compatible gateway reached with a single `OPENROUTER_API_KEY`. The
-cascade consults models in a fixed priority order — a free model first
+cascade consults models in a fixed priority order — the cheapest model first
 (`gemma`), then `gemini`, then `openai` (ChatGPT), with Claude only as a last
-resort — so clear content is usually settled by the free tier and only
-ambiguous content escalates to the paid ones. The cascade decides by the third
+resort — so clear content is usually settled by the cheapest tier and only
+ambiguous content escalates to the others. The cascade decides by the third
 usable score, so on the normal path only the first three tiers are consulted;
 `claude` is a genuine last resort, reached only when one of the cheaper tiers
 returns no usable score (an error or unparseable response). The model behind
@@ -19,6 +19,16 @@ each tier is overridable per deploy via `OPENROUTER_MODEL_GEMMA` / `_GEMINI` /
 `_OPENAI` / `_CLAUDE` (see
 `backend/user_system/classifiers/classifier_utils.py`), so swapping models is a
 config change, not a code change.
+
+The defaults (refreshed in issue #618) are `google/gemma-4-26b-a4b-it`,
+`google/gemini-3.1-flash-lite`, `openai/gpt-6-luna` and
+`anthropic/claude-haiku-5.5`. All four accept images, so the text and image
+cascades use the same tiers. Every call asks OpenRouter to turn reasoning off
+(`reasoning: {effort: "none"}`). Reasoning tokens count against the
+16-token reply budget, so a model that thinks by default would often return an
+empty, unparseable reply and be skipped. That means any model you configure
+for a tier must allow reasoning to be turned off. In OpenRouter's model list,
+its `reasoning.mandatory` must not be true.
 
 Each model is also told **which line of defense it is** (issue #491), because
 the three stages do not carry equal weight: a clear rejection from the *first*

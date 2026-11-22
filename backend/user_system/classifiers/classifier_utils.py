@@ -24,7 +24,14 @@ API_GEMINI = 'gemini'
 API_OPENAI = 'openai'
 API_CLAUDE = 'claude'
 
-# Priority order: cheapest first, most expensive last.
+# Priority order: Gemma (the cheapest) first, Claude as the last resort.
+#
+# This order used to run strictly from cheapest to most expensive. With the
+# November 2026 defaults it no longer does: per token, Gemini 3.1 Flash Lite is
+# now the priciest tier, and GPT-6 Luna and Claude Haiku 5.5 cost about the same.
+# The order is kept because it also sets the stage weights below and which
+# tier is the fallback, so changing it is a moderation decision, not a pricing
+# update.
 #
 # NOTE: classify_with_thresholds consults at most THREE tiers (it decides by the
 # 3rd usable score), so on the normal path where the first three tiers all
@@ -39,18 +46,36 @@ CASCADE_ORDER = (API_GEMMA, API_GEMINI, API_OPENAI, API_CLAUDE)
 # var OPENROUTER_MODEL_<TIER> (e.g. OPENROUTER_MODEL_GEMMA) to switch models
 # without touching code.
 #
-# The Gemma tier uses the paid `google/gemma-3-12b-it` slug, not the
-# `:free` variant: OpenRouter retired the free Gemma 3 12B (it now 404s with
-# "unavailable for free"), which made the whole first tier fail on every call
-# and fall through to the pricier Gemini tier. The paid slug is still very
-# cheap, so it keeps the cheapest-first ordering intact. Don't reintroduce a
-# `:free` slug here — those tiers get rate-limited and deprecated.
+# Defaults last refreshed against OpenRouter's model catalog in November 2026
+# (issue #618). Every default is vision-capable, so the same tiers serve both
+# the text and image cascades.
+#
+# Don't use `:free` slugs here: OpenRouter rate-limits free variants and pulls
+# them without warning. When the free Gemma 3 12B was retired it 404'd ("unavailable
+# for free"), so the whole first tier failed on every call and fell through to
+# the pricier Gemini tier. Paid Gemma is still the cheapest tier.
+#
+# When choosing a model, check its `reasoning` entry in
+# https://openrouter.ai/api/v1/models: it must not be `mandatory` (see
+# _NO_REASONING below). That rules out e.g. google/gemini-3.5-flash-lite, whose
+# reasoning cannot be turned off.
 _DEFAULT_MODELS = {
-    API_GEMMA:  'google/gemma-3-12b-it',
-    API_GEMINI: 'google/gemini-2.5-flash',
-    API_OPENAI: 'openai/gpt-4o-mini',
-    API_CLAUDE: 'anthropic/claude-haiku-4-5',
+    API_GEMMA:  'google/gemma-4-26b-a4b-it',
+    API_GEMINI: 'google/gemini-3.1-flash-lite',
+    API_OPENAI: 'openai/gpt-6-luna',
+    API_CLAUDE: 'anthropic/claude-haiku-5.5',
 }
+
+# Sent as OpenRouter's `reasoning` request field on every classifier call. Most
+# current models reason ("think") before answering, sometimes by default
+# (GPT-6 Luna defaults to medium effort). Reasoning tokens count against
+# max_tokens, so with our tiny budgets they can eat the whole allowance. The
+# reply then comes back empty with finish_reason "length": the tier is skipped
+# as unparseable, but we are still billed for the reasoning. A score or
+# label list needs no deliberation, so ask for none. Models that cannot reason
+# ignore the field; a model whose reasoning is *mandatory* rejects it, which is
+# why the defaults above must not be one.
+_NO_REASONING = {'reasoning': {'effort': 'none'}}
 
 ZONE_REJECT = 'reject'
 ZONE_MIDDLE = 'middle'
@@ -276,6 +301,7 @@ def call_text_openrouter(text, prompt_template, model):
     response = client.chat.completions.create(
         model=model,
         max_tokens=16,
+        extra_body=_NO_REASONING,
         messages=[{"role": "user", "content": prompt}]
     )
     return parse_probability_and_rule(response.choices[0].message.content)
@@ -293,6 +319,7 @@ def call_text_openrouter_raw(prompt, model, max_tokens=64):
     response = client.chat.completions.create(
         model=model,
         max_tokens=max_tokens,
+        extra_body=_NO_REASONING,
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
@@ -310,6 +337,7 @@ def call_image_openrouter(image, prompt, model):
     response = client.chat.completions.create(
         model=model,
         max_tokens=16,
+        extra_body=_NO_REASONING,
         messages=[{
             "role": "user",
             "content": [
@@ -328,6 +356,7 @@ def call_image_openrouter_raw(image, prompt, model, max_tokens=64):
     response = client.chat.completions.create(
         model=model,
         max_tokens=max_tokens,
+        extra_body=_NO_REASONING,
         messages=[{
             "role": "user",
             "content": [

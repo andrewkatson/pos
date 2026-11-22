@@ -12,6 +12,7 @@ from ..classifiers.classifier_constants import GENERIC_REASON_CODE, REASON_PHRAS
 from ..classifiers.classifier_utils import (
     API_GEMMA, API_GEMINI, API_OPENAI, API_CLAUDE, CASCADE_ORDER,
     get_available_apis, model_for, parse_probability, parse_probability_and_rule,
+    call_text_openrouter, call_text_openrouter_raw, call_image_openrouter, call_image_openrouter_raw,
 )
 from .test_parent_case import PositiveOnlySocialTestCase
 
@@ -123,14 +124,47 @@ class TestClassifiers(PositiveOnlySocialTestCase):
 
     @patch.dict(os.environ, {}, clear=True)
     def test_model_for_uses_defaults(self):
-        self.assertEqual(model_for(API_GEMMA), 'google/gemma-3-12b-it')
-        self.assertEqual(model_for(API_CLAUDE), 'anthropic/claude-haiku-4-5')
+        self.assertEqual(model_for(API_GEMMA), 'google/gemma-4-26b-a4b-it')
+        self.assertEqual(model_for(API_GEMINI), 'google/gemini-3.1-flash-lite')
+        self.assertEqual(model_for(API_OPENAI), 'openai/gpt-6-luna')
+        self.assertEqual(model_for(API_CLAUDE), 'anthropic/claude-haiku-5.5')
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_default_models_are_distinct_paid_slugs(self):
+        # One model per tier: a repeated model would be a second vote from the
+        # same judge. And no `:free` slugs — OpenRouter rate-limits and retires
+        # those, which silently knocks a whole tier out of the cascade.
+        models = [model_for(api) for api in CASCADE_ORDER]
+        self.assertEqual(len(set(models)), len(models))
+        for model in models:
+            self.assertNotIn(':free', model)
+
+    @patch.dict(os.environ, _OPENROUTER_KEY, clear=True)
+    def test_every_openrouter_call_disables_reasoning(self):
+        # Reasoning tokens count against max_tokens, so a model that thinks by
+        # default can spend our whole 16-token budget and return an empty
+        # (unparseable) reply. Every call must ask OpenRouter for no reasoning.
+        image = Image.open(BytesIO(_make_fake_image_bytes()))
+        calls = (
+            lambda: call_text_openrouter('hi', TEXT_CLASSIFIER_PROMPT, 'vendor/m'),
+            lambda: call_text_openrouter_raw('prompt', 'vendor/m'),
+            lambda: call_image_openrouter(image, IMAGE_CLASSIFIER_PROMPT, 'vendor/m'),
+            lambda: call_image_openrouter_raw(image, 'prompt', 'vendor/m'),
+        )
+        for call in calls:
+            with patch('user_system.classifiers.classifier_utils.openai_lib.OpenAI') as mock_openai:
+                create = mock_openai.return_value.chat.completions.create
+                create.return_value.choices = [MagicMock(message=MagicMock(content='0.9,0'))]
+                call()
+            create.assert_called_once()
+            self.assertEqual(create.call_args.kwargs['extra_body'], {'reasoning': {'effort': 'none'}})
+            self.assertEqual(create.call_args.kwargs['model'], 'vendor/m')
 
     @patch.dict(os.environ, {"OPENROUTER_MODEL_GEMMA": "vendor/some-other-model"}, clear=True)
     def test_model_for_env_override(self):
         # Swapping a model behind a tier is a config change, not a code change.
         self.assertEqual(model_for(API_GEMMA), 'vendor/some-other-model')
-        self.assertEqual(model_for(API_GEMINI), 'google/gemini-2.5-flash')
+        self.assertEqual(model_for(API_GEMINI), 'google/gemini-3.1-flash-lite')
 
     # ------------------------------------------------------------------ #
     # Text classifier – testing mode                                       #
