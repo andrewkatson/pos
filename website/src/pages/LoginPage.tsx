@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import GoogleSignInButton from '../components/GoogleSignInButton'
 import Logo from '../components/Logo'
@@ -55,6 +55,11 @@ function LoginPage() {
   // the credential waits here while the consent modal is up, then is retried
   // with the flag. Google's ID tokens stay valid for an hour, which is plenty.
   const [pendingGoogleToken, setPendingGoogleToken] = useState<string | null>(null)
+  // Whatever had focus when the dialog opened (normally Google's button). It
+  // gets focus back when the dialog closes, so keyboard users aren't dropped
+  // at the top of the page. Captured when opening, because the dialog's
+  // autoFocus moves focus before any effect could see it.
+  const focusBeforeConsent = useRef<Element | null>(null)
 
   useEffect(() => {
     if (!pendingGoogleToken) return
@@ -63,7 +68,18 @@ function LoginPage() {
       if (e.key === 'Escape') setPendingGoogleToken(null)
     }
     document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      const previouslyFocused = focusBeforeConsent.current
+      focusBeforeConsent.current = null
+      if (
+        previouslyFocused instanceof HTMLElement &&
+        previouslyFocused !== document.body &&
+        previouslyFocused.isConnected
+      ) {
+        previouslyFocused.focus()
+      }
+    }
   }, [pendingGoogleToken])
 
   // If a remembered session was restored on startup (see main.tsx), a returning
@@ -172,6 +188,7 @@ function LoginPage() {
       const apiErr = err as ApiError
       if (apiErr.message === POLICY_ACCEPTANCE_REQUIRED) {
         // Not a failure: this sign-in would make a new account. Ask first.
+        focusBeforeConsent.current = document.activeElement
         setPendingGoogleToken(idToken)
         return
       }
@@ -237,7 +254,7 @@ function LoginPage() {
       {pendingGoogleToken && (
         <div className="modal-overlay">
           <div
-            className="modal"
+            className="modal modal--scrollable"
             role="dialog"
             aria-modal="true"
             aria-labelledby="google-consent-title"
@@ -246,7 +263,9 @@ function LoginPage() {
             <h2 className="modal__title" id="google-consent-title">
               Create your account
             </h2>
-            <div id="google-consent-body">
+            {/* Scrolls on its own so a short or zoomed viewport can still
+                read every word and reach both buttons below. */}
+            <div id="google-consent-body" className="modal__scroll">
               <p className="modal__body">
                 There's no Good Vibes Only account for that Google account yet. Signing in will
                 create one, so please read our Privacy Policy first:
@@ -287,7 +306,9 @@ function LoginPage() {
         </div>
       )}
 
-      <div className="auth-card">
+      {/* Inert while the consent dialog is up, so Tab can't wander into the
+          login controls hidden behind it. */}
+      <div className="auth-card" inert={pendingGoogleToken !== null}>
         <button
           type="button"
           className="auth-back"

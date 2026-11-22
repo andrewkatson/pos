@@ -591,3 +591,31 @@ test('a refusal after consenting is shown like any other Google failure', async 
   expect(await screen.findByRole('alert')).toHaveTextContent(ACCOUNT_SUSPENDED_MESSAGE)
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 })
+
+test('the login form behind the consent modal is inert until it closes', async () => {
+  await rejectWithPolicyAcceptanceRequired()
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+  await screen.findByRole('dialog', { name: 'Create your account' })
+
+  // Keyboard focus can't escape to the hidden Back button or login fields.
+  expect(screen.getByLabelText('Password').closest('.auth-card')).toHaveAttribute('inert')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.getByLabelText('Password').closest('.auth-card')).not.toHaveAttribute('inert')
+})
+
+test('closing the consent modal hands focus back to the Google button', async () => {
+  await rejectWithPolicyAcceptanceRequired()
+  renderLoginPage()
+
+  const googleButton = screen.getByRole('button', { name: 'Sign in with Google' })
+  await userEvent.click(googleButton)
+  // The dialog takes focus while it is up...
+  expect(await screen.findByRole('button', { name: 'Agree and create account' })).toHaveFocus()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  // ...and returns it to where the user was.
+  expect(googleButton).toHaveFocus()
+})

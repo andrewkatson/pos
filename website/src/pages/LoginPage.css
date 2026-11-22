@@ -482,6 +482,22 @@
   gap: 1.25rem;
 }
 
+/* A modal whose content can outgrow a short or zoomed viewport (the Google
+   sign-up consent dialog on the login page): capped to the overlay's inner
+   height, with the text scrolling and the title and actions kept in view. */
+.modal--scrollable {
+  max-height: calc(100vh - 3rem);
+  max-height: calc(100dvh - 3rem);
+}
+
+.modal__scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .modal__title {
   margin: 0;
   font-size: 1.2rem;
