@@ -33,6 +33,19 @@ empty, unparseable reply and be skipped. That means any model you configure
 for a tier must allow reasoning to be turned off. In OpenRouter's model list,
 its `reasoning.mandatory` must not be true.
 
+**The privacy policy names these providers** (issue #617): it tells users that
+the content they submit — captions, images, comments, username, bio, profile
+photo and interests — goes to Google (Gemma, Gemini), OpenAI (ChatGPT) and
+Anthropic (Claude) via OpenRouter. Each request carries only the content and
+the prompt, so account fields (email, password, date of birth, IP address) are
+never attached — but the content goes unredacted, so the policy says any
+personal information a user writes into it is sent too, and that a Google
+sign-up's generated username (built from the email local part, see
+[Authentication](authentication.md#signing-in-with-google)) is classified the
+same way. Pointing a tier at a model from a different provider, or sending a new
+kind of user data to the cascade, means updating the policy text in all three
+clients (see [Accounts](accounts.md#terms-of-service-issue-493)).
+
 Each model is also told **which line of defense it is** (issue #491), because
 the three stages do not carry equal weight: a clear rejection from the *first*
 reviewer is final and non-appealable, while the *third* reviewer's uncertainty
