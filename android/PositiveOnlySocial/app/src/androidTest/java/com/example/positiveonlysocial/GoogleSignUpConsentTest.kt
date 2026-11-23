@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -102,7 +103,9 @@ class GoogleSignUpConsentTest {
     fun readingTheTermsKeepsTheConsentDialogAndAgreeingSignsIn() {
         tapGoogleAndWaitForConsent()
 
-        composeTestRule.onNodeWithTag("GoogleConsentTermsButton").performClick()
+        // Below the full privacy policy in a scrolling column, so it can be
+        // off screen on a short phone.
+        composeTestRule.onNodeWithTag("GoogleConsentTermsButton").performScrollTo().performClick()
         composeTestRule.onNodeWithText("Terms of Service").assertExists()
         composeTestRule.onNodeWithText("Ok").performClick()
 
