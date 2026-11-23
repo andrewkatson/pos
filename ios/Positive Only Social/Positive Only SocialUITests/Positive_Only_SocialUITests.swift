@@ -1051,6 +1051,9 @@ final class Positive_Only_SocialUITests: XCTestCase {
         // Agreeing creates the account and signs straight in.
         consent.buttons["Agree and Create Account"].firstMatch.tap()
         assertOnHomeView(app: app)
+        // Having just agreed, they aren't asked to re-accept on landing (#620).
+        XCTAssertFalse(app.alerts["Privacy Policy Updated"].waitForExistence(timeout: TestConstants.shortTimeout),
+                       "Re-accept prompt shown right after agreeing in the consent dialog")
     }
 
     /// Waits for an element to disappear, as XCUIElement.waitForNonExistence

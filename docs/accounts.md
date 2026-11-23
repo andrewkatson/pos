@@ -201,9 +201,11 @@ again. Every login asks, including remember-me auto-login at launch; the one
 exception is identity verification in Settings, which rewrites the session of
 someone already using the app and keeps the answer they gave. (Android's
 `AuthenticationManager` is a process-wide singleton that can still read "logged
-in" when the app is reopened, so the prompt keys off the login, not that flag.) A website Google
-sign-up counts as accepting, since Register has just shown the policy, so the
-new member isn't asked twice on landing at `/home`.
+in" when the app is reopened, so the prompt keys off the login, not that flag.)
+A sign-in that follows the user agreeing to the policy counts as accepting, so a
+new member isn't asked twice on landing in the app: the website's Google sign-up
+from Register, and on every client the Google sign-in that creates an account
+after its consent dialog.
 
 Recording an acceptance timestamp on the backend, so the prompt only appears
 when the policy is newer than what the user accepted, is the planned follow-up;

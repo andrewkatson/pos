@@ -96,13 +96,18 @@ fun LoginScreen(
             trimmedCode.length == 6 && trimmedCode.all { it.isDigit() }
         }
 
-        /** Shared tail of both login steps: persist the session and enter the app. */
+        /**
+         * Shared tail of both login steps: persist the session and enter the app.
+         * [acceptedPolicies] is true when this sign-in follows the Google consent
+         * dialog, where the user has just agreed to the privacy policy.
+         */
         suspend fun completeLogin(
             sessionToken: String?,
             username: String?,
             userId: String?,
             seriesIdentifier: String?,
-            loginCookieToken: String?
+            loginCookieToken: String?,
+            acceptedPolicies: Boolean = false
         ) {
             if (sessionToken == null || userId == null) {
                 errorMessage = "Login failed: the server response was missing a session token or user ID."
@@ -126,6 +131,10 @@ fun LoginScreen(
                 showingErrorAlert = true
                 return
             }
+            // A sign-in asks the re-accept question afresh (#620); someone who
+            // answered it in the Google consent dialog a moment ago isn't asked
+            // twice.
+            if (acceptedPolicies) authManager.acceptPrivacyPolicy()
 
             // Persist (or clear) the remember-me tokens so WelcomeScreen can
             // silently re-authenticate on the next launch. Mirrors iOS
@@ -187,7 +196,8 @@ fun LoginScreen(
                         username = body?.username,
                         userId = body?.userId,
                         seriesIdentifier = body?.seriesIdentifier,
-                        loginCookieToken = body?.loginCookieToken
+                        loginCookieToken = body?.loginCookieToken,
+                        acceptedPolicies = acceptedPolicies
                     )
                 }
                 return
