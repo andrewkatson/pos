@@ -318,27 +318,27 @@ class ClassifyPostModelChainTests(TestCase):
         self.assertEqual(self.post.classification_models_tried, ALL_TIERS)
         self.assertEqual(self.post.classification_model_chain, [API_GEMMA])
 
-        mock_text.return_value = _judged([API_GEMINI], API_GEMINI)
-        mock_image.return_value = _judged([API_GEMINI], API_GEMINI)
+        mock_text.return_value = _judged([API_OPENAI], API_OPENAI)
+        mock_image.return_value = _judged([API_OPENAI], API_OPENAI)
         self._run()
         self.assertFalse(self.post.hidden)
-        expected = [API_GEMINI, API_OPENAI, API_CLAUDE, API_GEMMA]
+        expected = [API_OPENAI, API_CLAUDE, API_GEMINI, API_GEMMA]
         self.assertEqual(mock_text.call_args.kwargs['available_apis'], expected)
         self.assertEqual(mock_image.call_args.kwargs['available_apis'], expected)
-        self.assertEqual(self.post.classification_model_chain, [API_GEMMA, API_GEMINI])
+        self.assertEqual(self.post.classification_model_chain, [API_GEMMA, API_OPENAI])
 
-    @patch(IMAGE, return_value=_judged([API_OPENAI], API_OPENAI))
-    @patch(TEXT, return_value=_judged([API_OPENAI], API_OPENAI))
+    @patch(IMAGE, return_value=_judged([API_CLAUDE], API_CLAUDE))
+    @patch(TEXT, return_value=_judged([API_CLAUDE], API_CLAUDE))
     def test_a_complete_chain_starts_a_new_cycle(self, mock_text, _image, _avail):
         Post.objects.filter(pk=self.post.pk).update(
             classification_models_tried=ALL_TIERS, classification_model_chain=ALL_TIERS)
         with patch('user_system.classifiers.model_chain.random.randrange', return_value=2):
             self._run()
         self.assertEqual(mock_text.call_args.kwargs['available_apis'],
-                         [API_OPENAI, API_CLAUDE, API_GEMMA, API_GEMINI])
+                         [API_CLAUDE, API_GEMINI, API_GEMMA, API_OPENAI])
         # The old cycle's lists are gone; only this round is on record.
-        self.assertEqual(self.post.classification_models_tried, [API_OPENAI])
-        self.assertEqual(self.post.classification_model_chain, [API_OPENAI])
+        self.assertEqual(self.post.classification_models_tried, [API_CLAUDE])
+        self.assertEqual(self.post.classification_model_chain, [API_CLAUDE])
 
     @patch(IMAGE, return_value=_judged([API_GEMMA], API_GEMMA))
     @patch(TEXT, return_value=_judged([API_GEMMA], API_GEMMA))
@@ -369,7 +369,7 @@ class ClassifyPostModelChainTests(TestCase):
         mock_image.side_effect = cascade_then_record
         with patch('user_system.tasks._CLASSIFICATION_EXECUTOR', _InlineExecutor()):
             self._run(raises=True)
-        self.assertEqual(self.post.classification_models_tried, [API_CLAUDE, API_GEMMA, API_GEMINI, API_OPENAI])
+        self.assertEqual(self.post.classification_models_tried, [API_CLAUDE, API_GEMMA, API_OPENAI, API_GEMINI])
         self.assertEqual(self.post.classification_model_chain, [API_CLAUDE, API_GEMMA])
 
     @patch(IMAGE, return_value=FINAL_REJECT)
