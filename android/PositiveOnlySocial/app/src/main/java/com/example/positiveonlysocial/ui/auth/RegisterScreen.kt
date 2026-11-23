@@ -111,7 +111,10 @@ fun RegisterScreen(
                                     ip = "127.0.0.1",
                                     dateOfBirth = dateOfBirth,
                                     interestCategories = selectedInterestSlugs.ifEmpty { null },
-                                    interestFreeform = freeformInterests.ifEmpty { null }
+                                    interestFreeform = freeformInterests.ifEmpty { null },
+                                    // Only reachable through this dialog's Ok.
+                                    acceptedPolicies = true,
+                                    policyVersion = Constants.POLICY_VERSION
                                 )
 
                                 val response = api.register(

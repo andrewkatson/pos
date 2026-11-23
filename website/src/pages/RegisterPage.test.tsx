@@ -7,6 +7,7 @@ import {
   hasAcceptedPrivacyPolicy,
   resetPrivacyPolicyAcceptance,
 } from '../auth/privacyPolicyConsent'
+import { POLICY_VERSION } from '../privacyPolicy'
 
 vi.mock('../api/client', () => ({
   apiClient: {
@@ -291,6 +292,8 @@ test('includes picked interests in the register call', async () => {
     expect.objectContaining({
       interest_categories: ['nature'],
       interest_freeform: ['jazz'],
+      accepted_policies: true,
+      policy_version: POLICY_VERSION,
     }),
   )
 })
@@ -369,7 +372,12 @@ test('accepting the policy creates the account and greets the new member', async
   await userEvent.click(screen.getByRole('button', { name: 'Sign up with Google' }))
   await userEvent.click(screen.getByRole('button', { name: 'Ok' }))
 
-  expect(mockLoginWithGoogle).toHaveBeenCalledWith({ id_token: 'a.google.token' })
+  // The modal's Ok is the consent the backend requires before creating it.
+  expect(mockLoginWithGoogle).toHaveBeenCalledWith({
+    id_token: 'a.google.token',
+    accepted_policies: true,
+    policy_version: POLICY_VERSION,
+  })
   expect(await screen.findByText(/You're member #7!/)).toBeInTheDocument()
   // Google has already verified the address, so there is no inbox to visit.
   expect(screen.queryByText(/Check your email/)).not.toBeInTheDocument()

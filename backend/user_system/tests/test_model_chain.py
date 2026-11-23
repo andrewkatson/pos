@@ -26,7 +26,7 @@ class RoundOrderTests(SimpleTestCase):
         """The tier that settled the last verdict is the last resort next time,
         never the first opinion — that is the whole point of the chain."""
         order, reset = round_order(ALL, [API_GEMMA], [API_GEMMA])
-        self.assertEqual(order, [API_GEMINI, API_OPENAI, API_CLAUDE, API_GEMMA])
+        self.assertEqual(order, [API_OPENAI, API_CLAUDE, API_GEMINI, API_GEMMA])
         self.assertFalse(reset)
 
     def test_an_unsure_tier_sits_between_fresh_and_decided(self):
@@ -37,7 +37,7 @@ class RoundOrderTests(SimpleTestCase):
 
     def test_deciders_keep_their_cheapest_first_order_among_themselves(self):
         order, _ = round_order(ALL, [API_OPENAI, API_GEMMA], [API_OPENAI, API_GEMMA])
-        self.assertEqual(order, [API_GEMINI, API_CLAUDE, API_GEMMA, API_OPENAI])
+        self.assertEqual(order, [API_CLAUDE, API_GEMINI, API_GEMMA, API_OPENAI])
 
     def test_a_complete_chain_resets_and_rotates_from_a_random_tier(self):
         with patch('user_system.classifiers.model_chain.random.randrange', return_value=2) as pick:
@@ -45,7 +45,7 @@ class RoundOrderTests(SimpleTestCase):
         pick.assert_called_once_with(len(ALL))
         self.assertTrue(reset)
         # Rotated, not shuffled: the cascade fallbacks keep their relative order.
-        self.assertEqual(order, [API_OPENAI, API_CLAUDE, API_GEMMA, API_GEMINI])
+        self.assertEqual(order, [API_CLAUDE, API_GEMINI, API_GEMMA, API_OPENAI])
 
     def test_chain_order_does_not_matter_for_completeness(self):
         with patch('user_system.classifiers.model_chain.random.randrange', return_value=0):

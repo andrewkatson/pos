@@ -272,7 +272,7 @@ struct Positive_Only_SocialTests_StubbedGoogleLogin {
         let api = StatefulStubbedAPI()
         let data = try await api.loginWithGoogle(
             idToken: idToken(sub: "sub-1", email: "hopefulperson@example.com"),
-            rememberMe: "false", ip: "127.0.0.1"
+            rememberMe: "false", acceptedPolicies: true, ip: "127.0.0.1"
         )
         let login = try decodeLogin(data)
 
@@ -285,7 +285,7 @@ struct Positive_Only_SocialTests_StubbedGoogleLogin {
     @Test func testShortLocalPartIsPaddedToAValidUsername() async throws {
         let api = StatefulStubbedAPI()
         let data = try await api.loginWithGoogle(
-            idToken: idToken(sub: "sub-1", email: "amy@example.com"), rememberMe: "false", ip: "127.0.0.1"
+            idToken: idToken(sub: "sub-1", email: "amy@example.com"), rememberMe: "false", acceptedPolicies: true, ip: "127.0.0.1"
         )
         // Usernames need at least 10 word characters, matching the backend.
         let username = try #require(try decodeLogin(data).username)
@@ -297,7 +297,8 @@ struct Positive_Only_SocialTests_StubbedGoogleLogin {
         let api = StatefulStubbedAPI()
         let token = idToken(sub: "sub-1", email: "hopefulperson@example.com")
 
-        let first = try decodeLogin(try await api.loginWithGoogle(idToken: token, rememberMe: "false", ip: "127.0.0.1"))
+        let first = try decodeLogin(try await api.loginWithGoogle(idToken: token, rememberMe: "false", acceptedPolicies: true, ip: "127.0.0.1"))
+        // Signing back in needs no consent: the account already exists.
         let second = try decodeLogin(try await api.loginWithGoogle(idToken: token, rememberMe: "false", ip: "127.0.0.1"))
 
         #expect(first.userId == second.userId)
@@ -308,7 +309,7 @@ struct Positive_Only_SocialTests_StubbedGoogleLogin {
     @Test func testAChangedEmailStillFindsTheAccountByItsGoogleSub() async throws {
         let api = StatefulStubbedAPI()
         let first = try decodeLogin(try await api.loginWithGoogle(
-            idToken: idToken(sub: "sub-1", email: "hopefulperson@example.com"), rememberMe: "false", ip: "127.0.0.1"
+            idToken: idToken(sub: "sub-1", email: "hopefulperson@example.com"), rememberMe: "false", acceptedPolicies: true, ip: "127.0.0.1"
         ))
         let second = try decodeLogin(try await api.loginWithGoogle(
             idToken: idToken(sub: "sub-1", email: "renamedmailbox@example.com"), rememberMe: "false", ip: "127.0.0.1"
@@ -336,7 +337,7 @@ struct Positive_Only_SocialTests_StubbedGoogleLogin {
     @Test func testRememberMeReturnsCookieTokens() async throws {
         let api = StatefulStubbedAPI()
         let login = try decodeLogin(try await api.loginWithGoogle(
-            idToken: idToken(sub: "sub-1", email: "hopefulperson@example.com"), rememberMe: "true", ip: "127.0.0.1"
+            idToken: idToken(sub: "sub-1", email: "hopefulperson@example.com"), rememberMe: "true", acceptedPolicies: true, ip: "127.0.0.1"
         ))
 
         #expect(login.seriesIdentifier != nil)
@@ -351,6 +352,51 @@ struct Positive_Only_SocialTests_StubbedGoogleLogin {
                 rememberMe: "false", ip: "127.0.0.1"
             )
         }
+    }
+
+    // MARK: - Consent before an account is created
+
+    @Test func testCreatingAnAccountWithoutConsentIsRefusedAndWritesNothing() async throws {
+        let api = StatefulStubbedAPI()
+        let token = idToken(sub: "sub-1", email: "hopefulperson@example.com")
+
+        do {
+            _ = try await api.loginWithGoogle(idToken: token, rememberMe: "false", ip: "127.0.0.1")
+            Issue.record("A sign-in that would create an account must ask for consent first")
+        } catch {
+            #expect(GoogleSignUpConsent.isRequired(by: error))
+        }
+
+        // Nothing was written, so retrying with consent is a brand-new account.
+        let retried = try decodeLogin(try await api.loginWithGoogle(
+            idToken: token, rememberMe: "false", acceptedPolicies: true, ip: "127.0.0.1"
+        ))
+        #expect(retried.createdAccount == true)
+    }
+
+    @Test func testLinkingToAnExistingAccountNeedsNoConsent() async throws {
+        let api = StatefulStubbedAPI()
+        _ = try await api.register(
+            username: "existingperson", email: "sharedaddress@example.com", password: "Password123",
+            rememberMe: "false", ip: "127.0.0.1", dateOfBirth: "1990-01-01",
+            interestCategories: [], interestFreeform: []
+        )
+
+        let google = try decodeLogin(try await api.loginWithGoogle(
+            idToken: idToken(sub: "sub-1", email: "sharedaddress@example.com"),
+            rememberMe: "false", acceptedPolicies: false, ip: "127.0.0.1"
+        ))
+        #expect(google.createdAccount == false)
+    }
+
+    @Test func testConsentIsOnlyRequiredByThePolicyAcceptanceCode() {
+        #expect(GoogleSignUpConsent.isRequired(
+            by: APIError.serverError(statusCode: 403, serverMessage: "policy_acceptance_required")))
+        // A ban is a 403 too, and must still be reported as one.
+        #expect(!GoogleSignUpConsent.isRequired(
+            by: APIError.serverError(statusCode: 403, serverMessage: "account_banned")))
+        #expect(!GoogleSignUpConsent.isRequired(by: APIError.badServerResponse(statusCode: 403)))
+        #expect(!GoogleSignUpConsent.isRequired(by: GoogleSignInError.cancelled))
     }
 
     @Test func testAMalformedTokenIsRefused() async throws {

@@ -262,6 +262,7 @@ jobs:
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testLikeAndUnlikePost"
                   "Positive Only SocialUITests/Positive_Only_SocialUITests/testDecliningPrivacyPolicyUpdateLogsOut"
                   "Positive Only SocialUITests/Positive_Only_SocialUITestsLaunchTests/testLaunch"
+                  "Positive Only SocialUITests/Positive_Only_SocialUITests/testGoogleSignUpFromLoginAsksForConsentFirst"
                 )
                 # "Positive Only Social" (default) plan covers both unit and UI tests
                 XCTESTRUN=$(find build/Build/Products -name "*.xctestrun" | grep -v "Unit Tests" | head -1)

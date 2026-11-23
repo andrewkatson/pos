@@ -585,6 +585,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       }
     }
 
+    if (!user && body.accepted_policies !== true) {
+      // Mirrors login_user_google: nobody becomes a member without agreeing
+      // to the privacy policy and terms, and nothing is written before then.
+      throw new ApiError(403, 'policy_acceptance_required')
+    }
+
     if (!user) {
       // Usernames must be at least 10 word characters, so a short local part is
       // padded — matching _google_username_base in backend/user_system/views.py.

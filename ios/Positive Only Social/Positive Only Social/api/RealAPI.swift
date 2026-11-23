@@ -63,6 +63,11 @@ final class RealAPI: Networking {
         // harmlessly — the backend skips them when both are empty.
         let interest_categories: [String]
         let interest_freeform: [String]
+        // Register is only ever called from RegisterView's privacy-policy
+        // alert, after the user tapped Ok, so the backend can record when they
+        // agreed, and to the version of the texts this build shows.
+        var accepted_policies: Bool = true
+        var policy_version: String = GVOAppConstants.policyVersion
     }
 
     private struct VerifyIdentityBody: Encodable {
@@ -79,6 +84,9 @@ final class RealAPI: Networking {
     private struct GoogleLoginBody: Encodable {
         let id_token: String
         let remember_me: String
+        let accepted_policies: Bool
+        // The version of the policies this build showed; only sent with consent.
+        let policy_version: String?
         let ip: String
     }
     
@@ -370,8 +378,14 @@ final class RealAPI: Networking {
     
     /// Exchanges a Google ID token for a session, creating the account on the
     /// first sign-in. Can answer with a two-factor challenge, like loginUser.
-    func loginWithGoogle(idToken: String, rememberMe: String, ip: String) async throws -> Data {
-        let body = GoogleLoginBody(id_token: idToken, remember_me: rememberMe, ip: ip)
+    func loginWithGoogle(idToken: String, rememberMe: String, acceptedPolicies: Bool, ip: String) async throws -> Data {
+        let body = GoogleLoginBody(
+            id_token: idToken,
+            remember_me: rememberMe,
+            accepted_policies: acceptedPolicies,
+            policy_version: acceptedPolicies ? GVOAppConstants.policyVersion : nil,
+            ip: ip
+        )
         let requestBody = try encode(body)
 
         return try await performRequest(

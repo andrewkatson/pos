@@ -681,7 +681,7 @@ final class StatefulStubbedAPI: Networking {
         }
     }
 
-    func loginWithGoogle(idToken: String, rememberMe: String, ip: String) async throws -> Data {
+    func loginWithGoogle(idToken: String, rememberMe: String, acceptedPolicies: Bool, ip: String) async throws -> Data {
         await simulateNetwork()
 
         // The real backend verifies the token against Google's public keys; the
@@ -712,6 +712,12 @@ final class StatefulStubbedAPI: Networking {
                 users[existing].emailVerificationToken = nil
                 index = existing
             }
+        }
+        if index == nil && !acceptedPolicies {
+            // Mirrors login_user_google: nobody becomes a member without
+            // agreeing to the privacy policy and terms, and nothing is written
+            // before then.
+            throw APIError.serverError(statusCode: 403, serverMessage: GVOAppConstants.policyAcceptanceRequiredError)
         }
         if index == nil {
             // Usernames need at least 10 word characters, so a short local part

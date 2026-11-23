@@ -27,7 +27,12 @@ protocol Networking {
     /// Exchanges a Google ID token for a session, creating the account on the
     /// first sign-in (issue #10). Answers with a two-factor challenge for an
     /// enrolled account, exactly like `loginUser`.
-    func loginWithGoogle(idToken: String, rememberMe: String, ip: String) async throws -> Data
+    ///
+    /// `acceptedPolicies` says the user has agreed to the privacy policy and
+    /// terms of service. The backend refuses to create an account without it,
+    /// answering `policy_acceptance_required` instead, so the caller can ask
+    /// and retry with the same token.
+    func loginWithGoogle(idToken: String, rememberMe: String, acceptedPolicies: Bool, ip: String) async throws -> Data
 
     /// Logs the user in using a "remember me" token.
     /// This is used if the user's series identifier and login cookie token exist and match what is on record.
@@ -350,5 +355,12 @@ extension Networking {
     /// registration screen uses the full method. Defaults to empty picks.
     func register(username: String, email: String, password: String, rememberMe: String, ip: String, dateOfBirth: String) async throws -> Data {
         try await register(username: username, email: email, password: password, rememberMe: rememberMe, ip: ip, dateOfBirth: dateOfBirth, interestCategories: [], interestFreeform: [])
+    }
+
+    /// A Google sign-in that does not claim consent: enough for an existing
+    /// member, refused with `policy_acceptance_required` if it would create an
+    /// account.
+    func loginWithGoogle(idToken: String, rememberMe: String, ip: String) async throws -> Data {
+        try await loginWithGoogle(idToken: idToken, rememberMe: rememberMe, acceptedPolicies: false, ip: ip)
     }
 }
