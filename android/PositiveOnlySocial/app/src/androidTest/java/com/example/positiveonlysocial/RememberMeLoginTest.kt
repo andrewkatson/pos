@@ -7,6 +7,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.positiveonlysocial.di.DependencyProvider
 import com.example.positiveonlysocial.fcm.PushNavigator
 import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -91,26 +93,38 @@ class RememberMeLoginTest {
 
     @Test
     fun testRelaunchWithLinkAsksForPrivacyPolicyFirst() {
-        // Sign in and accept, then close the Activity. The process (and the
-        // signed-in AuthenticationManager singleton) survives.
+        // Sign in with Remember Me and accept, then close the Activity. The
+        // process (and the signed-in AuthenticationManager singleton) survives.
         scenario = ActivityScenario.launch(MainActivity::class.java)
         registerUser(testUsername, strongPassword)
+        logoutUserFromHome()
+        loginWithRememberMe(testUsername, strongPassword)
         scenario?.close()
 
-        // A shared profile link opens a brand-new Activity (issue #620): this
-        // opening must ask again before the link is honoured.
+        // A shared profile link opens a brand-new Activity (issue #620). It
+        // must wait while Welcome restores the session (opening it then would
+        // cancel that restore) and while this opening's prompt is unanswered.
         PushNavigator.openProfile(testUsername)
         try {
             scenario = ActivityScenario.launch(MainActivity::class.java)
             composeTestRule.waitUntil(timeoutMillis = 10_000) {
                 composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isNotEmpty()
             }
-            composeTestRule.onAllNodesWithTag("tag_Posts").assertCountEquals(0)
+            assertEquals(testUsername, PushNavigator.pendingProfileUsername.value)
 
             composeTestRule.onNodeWithText("Accept").performClick()
             composeTestRule.waitUntil(timeoutMillis = 10_000) {
-                composeTestRule.onAllNodesWithTag("tag_Posts").fetchSemanticsNodes().isNotEmpty()
+                PushNavigator.pendingProfileUsername.value == null
             }
+            // The restore finished rather than being cancelled, so the saved
+            // session is still there for the screens that read it.
+            assertNotNull(
+                DependencyProvider.keychainHelper.load(
+                    com.example.positiveonlysocial.data.model.UserSession::class.java,
+                    keychainService,
+                    sessionAccount
+                )
+            )
         } finally {
             PushNavigator.clearProfileRequest()
         }

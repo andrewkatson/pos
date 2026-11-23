@@ -205,10 +205,35 @@ class AuthenticationManager(
         }
     }
 
+    // Whether an Activity has been created in this process yet.
+    private var activityCreatedInThisProcess = false
+
     /**
-     * Called when the app is opened (a fresh Activity launch). A user who is
-     * still signed in — this manager outlives Activities in a surviving process
-     * — has to accept the privacy policy again for this opening (#620).
+     * Called from MainActivity.onCreate, before anything renders, so the
+     * privacy-policy prompt (#620) covers every way the app can open:
+     *
+     * - A fresh launch ([restoringState] false) is an opening. A user still
+     *   signed in — this manager outlives Activities in a surviving process —
+     *   has to accept again.
+     * - The first Activity in a new process restoring saved state is Android
+     *   bringing the app back after killing it. The restored screens read the
+     *   saved session from storage, but this new manager starts signed out, so
+     *   load that session — which also asks for acceptance.
+     * - Any later restore in the same process is a configuration change and
+     *   leaves everything as it is.
+     */
+    fun onActivityCreated(restoringState: Boolean) {
+        if (!restoringState) {
+            onAppOpened()
+        } else if (!activityCreatedInThisProcess) {
+            checkInitialState()
+        }
+        activityCreatedInThisProcess = true
+    }
+
+    /**
+     * The app was opened while possibly still signed in: ask that user to
+     * accept the privacy policy again for this opening (#620).
      */
     fun onAppOpened() {
         if (_isLoggedIn.value) {

@@ -271,4 +271,54 @@ class AuthenticationManagerTest {
 
         assertFalse(manager.needsPrivacyPolicyAcceptance.value)
     }
+
+    @Test
+    fun `a restore after process death loads the saved session and asks`() {
+        // Android killed the process and is restoring the signed-in screens; the
+        // new manager starts signed out though the session is still stored.
+        val keychain = FakeKeychainHelper()
+        keychain.save(session, "positive-only-social.Positive-Only-Social", "userSessionToken")
+        val manager = AuthenticationManager(keychain)
+
+        manager.onActivityCreated(restoringState = true)
+
+        assertTrue(manager.isLoggedIn.value)
+        assertEquals(session, manager.session.value)
+        assertTrue(manager.needsPrivacyPolicyAcceptance.value)
+    }
+
+    @Test
+    fun `a configuration change keeps the answer already given`() = runTest {
+        val manager = AuthenticationManager(FakeKeychainHelper())
+        manager.onActivityCreated(restoringState = false)
+        manager.login(session)
+        manager.acceptPrivacyPolicy()
+
+        manager.onActivityCreated(restoringState = true)
+
+        assertTrue(manager.isLoggedIn.value)
+        assertFalse(manager.needsPrivacyPolicyAcceptance.value)
+    }
+
+    @Test
+    fun `a fresh launch in a live process asks a signed-in user`() = runTest {
+        val manager = AuthenticationManager(FakeKeychainHelper())
+        manager.onActivityCreated(restoringState = false)
+        manager.login(session)
+        manager.acceptPrivacyPolicy()
+
+        manager.onActivityCreated(restoringState = false)
+
+        assertTrue(manager.needsPrivacyPolicyAcceptance.value)
+    }
+
+    @Test
+    fun `a restore after process death with nothing saved stays signed out`() {
+        val manager = AuthenticationManager(FakeKeychainHelper())
+
+        manager.onActivityCreated(restoringState = true)
+
+        assertFalse(manager.isLoggedIn.value)
+        assertFalse(manager.needsPrivacyPolicyAcceptance.value)
+    }
 }

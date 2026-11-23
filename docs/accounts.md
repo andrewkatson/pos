@@ -149,9 +149,11 @@ out the same way Settings does (best-effort backend logout, then the local
 session is cleared). It can't be dismissed any other way — no Escape, back
 button, or tap outside — and nothing behind it is reachable: the website marks
 the page behind it `inert`, and the policy scrolls inside the dialog so both
-buttons stay on screen. On Android, shared links and notification taps that
-arrive while it is open — including the one that launched the app — wait for
-Accept and open afterwards, and Log Out keeps
+buttons stay on screen. On Android the prompt appears once the user is inside
+the signed-in app (never over Welcome or the other sign-in screens, so it can't
+interrupt a remember-me restore), and shared links and notification taps —
+including the one that launched the app — wait until it is answered and the
+user is in the app, then open, and Log Out keeps
 the dialog up (buttons disabled) until the local session is gone.
 
 **For now the prompt is unconditional.** Nothing records which version a user
@@ -161,7 +163,7 @@ accepted, so every client asks on every "open":
 | --- | --- | --- |
 | Website | Any signed-in page after a page load or a sign-in; not on the signed-out flows (`/`, `/login`, `/register`, email/reset pages, `/delete-account`) or the public legal/support pages | `website/src/auth/privacyPolicyConsent.ts`, shown by `PrivacyPolicyReacceptGate` beside the routes |
 | iOS | Every login, including a launch that restores a saved session | `AuthenticationManager.needsPrivacyPolicyAcceptance`, shown as an alert over `HomeView` |
-| Android | Every login, and every fresh launch of the app's Activity while still signed in (the process can outlive it) | `AuthenticationManager.needsPrivacyPolicyAcceptance`, shown as `PrivacyPolicyReacceptDialog` from `NavGraph`, above every destination |
+| Android | Every login; every fresh launch of the app's Activity while still signed in (the process can outlive it); and Android restoring the app in a new process after killing it, which also reloads the saved session the restored screens use | `AuthenticationManager.needsPrivacyPolicyAcceptance`, shown as `PrivacyPolicyReacceptDialog` from `NavGraph`, above every destination |
 
 The acceptance lives in memory only and is dropped on logout (including a ban
 or unverified-email sign-out), so reopening the app or signing in again asks

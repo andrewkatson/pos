@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.ui.auth
 
+import kotlinx.coroutines.CancellationException
 import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -110,6 +111,10 @@ fun WelcomeScreen(
                 } else {
                     throw Exception("Login failed with status: ${response.code()}")
                 }
+            } catch (e: CancellationException) {
+                // Leaving Welcome cancels this effect. That isn't a failed
+                // sign-in, so the saved session and remember-me tokens stay.
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Auto-login failed", e)
                 errorMessage = e.message
@@ -122,6 +127,8 @@ fun WelcomeScreen(
                 }
                 authState = AuthState.NeedsAuth
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "LaunchedEffect error", e)
             errorMessage = e.message

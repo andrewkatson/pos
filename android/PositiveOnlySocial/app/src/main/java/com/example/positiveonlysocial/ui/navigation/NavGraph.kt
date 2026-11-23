@@ -28,6 +28,20 @@ import com.example.positiveonlysocial.ui.main.*
 
 private const val TAG = "NavGraph"
 
+/**
+ * Routes reached while signing in or out. The privacy-policy prompt and queued
+ * links/notifications wait until the user has left them (issue #620).
+ */
+private val SIGNED_OUT_ROUTES = setOf(
+    Screen.Welcome.route,
+    Screen.Login.route,
+    Screen.Register.route,
+    Screen.CheckEmail.route,
+    Screen.RequestReset.route,
+    Screen.VerifyReset.route,
+    Screen.ResetPassword.route,
+)
+
 @Composable
 fun NavGraph(
     navController: NavHostController = rememberNavController(),
@@ -72,7 +86,13 @@ fun NavGraph(
     val pendingPostId by PushNavigator.pendingPostId.collectAsState()
     val pushIsLoggedIn by authManager.isLoggedIn.collectAsState()
     val needsPrivacyPolicyAcceptance by authManager.needsPrivacyPolicyAcceptance.collectAsState()
-    val canOpenSignedInRequests = pushIsLoggedIn && !needsPrivacyPolicyAcceptance
+    // Only once the user is actually inside the signed-in app. On a relaunch in
+    // a surviving process the manager can already read "logged in" while
+    // Welcome is still restoring the session; navigating away from Welcome then
+    // would cancel that restore.
+    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    val inSignedInArea = currentRoute != null && currentRoute !in SIGNED_OUT_ROUTES
+    val canOpenSignedInRequests = pushIsLoggedIn && !needsPrivacyPolicyAcceptance && inSignedInArea
     LaunchedEffect(pendingPostId, canOpenSignedInRequests) {
         val postId = pendingPostId ?: return@LaunchedEffect
         if (!canOpenSignedInRequests) return@LaunchedEffect
@@ -136,7 +156,10 @@ fun NavGraph(
     // root composable, so leaving Home doesn't cancel the backend call.
     val scope = rememberCoroutineScope()
     var isDecliningPrivacyPolicy by remember { mutableStateOf(false) }
-    if ((pushIsLoggedIn && needsPrivacyPolicyAcceptance) || isDecliningPrivacyPolicy) {
+    // Shown only inside the signed-in app, like the requests above: never over
+    // Welcome or the other sign-in screens, which a still-"logged in" manager
+    // can briefly sit behind on a relaunch.
+    if ((pushIsLoggedIn && needsPrivacyPolicyAcceptance && inSignedInArea) || isDecliningPrivacyPolicy) {
         PrivacyPolicyReacceptDialog(
             enabled = !isDecliningPrivacyPolicy,
             onAccept = { authManager.acceptPrivacyPolicy() },
