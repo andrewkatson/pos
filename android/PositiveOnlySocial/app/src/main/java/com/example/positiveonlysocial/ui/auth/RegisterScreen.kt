@@ -89,7 +89,12 @@ fun RegisterScreen(
                 onDismissRequest = { showingPrivacyPolicy = false },
                 title = { Text("Privacy Policy") },
                 text = {
-                    Text(Constants.PRIVACY_POLICY_TEXT)
+                    // Scrolls inside the dialog so the end of the policy stays
+                    // reachable on short screens or with large fonts.
+                    Text(
+                        Constants.PRIVACY_POLICY_TEXT,
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    )
                 },
                 confirmButton = {
                     Button(onClick = { 
