@@ -371,6 +371,24 @@ final class Positive_Only_SocialUITests: XCTestCase {
             "Privacy policy re-accept alert did not close after accepting")
     }
 
+    /// Declines the privacy-policy re-accept alert with Log Out (issue #620).
+    ///
+    /// Retries the same way `acceptPrivacyPolicyUpdate` does: the Save Password
+    /// prompt follows a sign-in, and a tap made while it is still animating
+    /// away is swallowed silently (seen in CI), leaving the alert up.
+    private func declinePrivacyPolicyUpdate(app: XCUIApplication) {
+        let alert = app.alerts["Privacy Policy Updated"]
+        let logOutButton = alert.buttons["Log Out"].firstMatch
+        XCTAssertTrue(
+            poll(timeout: TestConstants.timeout, interval: 0.5, until: {
+                guard alert.exists else { return true }
+                dismissSavePasswordNow()
+                if logOutButton.exists { logOutButton.tap() }
+                return !alert.exists
+            }),
+            "Privacy policy re-accept alert did not close after Log Out")
+    }
+
     private func assertOnSettingsView(app: XCUIApplication) {
         // Logout is near the top and always on screen, so it's the reliable
         // marker that we're on Settings. Delete Account is deliberately not
@@ -452,7 +470,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
             // button is the quicker way back to Welcome anyway.
             let declineButton = app.alerts["Privacy Policy Updated"].buttons["Log Out"].firstMatch
             if waitForExistenceClearingSystemAlerts(declineButton, timeout: TestConstants.shortTimeout) {
-                tapClearingSystemAlerts(declineButton)
+                declinePrivacyPolicyUpdate(app: app)
                 assertOnWelcomeView(app: app)
             } else {
                 try logoutUserFromHome(app: app)
@@ -1006,7 +1024,7 @@ final class Positive_Only_SocialUITests: XCTestCase {
         XCTAssertTrue(
             waitForExistenceClearingSystemAlerts(declineButton, timeout: TestConstants.timeout),
             "Privacy policy re-accept alert not present")
-        tapClearingSystemAlerts(declineButton)
+        declinePrivacyPolicyUpdate(app: app)
 
         assertOnWelcomeView(app: app)
     }
