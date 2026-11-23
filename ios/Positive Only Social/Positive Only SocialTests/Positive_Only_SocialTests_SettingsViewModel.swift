@@ -278,9 +278,15 @@ struct Positive_Only_SocialTests_SettingsViewModel {
         _ = try await setupLoggedInUser(username: "renameUser")
         let sut = SettingsViewModel(api: stubAPI, keychainHelper: keychainHelper, account: "renameUser_account")
         let authManager = makeAuthManager()
+        let signedIn = try keychainHelper.load(UserSession.self, from: GVOAppConstants.keychainService, account: "renameUser_account")
+        authManager.login(with: try #require(signedIn))
+        authManager.acceptPrivacyPolicy()
 
         sut.changeUsername("renamed_user_one", authManager: authManager)
         await yield()
+
+        // Same session, just renamed: no fresh privacy policy prompt (#620).
+        #expect(authManager.needsPrivacyPolicyAcceptance == false)
 
         #expect(sut.usernameChangeSucceeded == true)
         #expect(sut.accountChangeErrorMessage == nil)

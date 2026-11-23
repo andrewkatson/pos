@@ -4,7 +4,7 @@ import Logo from '../components/Logo'
 import { apiClient } from '../api/client'
 import type { ApiError } from '../api/client'
 import { isTwoFactorRequired } from '../api/types'
-import { clearSession } from '../api/session'
+import { clearSession, persistSession } from '../api/session'
 import RequirementHints from '../auth/RequirementHints'
 import { getPasswordRequirements, allMet } from '../auth/requirements'
 import './LoginPage.css'
@@ -64,11 +64,9 @@ function ResetPasswordPage() {
         navigate('/login')
         return
       }
-      localStorage.setItem('session_token', response.session_management_token)
-      localStorage.setItem('user_id', response.user_id)
-      if (response.username) {
-        localStorage.setItem('username', response.username)
-      }
+      // Persisted like any other sign-in (to localStorage, as before), which
+      // also asks the privacy policy re-accept question afresh (issue #620).
+      persistSession(response, true)
       navigate('/home')
     } catch (err) {
       const apiErr = err as ApiError

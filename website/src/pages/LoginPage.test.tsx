@@ -4,6 +4,10 @@ import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach } from 'vitest'
 import LoginPage from './LoginPage'
 import { POLICY_VERSION } from '../privacyPolicy'
+import {
+  hasAcceptedPrivacyPolicy,
+  resetPrivacyPolicyAcceptance,
+} from '../auth/privacyPolicyConsent'
 
 vi.mock('../api/client', async importOriginal => {
   const actual = await importOriginal<typeof import('../api/client')>()
@@ -578,6 +582,43 @@ test('agreeing retries the same Google credential with consent and enters the ap
     policy_version: POLICY_VERSION,
   })
   expect(localStorageMock.setItem).toHaveBeenCalledWith('session_token', 'google-token')
+})
+
+test('agreeing in the consent modal also answers the re-accept prompt', async () => {
+  // The user has just agreed to the policy, so landing in the app mustn't ask
+  // again straight away (issue #620).
+  resetPrivacyPolicyAcceptance()
+  await rejectWithPolicyAcceptanceRequired()
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    session_management_token: 'google-token',
+    user_id: 'u1',
+    username: 'hopefulperson',
+    created_account: true,
+  })
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Agree and create account' }))
+
+  await screen.findByText('Home')
+  expect(hasAcceptedPrivacyPolicy()).toBe(true)
+  resetPrivacyPolicyAcceptance()
+})
+
+test('an existing member signing in with Google is still asked to re-accept', async () => {
+  resetPrivacyPolicyAcceptance()
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    session_management_token: 'google-token',
+    user_id: 'u1',
+    username: 'hopefulperson',
+    created_account: false,
+  })
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+
+  await screen.findByText('Home')
+  expect(hasAcceptedPrivacyPolicy()).toBe(false)
 })
 
 test('cancelling the consent modal creates nothing and stays on the login page', async () => {

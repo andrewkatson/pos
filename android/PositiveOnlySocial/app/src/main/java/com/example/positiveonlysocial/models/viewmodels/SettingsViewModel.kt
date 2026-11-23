@@ -429,7 +429,8 @@ class SettingsViewModel(
                 if (response.isSuccessful && body != null) {
                     val renamed = userSession.copy(username = body.username)
                     keychainHelper.save(renamed, service, account)
-                    authenticationManager.login(renamed)
+                    // Same session, just renamed: keep the privacy policy answer (#620).
+                    authenticationManager.login(renamed, keepPrivacyPolicyAcceptance = true)
                     val heldUntil = body.formerUsernameHeldUntil?.let {
                         try { java.time.Instant.parse(it).toEpochMilli() } catch (e: Exception) { null }
                     }
@@ -808,7 +809,9 @@ class SettingsViewModel(
                         // Update local session to verified
                         val newSession = userSession.copy(isIdentityVerified = true)
                         keychainHelper.save(newSession, service, account)
-                        authenticationManager.login(newSession)
+                        // Same user, same session, mid-use: keep their privacy
+                        // policy answer rather than asking again (#620).
+                        authenticationManager.login(newSession, keepPrivacyPolicyAcceptance = true)
                         
                         _verificationMessage.value = "Identity verified successfully!"
                         _showingVerificationAlert.value = true

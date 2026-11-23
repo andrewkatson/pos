@@ -70,7 +70,8 @@ class SettingsViewModelAccountChangeTest {
 
         val renamed = session.copy(username = "renamed_user")
         verify(keychainHelper).save(eq(renamed), any(), any())
-        verify(authManager).login(renamed)
+        // A rename keeps the privacy policy answer (#620).
+        verify(authManager).login(renamed, true)
         assertEquals("renamed_user", viewModel.currentUser.value?.username)
         assertEquals("2099-01-01T00:00:00Z", viewModel.currentUser.value?.nextUsernameChangeTime)
         assertTrue(viewModel.accountChangeDone.value)
@@ -87,7 +88,7 @@ class SettingsViewModelAccountChangeTest {
 
         assertEquals("That username is already taken.", viewModel.accountChangeError.value)
         assertFalse(viewModel.accountChangeDone.value)
-        verify(authManager, never()).login(any())
+        verify(authManager, never()).login(any(), any())
     }
 
     @Test

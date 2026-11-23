@@ -1,5 +1,6 @@
 package com.example.positiveonlysocial.ui.auth
 
+import kotlinx.coroutines.CancellationException
 import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -93,7 +94,11 @@ fun WelcomeScreen(
                         isIdentityVerified = existingSession.isIdentityVerified
                     )
 
-                    authManager.login(userSession)
+                    // A rotation, not a new sign-in, for a session still held in
+                    // a surviving process: onAppOpened already asked this
+                    // opening, so don't ask twice. On a cold start nobody is
+                    // logged in yet and this asks as usual (#620).
+                    authManager.login(userSession, keepPrivacyPolicyAcceptance = true)
 
                     // Update the "Remember Me" tokens
                     val newTokens = RememberMeTokens(tokens.seriesId, loginDetails.newLoginCookieToken)
@@ -106,6 +111,10 @@ fun WelcomeScreen(
                 } else {
                     throw Exception("Login failed with status: ${response.code()}")
                 }
+            } catch (e: CancellationException) {
+                // Leaving Welcome cancels this effect. That isn't a failed
+                // sign-in, so the saved session and remember-me tokens stay.
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Auto-login failed", e)
                 errorMessage = e.message
@@ -118,6 +127,8 @@ fun WelcomeScreen(
                 }
                 authState = AuthState.NeedsAuth
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "LaunchedEffect error", e)
             errorMessage = e.message

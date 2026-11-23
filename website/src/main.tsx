@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router'
 import App from './App'
-import { apiClient } from './api/client'
+import { SessionSupersededError, apiClient } from './api/client'
 import {
   clearRememberMeTokens,
   getCurrentUsername,
@@ -57,7 +57,10 @@ async function refreshRememberMeSession(): Promise<void> {
       seriesIdentifier: tokens.seriesIdentifier,
       loginCookieToken: result.login_cookie_token,
     })
-  } catch {
+  } catch (err) {
+    // The user logged out or signed in again while this was in flight: leave
+    // storage to whatever they did rather than writing over it.
+    if (err instanceof SessionSupersededError) return
     clearRememberMeTokens()
   }
 }

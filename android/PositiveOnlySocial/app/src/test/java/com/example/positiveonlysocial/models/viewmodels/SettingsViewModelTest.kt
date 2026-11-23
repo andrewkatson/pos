@@ -111,8 +111,9 @@ class SettingsViewModelTest {
         viewModel.verifyIdentity("1990-01-01")
 
         verify(api).verifyIdentity("token123", IdentityVerificationRequest("1990-01-01"))
-        // authManager.login IS called in the implementation
-        verify(authManager).login(any())
+        // authManager.login IS called in the implementation, keeping the
+        // privacy-policy answer since this only updates a live session (#620)
+        verify(authManager).login(any(), eq(true))
         assertEquals("Identity verified successfully!", viewModel.verificationMessage.value)
     }
 

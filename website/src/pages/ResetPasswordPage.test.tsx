@@ -3,6 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach } from 'vitest'
 import ResetPasswordPage from './ResetPasswordPage'
+import {
+  hasAcceptedPrivacyPolicy,
+  markPrivacyPolicyAccepted,
+  resetPrivacyPolicyAcceptance,
+} from '../auth/privacyPolicyConsent'
 
 vi.mock('../api/client', () => ({
   // setToken is used by clearSession(), which runs on the 2FA-challenge branch.
@@ -145,6 +150,26 @@ test('stores session token and user_id in localStorage on success', async () => 
   await screen.findByText('Home page')
   expect(mockSetItem).toHaveBeenCalledWith('session_token', 'my-token')
   expect(mockSetItem).toHaveBeenCalledWith('user_id', 'uuid-xyz')
+})
+
+test('the sign-in after a reset is asked to accept the privacy policy again', async () => {
+  // Acceptance from an earlier session in this tab must not carry over to the
+  // new sign-in (issue #620).
+  markPrivacyPolicyAccepted()
+  mockResetPassword.mockResolvedValueOnce({ message: 'Password reset successfully' })
+  mockLogin.mockResolvedValueOnce({
+    session_management_token: 'my-token',
+    user_id: 'uuid-xyz',
+    username: 'ada',
+  })
+  renderPage('ada')
+  await userEvent.type(screen.getByLabelText('Email'), 'ada@example.com')
+  await userEvent.type(screen.getByLabelText('New Password'), 'NewStrongPass1-')
+  await userEvent.type(screen.getByLabelText('Confirm Password'), 'NewStrongPass1-')
+  await userEvent.click(screen.getByRole('button', { name: 'Reset Password and Login' }))
+  await screen.findByText('Home page')
+  expect(hasAcceptedPrivacyPolicy()).toBe(false)
+  resetPrivacyPolicyAcceptance()
 })
 
 test('shows error banner when reset fails', async () => {

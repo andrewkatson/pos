@@ -249,7 +249,8 @@ final class SettingsViewModel: ObservableObject {
                                           userId: userSession.userId,
                                           isIdentityVerified: userSession.isIdentityVerified)
                 try keychainHelper.save(renamed, for: keychainService, account: account)
-                authManager.login(with: renamed)
+                // Same session, just renamed: keep the privacy policy answer (#620).
+                authManager.login(with: renamed, keepPrivacyPolicyAcceptance: true)
                 var userInfo: [String: Any] = [:]
                 if let formerUsername = fields.formerUsername,
                    let heldUntil = Self.parseChangeTime(fields.formerUsernameHeldUntil) {
@@ -717,7 +718,9 @@ final class SettingsViewModel: ObservableObject {
                 
                 // Save updated session to keychain and auth manager
                 try keychainHelper.save(newSession, for: keychainService, account: account)
-                authManager.login(with: newSession)
+                // Same user, same session, mid-use: keep their privacy policy
+                // answer rather than asking again (#620).
+                authManager.login(with: newSession, keepPrivacyPolicyAcceptance: true)
                 
                 verificationMessage = "Identity verified successfully!"
                 showingVerificationAlert = true

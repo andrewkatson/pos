@@ -63,6 +63,25 @@ struct Positive_Only_SocialApp: App {
                 if authManager.isLoggedIn {
                     HomeView(api: api, keychainHelper: keychainHelper)
                         .environmentObject(authManager) // Make the manager available to all subviews
+                        // Re-accept the privacy policy on opening the app (issue
+                        // #620). There is no way to dismiss it without choosing:
+                        // the setter ignores SwiftUI's dismissal, and each button
+                        // clears the flag itself.
+                        .alert("Privacy Policy Updated", isPresented: Binding(
+                            get: { authManager.needsPrivacyPolicyAcceptance },
+                            set: { _ in }
+                        )) {
+                            Button("Accept") {
+                                authManager.acceptPrivacyPolicy()
+                            }
+                            .accessibilityIdentifier("AcceptPrivacyPolicyButton")
+                            Button("Log Out", role: .cancel) {
+                                declinePrivacyPolicy()
+                            }
+                            .accessibilityIdentifier("DeclinePrivacyPolicyButton")
+                        } message: {
+                            Text(GVOAppConstants.privacyPolicyUpdatedIntro + "\n\n" + GVOAppConstants.privacyPolicyText)
+                        }
                 } else {
                     WelcomeView(api: api, keychainHelper: keychainHelper)
                         .environmentObject(authManager)
@@ -85,6 +104,18 @@ struct Positive_Only_SocialApp: App {
                     return
                 }
             }
+        }
+    }
+
+    /// Declining the privacy policy signs the user out (issue #620). The local
+    /// session goes first so the alert closes at once; telling the backend is
+    /// best-effort, the same as Settings' logout.
+    private func declinePrivacyPolicy() {
+        let sessionToken = authManager.session?.sessionToken
+        authManager.logout()
+        guard let sessionToken else { return }
+        Task {
+            _ = try? await api.logoutUser(sessionManagementToken: sessionToken)
         }
     }
 }
