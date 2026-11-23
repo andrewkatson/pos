@@ -306,7 +306,7 @@ POLICY_ACCEPTANCE_REQUIRED = "policy_acceptance_required"
 # and the matching constant on each client (website/src/privacyPolicy.ts,
 # GVOAppConstants.policyVersion, Constants.POLICY_VERSION), with every material
 # change, so accounts that agreed to an older version can be told apart.
-POLICY_VERSION = "2026-08-13"
+POLICY_VERSION = "2026-11-22"
 
 # A Google account carries no username, so the first sign-in generates one from
 # the email local part. Generated names must still satisfy Patterns.username

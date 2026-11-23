@@ -260,7 +260,7 @@ function LoginPage() {
       {pendingGoogleToken && (
         <div className="modal-overlay">
           <div
-            className="modal modal--scrollable"
+            className="modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="google-consent-title"
