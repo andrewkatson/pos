@@ -13,6 +13,7 @@ import org.junit.runner.RunWith
 import java.util.UUID
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 
 @RunWith(AndroidJUnit4::class)
@@ -73,9 +74,12 @@ class PositiveOnlySocialIntegrationTests {
     }
 
     /**
-     * Accepts the privacy-policy re-accept dialog (issue #620). It is
-     * unconditional for now, so it comes up after every sign-in and every
-     * remember-me auto-login, and Home can't be used until it is answered.
+     * Accepts the privacy-policy re-accept dialog (issue #620). It comes up
+     * after a sign-in or an opening of the app until the account's acceptance
+     * of the current version is on record. The stub records it on Accept and
+     * keeps it for the rest of the run, but its register doesn't, so this is
+     * for an account's first sign-in; later ones use
+     * [assertPrivacyPolicyNotAskedAgain].
      */
     private fun acceptPrivacyPolicyUpdate() {
         composeTestRule.waitUntil(timeoutMillis = 10_000) {
@@ -85,6 +89,20 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.waitUntil(timeoutMillis = 10_000) {
             composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isEmpty()
         }
+    }
+
+    /**
+     * The account's acceptance is already on record, so once the backend check
+     * that follows a sign-in or an opening settles, no dialog comes up (#620).
+     */
+    private fun assertPrivacyPolicyNotAskedAgain() {
+        val auth = DependencyProvider.authManager
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            auth.isLoggedIn.value && !auth.isCheckingPrivacyPolicyAcceptance.value
+        }
+        composeTestRule.waitForIdle()
+        assertFalse(auth.needsPrivacyPolicyAcceptance.value)
+        composeTestRule.onNodeWithText("Privacy Policy Updated").assertDoesNotExist()
     }
 
     private fun assertOnHomeView() {
@@ -207,7 +225,8 @@ class PositiveOnlySocialIntegrationTests {
         }
 
         composeTestRule.onNodeWithText("Login").performClick()
-        acceptPrivacyPolicyUpdate()
+        // Registering through the UI already signed in and accepted once.
+        if (registerToo) assertPrivacyPolicyNotAskedAgain() else acceptPrivacyPolicyUpdate()
         assertOnHomeView()
     }
 
@@ -401,7 +420,8 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Username or Email").performTextInput(testUsername)
         composeTestRule.onNodeWithText("Password").performTextInput(newStrongPassword)
         composeTestRule.onNodeWithText("Login").performClick()
-        acceptPrivacyPolicyUpdate()
+        // Accepted at the sign-in after registering, which the backend recorded.
+        assertPrivacyPolicyNotAskedAgain()
         assertOnHomeView()
     }
 

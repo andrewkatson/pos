@@ -737,8 +737,9 @@ def _read_policy_version(data, invalid_fields):
 
 def _record_policy_acceptance(user, policy_version):
     """Stamp when, and to which version of, the privacy policy and terms the
-    user agreed. Called only at account creation, and only when the request
-    carried `accepted_policies: true`. Does not save.
+    user agreed. Called at account creation, when the request carried
+    `accepted_policies: true`, and by accept_policies when a signed-in member
+    accepts the re-accept prompt (issue #620). Does not save.
 
     The version is the one the client says it showed, not POLICY_VERSION: each
     client bundles its own copy of the texts, so an app build from before a
@@ -1433,6 +1434,42 @@ def logout_user(request):
     logout(request)  # Also log out of the standard Django session
     logger.info(f"Logout successful for user_id: {request.user.id}")
     return log_and_return_json("logout_user", {'message': 'Logout successful'})
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='30/h', block=True)
+@require_POST
+def accept_policies(request):
+    """Record that the signed-in member accepted the privacy policy re-accept
+    prompt (issue #620): when, and which version.
+
+    `policy_version` is required and is the version the client bundles and just
+    showed — validated exactly as register/ and login/google/ validate it — not
+    the server's POLICY_VERSION, for the same reason those record the client's:
+    an app build from before a policy change shows the older text. Accepting
+    again overwrites the previous record, so the fields always describe the
+    member's latest agreement.
+    """
+    logger.info("Endpoint accept_policies invoked by User")
+    data = _get_json_body(request)
+    if not isinstance(data, dict):
+        logger.warning(f"Accept policies failed: Invalid JSON data for user_id: {request.user.id}")
+        return log_and_return_json("accept_policies", {'error': "Invalid JSON data"}, status=400)
+
+    invalid_fields = []
+    policy_version = _read_policy_version(data, invalid_fields)
+    if policy_version is None and Params.policy_version not in invalid_fields:
+        invalid_fields.append(Params.policy_version)
+    if invalid_fields:
+        logger.warning(f"Accept policies failed: Invalid fields {invalid_fields}")
+        return log_and_return_json("accept_policies", {'error': f"Invalid fields {invalid_fields}"}, status=400)
+
+    user = request.user
+    _record_policy_acceptance(user, policy_version)
+    user.save(update_fields=['policies_accepted_time', 'policies_accepted_version'])
+    logger.info(f"Accept policies successful for user_id: {user.id}, version: {policy_version}")
+    return log_and_return_json("accept_policies", {Fields.policies_accepted_version: policy_version})
 
 
 @csrf_exempt
@@ -6049,6 +6086,10 @@ def get_current_user(request):
         Fields.email: request.user.email,
         # The private account setting (issue #96), so Settings can show its toggle.
         Fields.is_private: request.user.is_private,
+        # Which version of the policies the member last agreed to (issue #620),
+        # so clients skip the re-accept prompt when it is not older than the
+        # version they bundle. Null when nothing is on record.
+        Fields.policies_accepted_version: request.user.policies_accepted_version,
     }
     logger.info(f"Get current user successful for user_id: {request.user.id}")
     response = log_and_return_json("get_current_user", data, status=200)

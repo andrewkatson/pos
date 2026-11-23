@@ -70,6 +70,15 @@ interface PositiveOnlySocialAPI {
     @GET("me/")
     suspend fun getCurrentUser(@Header("Authorization") token: String): Response<CurrentUserResponse>
 
+    // Record that the signed-in user accepted the privacy policy re-accept
+    // prompt (issue #620), and which version: the one this build bundles
+    // (Constants.POLICY_VERSION). getCurrentUser reads it back.
+    @POST("policies/accept/")
+    suspend fun acceptPolicies(
+        @Header("Authorization") token: String,
+        @Body request: AcceptPoliciesRequest
+    ): Response<AcceptPoliciesResponse>
+
     // Change the account password. Requires the current password as well as the
     // session, so a stolen session alone can't change it; the backend evicts the
     // account's other sessions on success.

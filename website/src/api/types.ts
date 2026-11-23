@@ -214,6 +214,21 @@ export interface CurrentUser {
   email: string
   /** Whether the account is private (issue #96). Absent on older backends. */
   is_private?: boolean
+  /**
+   * The POLICY_VERSION the user last accepted (issue #620); null when nothing
+   * is on record, absent on older backends.
+   */
+  policies_accepted_version?: string | null
+}
+
+/** `POST /policies/accept/`: the user accepted the privacy policy re-accept prompt. */
+export interface AcceptPoliciesRequest {
+  /** The version (POLICY_VERSION) of the policies the user was shown. */
+  policy_version: string
+}
+
+export interface AcceptPoliciesResponse {
+  policies_accepted_version: string
 }
 
 export interface ChangePasswordRequest {

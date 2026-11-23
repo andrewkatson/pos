@@ -134,7 +134,12 @@ struct MockedAPI: Networking {
     }
 
     func getCurrentUser(sessionManagementToken: String) async throws -> Data {
-        return try encode(CurrentUserFields(username: "preview_user", email: "preview@example.com"))
+        return try encode(CurrentUserFields(username: "preview_user", email: "preview@example.com",
+                                            policiesAcceptedVersion: GVOAppConstants.policyVersion))
+    }
+
+    func acceptPolicies(sessionManagementToken: String, policyVersion: String) async throws -> Data {
+        return try encode(["policies_accepted_version": policyVersion])
     }
 
     func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data {

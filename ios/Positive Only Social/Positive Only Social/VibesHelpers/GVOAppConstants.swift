@@ -129,6 +129,9 @@ import Foundation
     static let pathSegmentLogout = "logout"
     // GET /me/ — the signed-in account's own username + email (#194/#197).
     static let pathSegmentMe = "me"
+    // POST policies/accept/ — record the privacy policy re-accept (#620).
+    static let pathSegmentPolicies = "policies"
+    static let pathSegmentAccept = "accept"
     static let pathSegmentNotification = "notification"
     static let pathSegmentNotifications = "notifications"
     // GET/POST notifications/preferences/ — the Settings push toggles (#342/#343).

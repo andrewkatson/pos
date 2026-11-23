@@ -357,7 +357,7 @@ struct LoginView: View {
 
         // MARK: - Securely Store Token in Keychain
         authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: loginDetails.username ?? usernameOrEmail, userId: userId, isIdentityVerified: false))
-        // A sign-in asks the re-accept question afresh (#620); someone who
+        // A sign-in checks the re-accept question afresh (#620); someone who
         // answered it in the Google consent dialog a moment ago isn't asked twice.
         if acceptedPolicies {
             authManager.acceptPrivacyPolicy()

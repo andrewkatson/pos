@@ -347,10 +347,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
     
     /// Accepts the privacy-policy re-accept alert (issue #620).
     ///
-    /// It is unconditional for now, so it comes up after every sign-in and on
-    /// every launch that restores a session; anything that lands on Home that
-    /// way has to clear it before Home can be used. The Save Password prompt
-    /// can land on top of it, so both the wait and the tap clear that first.
+    /// It comes up after a sign-in, or a launch that restores a session, until
+    /// the account's acceptance of the current version is on record. Every test
+    /// launches a fresh stub, whose accounts have nothing on record, so the
+    /// first sign-in of each account in a run is asked and later ones aren't.
+    /// The Save Password prompt can land on top of it, so both the wait and the
+    /// tap clear that first.
     private func acceptPrivacyPolicyUpdate(app: XCUIApplication) {
         let alert = app.alerts["Privacy Policy Updated"]
         // SwiftUI exposes this alert's buttons more than once in the tree (the
@@ -1240,10 +1242,12 @@ final class Positive_Only_SocialUITests: XCTestCase {
         tapClearingSystemAlerts(loginButton3)
         
         dismissSavePassword(app: app)
-        
-        acceptPrivacyPolicyUpdate(app: app)
 
         assertOnHomeView(app: app)
+        // Accepting after the reset was recorded, so signing in again isn't
+        // asked a second time (issue #620).
+        XCTAssertFalse(app.alerts["Privacy Policy Updated"].waitForExistence(timeout: TestConstants.shortTimeout),
+                       "Re-accept prompt shown again although the acceptance was recorded")
     }
     
     @MainActor

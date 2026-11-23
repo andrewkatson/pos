@@ -20,6 +20,8 @@ import type {
   ConfirmTotpResponse,
   CreatePostRequest,
   CurrentUser,
+  AcceptPoliciesRequest,
+  AcceptPoliciesResponse,
   CreatePostResponse,
   CreateUploadUrlResponse,
   DisableTotpRequest,
@@ -550,6 +552,11 @@ export class ApiClient implements PositiveOnlySocialAPI {
   /** The signed-in account's own username and registered email (Settings). */
   getCurrentUser(): Promise<CurrentUser> {
     return this.request<CurrentUser>('GET', '/me/', { auth: true })
+  }
+
+  /** Records that the signed-in user accepted the privacy policy (issue #620). */
+  acceptPolicies(body: AcceptPoliciesRequest): Promise<AcceptPoliciesResponse> {
+    return this.request<AcceptPoliciesResponse>('POST', '/policies/accept/', { body, auth: true })
   }
 
   // ===========================================================================

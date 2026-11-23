@@ -1,13 +1,15 @@
-import { useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
 import { clearSession, getStoredSessionToken } from '../api/session'
 import {
-  hasAcceptedPrivacyPolicy,
+  beginPrivacyPolicyCheck,
+  finishPrivacyPolicyCheck,
+  getPrivacyPolicyStatus,
   markPrivacyPolicyAccepted,
   subscribeToPrivacyPolicyAcceptance,
 } from '../auth/privacyPolicyConsent'
-import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
+import { POLICY_VERSION, PRIVACY_POLICY_TEXT } from '../privacyPolicy'
 import { isPublicPath } from '../publicPaths'
 import Modal from './Modal'
 
@@ -37,26 +39,46 @@ function isSignedOutFlowPath(pathname: string): boolean {
 
 /**
  * Asks a signed-in user to accept the privacy policy again before using the app
- * (issue #620). It wraps the routes so it covers every authenticated page. The
- * dialog can't be dismissed: the only ways out are accepting it or logging out.
+ * (issue #620), unless the backend already records an acceptance of this
+ * build's POLICY_VERSION (or a newer one). It wraps the routes so it covers
+ * every authenticated page. The dialog can't be dismissed: the only ways out
+ * are accepting it, which the backend records, or logging out.
  *
- * While it is open the wrapped page is `inert`, so neither the mouse nor Tab
- * can reach the app behind it — the dialog's own controls are the only ones
- * left to focus. The wrapper is `display: contents` so it adds no layout box.
+ * While it is open — and while the check is still in flight — the wrapped page
+ * is `inert`, so neither the mouse nor Tab can reach the app behind it; the
+ * dialog's own controls are the only ones left to focus. The wrapper is
+ * `display: contents` so it adds no layout box.
  */
 function PrivacyPolicyReacceptGate({ children }: { children: ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
-  const accepted = useSyncExternalStore(
-    subscribeToPrivacyPolicyAcceptance,
-    hasAcceptedPrivacyPolicy,
-  )
+  const status = useSyncExternalStore(subscribeToPrivacyPolicyAcceptance, getPrivacyPolicyStatus)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
 
   // Read on every render rather than cached: login and logout change storage and
   // then navigate, and the navigation is what re-renders this component.
   const signedIn = getStoredSessionToken() !== null
-  const open = !accepted && signedIn && !isSignedOutFlowPath(location.pathname)
+  const gated = signedIn && !isSignedOutFlowPath(location.pathname)
+  const open = gated && status === 'needed'
+
+  // Ask the backend which version this member last accepted, once per session.
+  // A failed request leaves nothing known, so it asks.
+  useEffect(() => {
+    if (!gated || status !== 'unknown') return
+    const check = beginPrivacyPolicyCheck()
+    if (check === null) return
+    apiClient.getCurrentUser().then(
+      user => finishPrivacyPolicyCheck(check, user.policies_accepted_version ?? null),
+      () => finishPrivacyPolicyCheck(check, undefined),
+    )
+  }, [gated, status])
+
+  function handleAccept() {
+    markPrivacyPolicyAccepted()
+    // Best-effort, like logout: if it doesn't reach the backend the user is
+    // simply asked again next time, which is no worse than not recording it.
+    apiClient.acceptPolicies({ policy_version: POLICY_VERSION }).catch(() => {})
+  }
 
   async function handleLogOut() {
     setIsLoggingOut(true)
@@ -72,7 +94,7 @@ function PrivacyPolicyReacceptGate({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <div className="privacy-reaccept__page" inert={open}>
+      <div className="privacy-reaccept__page" inert={gated && status !== 'accepted'}>
         {children}
       </div>
       {open && (
@@ -102,7 +124,7 @@ function PrivacyPolicyReacceptGate({ children }: { children: ReactNode }) {
             <button
               type="button"
               className="modal__confirm"
-              onClick={markPrivacyPolicyAccepted}
+              onClick={handleAccept}
               disabled={isLoggingOut}
               autoFocus
             >
