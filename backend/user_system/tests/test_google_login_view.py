@@ -18,7 +18,7 @@ from .. import views
 from ..constants import (
     ACCOUNT_BANNED, BAN_TYPE_OUTRIGHT, Fields, GOOGLE_EMAIL_AMBIGUOUS,
     GOOGLE_EMAIL_UNVERIFIED, GOOGLE_SIGN_IN_UNAVAILABLE, INVALID_GOOGLE_TOKEN,
-    Patterns,
+    POLICY_ACCEPTANCE_REQUIRED, POLICY_VERSION, Patterns,
 )
 from ..google_auth import GoogleTokenError
 from ..input_validator import is_valid_pattern
@@ -44,16 +44,23 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
         super().setUp()
         self.url = reverse('login_user_google')
 
-    def _sign_in(self, token_claims=None, remember_me=false, expect_status=200):
-        """POST to login/google/ with `verify_google_id_token` stubbed to `token_claims`."""
+    def _sign_in(self, token_claims=None, remember_me=false, accepted_policies=true,
+                 policy_version=POLICY_VERSION, expect_status=200):
+        """POST to login/google/ with `verify_google_id_token` stubbed to `token_claims`.
+
+        Sends `accepted_policies` (and the version a client would have shown)
+        by default, since most tests are about what happens once an account may
+        be created; pass None to leave either out.
+        """
+        data = {'id_token': FAKE_ID_TOKEN, 'remember_me': remember_me}
+        if accepted_policies is not None:
+            data['accepted_policies'] = accepted_policies
+        if policy_version is not None:
+            data['policy_version'] = policy_version
         with patch(VERIFY_PATH, return_value=token_claims or claims()), \
                 patch(CLASSIFIER_PATH) as classify:
             classify.return_value = True
-            response = self.client.post(
-                self.url,
-                data={'id_token': FAKE_ID_TOKEN, 'remember_me': remember_me},
-                content_type='application/json',
-            )
+            response = self.client.post(self.url, data=data, content_type='application/json')
         self.assertEqual(response.status_code, expect_status, response.content)
         return response
 
@@ -143,7 +150,7 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
             user_model.objects, 'create_user',
             side_effect=IntegrityError('duplicate key value violates unique constraint "google_sub"'),
         ), patch(CLASSIFIER_PATH, return_value=True):
-            adopted, created = views._create_user_for_google(None, claims(), '127.0.0.1')
+            adopted, created = views._create_user_for_google(None, claims(), '127.0.0.1', POLICY_VERSION)
 
         self.assertEqual(adopted, winner)
         # The winner created it, not this request — so the caller must not greet
@@ -165,7 +172,7 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
 
         with patch.object(user_model.objects, 'create_user', side_effect=create_once_taken), \
                 patch(CLASSIFIER_PATH, return_value=True):
-            created_user, created = views._create_user_for_google(None, claims(), '127.0.0.1')
+            created_user, created = views._create_user_for_google(None, claims(), '127.0.0.1', POLICY_VERSION)
 
         self.assertTrue(created)
         self.assertEqual(len(attempts), 2)
@@ -178,7 +185,7 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
                 patch(CLASSIFIER_PATH, return_value=False):
             response = self.client.post(
                 self.url,
-                data={'id_token': FAKE_ID_TOKEN, 'remember_me': false},
+                data={'id_token': FAKE_ID_TOKEN, 'remember_me': false, 'accepted_policies': true},
                 content_type='application/json',
             )
 
@@ -190,12 +197,138 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
                 patch(CLASSIFIER_PATH, side_effect=RuntimeError('classifier is down')):
             response = self.client.post(
                 self.url,
-                data={'id_token': FAKE_ID_TOKEN, 'remember_me': false},
+                data={'id_token': FAKE_ID_TOKEN, 'remember_me': false, 'accepted_policies': true},
                 content_type='application/json',
             )
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()[Fields.username].startswith('friend'))
+
+    # =========================================================================
+    # Consent to the privacy policy and terms
+    # =========================================================================
+
+    def test_creating_an_account_without_accepting_the_policies_is_refused(self):
+        """The login screens' Google buttons reach here with no consent step,
+        so the server — not each client — is what stops a silent sign-up."""
+        response = self._sign_in(accepted_policies=None, expect_status=403)
+
+        self.assertEqual(response.json()['error'], POLICY_ACCEPTANCE_REQUIRED)
+        self.assertNotIn(Fields.session_management_token, response.json())
+        # Nothing is written before consent: no account, no reserved number.
+        self.assertFalse(get_user_model().objects.filter(google_sub='google-sub-1').exists())
+        self.assertFalse(get_user_model().objects.filter(email='hopefulperson@example.com').exists())
+
+    def test_an_explicit_false_is_refused_like_an_omitted_flag(self):
+        response = self._sign_in(accepted_policies=false, expect_status=403)
+        self.assertEqual(response.json()['error'], POLICY_ACCEPTANCE_REQUIRED)
+        self.assertFalse(get_user_model().objects.filter(google_sub='google-sub-1').exists())
+
+    def test_a_null_flag_is_refused_like_an_omitted_one(self):
+        with patch(VERIFY_PATH, return_value=claims()):
+            response = self.client.post(
+                self.url,
+                data={'id_token': FAKE_ID_TOKEN, 'accepted_policies': None},
+                content_type='application/json',
+            )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['error'], POLICY_ACCEPTANCE_REQUIRED)
+
+    def test_an_unparseable_flag_is_a_validation_error(self):
+        """A consent flag is the last place to guess what a malformed value meant."""
+        with patch(VERIFY_PATH, return_value=claims()) as verify:
+            response = self.client.post(
+                self.url,
+                data={'id_token': FAKE_ID_TOKEN, 'accepted_policies': 'perhaps'},
+                content_type='application/json',
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('ACCEPTED_POLICIES', response.json()['error'])
+        verify.assert_not_called()
+
+    def test_retrying_with_the_flag_creates_the_account_and_records_consent(self):
+        """The client's retry after showing the policies: same token, plus the flag."""
+        self._sign_in(accepted_policies=None, expect_status=403)
+
+        body = self._sign_in(accepted_policies=true).json()
+
+        self.assertTrue(body[Fields.created_account])
+        user = get_user_model().objects.get(id=body[Fields.user_id])
+        self.assertIsNotNone(user.policies_accepted_time)
+        self.assertEqual(user.policies_accepted_version, POLICY_VERSION)
+
+    def test_the_version_recorded_is_the_one_the_client_showed(self):
+        """An app build from before a policy change shows the older text, and
+        its users agreed to that — not to whatever the server holds now."""
+        body = self._sign_in(policy_version='2026-01-01').json()
+
+        user = get_user_model().objects.get(id=body[Fields.user_id])
+        self.assertEqual(user.policies_accepted_version, '2026-01-01')
+        self.assertIsNotNone(user.policies_accepted_time)
+
+    def test_consent_without_a_version_records_the_time_but_no_version(self):
+        body = self._sign_in(policy_version=None).json()
+
+        user = get_user_model().objects.get(id=body[Fields.user_id])
+        self.assertIsNotNone(user.policies_accepted_time)
+        self.assertIsNone(user.policies_accepted_version)
+
+    def test_a_malformed_policy_version_is_a_validation_error(self):
+        for bad in ['latest', '2026-08-13\n', 20260813, '2026-02-30', '2026-99-99', '0000-08-13']:
+            with self.subTest(policy_version=bad):
+                response = self._sign_in(policy_version=bad, expect_status=400)
+                self.assertIn('POLICY_VERSION', response.json()['error'])
+        self.assertFalse(get_user_model().objects.filter(google_sub='google-sub-1').exists())
+
+    def test_the_string_true_is_accepted_like_remember_me(self):
+        body = self._sign_in(accepted_policies='true').json()
+        self.assertTrue(body[Fields.created_account])
+
+    def test_signing_back_in_needs_no_consent(self):
+        """Only creating an account asks; an existing member just signs in."""
+        first = self._sign_in().json()
+        accepted_at = get_user_model().objects.get(id=first[Fields.user_id]).policies_accepted_time
+
+        second = self._sign_in(accepted_policies=None).json()
+
+        self.assertEqual(first[Fields.user_id], second[Fields.user_id])
+        self.assertFalse(second[Fields.created_account])
+        # Signing in again does not re-stamp when the policies were agreed to.
+        user = get_user_model().objects.get(id=first[Fields.user_id])
+        self.assertEqual(user.policies_accepted_time, accepted_at)
+
+    def test_linking_to_an_existing_account_needs_no_consent(self):
+        """The account already exists — this is a sign-in, not a sign-up."""
+        registered = self._register_user(
+            self._get_unique_username('linkme'), 'sharedaddress@example.com', f'Password_{self.prefix}123-'
+        )
+
+        body = self._sign_in(claims(email='sharedaddress@example.com'), accepted_policies=None).json()
+
+        self.assertEqual(body[Fields.user_id], registered[Fields.user_id])
+        self.assertFalse(body[Fields.created_account])
+
+    def test_two_factor_account_gets_its_challenge_without_consent(self):
+        body = self._sign_in().json()
+        get_user_model().objects.filter(id=body[Fields.user_id]).update(
+            totp_enabled=True, totp_secret='ABCDEFGHIJKLMNOP',
+        )
+        second = self._sign_in(accepted_policies=None).json()
+        self.assertTrue(second[Fields.two_factor_required])
+
+    def test_unverified_email_is_refused_before_consent_is_asked_for(self):
+        """No point asking someone to agree to the policies for an account we
+        would refuse to create anyway."""
+        response = self._sign_in(claims(email_verified=False), accepted_policies=None, expect_status=403)
+        self.assertEqual(response.json()['error'], GOOGLE_EMAIL_UNVERIFIED)
+
+    def test_ambiguous_email_is_refused_before_consent_is_asked_for(self):
+        password = f'Password_{self.prefix}123-'
+        self._register_user(self._get_unique_username('dupea'), 'duplicate@example.com', password)
+        self._register_user(self._get_unique_username('dupeb'), 'Duplicate@example.com', password)
+
+        response = self._sign_in(claims(email='duplicate@example.com'), accepted_policies=None, expect_status=409)
+        self.assertEqual(response.json()['error'], GOOGLE_EMAIL_AMBIGUOUS)
 
     # =========================================================================
     # Signing back in
@@ -396,7 +529,7 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
         with patch(VERIFY_PATH, return_value=claims()), patch(CLASSIFIER_PATH, return_value=True):
             response = self.client.post(
                 self.url,
-                data={'id_token': FAKE_ID_TOKEN, 'remember_me': None},
+                data={'id_token': FAKE_ID_TOKEN, 'remember_me': None, 'accepted_policies': true},
                 content_type='application/json',
             )
         self.assertEqual(response.status_code, 200)
@@ -415,7 +548,8 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
     def test_omitted_remember_me_defaults_to_not_remembering(self):
         with patch(VERIFY_PATH, return_value=claims()), patch(CLASSIFIER_PATH, return_value=True):
             response = self.client.post(
-                self.url, data={'id_token': FAKE_ID_TOKEN}, content_type='application/json',
+                self.url, data={'id_token': FAKE_ID_TOKEN, 'accepted_policies': true},
+                content_type='application/json',
             )
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(Fields.login_cookie_token, response.json())

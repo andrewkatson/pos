@@ -1547,3 +1547,61 @@ test('editComment is author-only and keeps the original on a rejection (#462)', 
   const [listed] = await api.getCommentsForThread(comment_thread_identifier, 0)
   expect(listed.body).toBe('so lovely')
 })
+
+// ---------------------------------------------------------------------------
+// Google sign-in consent gate (mirrors login_user_google)
+// ---------------------------------------------------------------------------
+
+/** An unsigned token carrying the claims the stub reads. Not a credential. */
+function googleIdToken(sub: string, email: string): string {
+  const encode = (value: object) =>
+    btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  return `${encode({ alg: 'none' })}.${encode({ sub, email, email_verified: true })}.sig`
+}
+
+test('a Google sign-in that would create an account is refused without consent', async () => {
+  const api = new StatefulStubbedAPI()
+  const idToken = googleIdToken('sub-1', 'hopefulperson@example.com')
+
+  await expect(api.loginWithGoogle({ id_token: idToken })).rejects.toMatchObject({
+    status: 403,
+    message: 'policy_acceptance_required',
+  })
+  await expect(
+    api.loginWithGoogle({ id_token: idToken, accepted_policies: false }),
+  ).rejects.toThrow('policy_acceptance_required')
+  expect(api.isAuthenticated()).toBe(false)
+
+  // Nothing was written, so the retry with consent creates the account.
+  const created = await api.loginWithGoogle({ id_token: idToken, accepted_policies: true })
+  if (isTwoFactorRequired(created)) throw new Error('unexpected two-factor challenge')
+  expect(created.created_account).toBe(true)
+  expect(api.isAuthenticated()).toBe(true)
+})
+
+test('an existing Google member signs back in without consent', async () => {
+  const api = new StatefulStubbedAPI()
+  const idToken = googleIdToken('sub-1', 'hopefulperson@example.com')
+  const first = await api.loginWithGoogle({ id_token: idToken, accepted_policies: true })
+
+  const second = await api.loginWithGoogle({ id_token: idToken })
+
+  if (isTwoFactorRequired(first) || isTwoFactorRequired(second)) {
+    throw new Error('unexpected two-factor challenge')
+  }
+  expect(second.user_id).toBe(first.user_id)
+  expect(second.created_account).toBe(false)
+})
+
+test('linking Google to an existing password account needs no consent', async () => {
+  const api = new StatefulStubbedAPI()
+  const registered = await register(api, 'existingperson')
+
+  const linked = await api.loginWithGoogle({
+    id_token: googleIdToken('sub-1', 'existingperson@example.com'),
+  })
+
+  if (isTwoFactorRequired(linked)) throw new Error('unexpected two-factor challenge')
+  expect(linked.user_id).toBe(registered.user_id)
+  expect(linked.created_account).toBe(false)
+})

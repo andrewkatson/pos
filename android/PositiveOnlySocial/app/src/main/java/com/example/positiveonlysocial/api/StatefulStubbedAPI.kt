@@ -375,6 +375,13 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 it.emailVerificationToken = null
             }
 
+        if (linked == null && request.acceptedPolicies != true) {
+            // Mirrors login_user_google: nobody becomes a member without
+            // agreeing to the privacy policy and terms, and nothing is written
+            // before then.
+            return errorGeneric(403, Constants.POLICY_ACCEPTANCE_REQUIRED)
+        }
+
         val user = linked ?: run {
             // Usernames need at least 10 word characters, so a short local part
             // is padded — mirroring _google_username_base in the backend.

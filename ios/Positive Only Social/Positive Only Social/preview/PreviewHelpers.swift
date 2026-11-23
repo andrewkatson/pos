@@ -70,7 +70,7 @@ struct MockedAPI: Networking {
         return try encode(response)
     }
 
-    func loginWithGoogle(idToken: String, rememberMe: String, ip: String) async throws -> Data {
+    func loginWithGoogle(idToken: String, rememberMe: String, acceptedPolicies: Bool, ip: String) async throws -> Data {
         let response = LoginResponseFields(
             sessionManagementToken: "mock_session_token",
             username: "mockgoogleuser",

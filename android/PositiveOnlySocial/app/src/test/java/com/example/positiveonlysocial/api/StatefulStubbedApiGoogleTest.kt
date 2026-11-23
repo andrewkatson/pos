@@ -37,9 +37,57 @@ class StatefulStubbedApiGoogleTest {
         email: String = "hopefulperson@example.com",
         emailVerified: Boolean = true,
         rememberMe: String = "false",
+        // Most tests are about what happens once an account may be created;
+        // pass null to sign in without claiming consent.
+        acceptedPolicies: Boolean? = true,
     ) = api.loginWithGoogle(
-        GoogleLoginRequest(idToken(sub, email, emailVerified), rememberMe, "127.0.0.1")
+        GoogleLoginRequest(idToken(sub, email, emailVerified), rememberMe, "127.0.0.1", acceptedPolicies)
     )
+
+    @Test
+    fun `creating an account without consent is refused and writes nothing`() = runTest {
+        val api = StatefulStubbedAPI()
+        val refused = signIn(api, acceptedPolicies = null)
+
+        assertEquals(403, refused.code())
+        assertEquals(
+            Constants.POLICY_ACCEPTANCE_REQUIRED,
+            ApiErrors.messageFor(refused, fallback = "unexpected")
+        )
+
+        // Nothing was written, so the retry with consent is a brand-new account.
+        val retried = signIn(api, acceptedPolicies = true).body()!!
+        assertEquals(true, retried.createdAccount)
+    }
+
+    @Test
+    fun `an explicit false is refused like an omitted flag`() = runTest {
+        val api = StatefulStubbedAPI()
+        assertEquals(403, signIn(api, acceptedPolicies = false).code())
+    }
+
+    @Test
+    fun `signing back in needs no consent`() = runTest {
+        val api = StatefulStubbedAPI()
+        val first = signIn(api).body()!!
+        val second = signIn(api, acceptedPolicies = null).body()!!
+
+        assertEquals(first.userId, second.userId)
+        assertEquals(false, second.createdAccount)
+    }
+
+    @Test
+    fun `linking to an existing password account needs no consent`() = runTest {
+        val api = StatefulStubbedAPI()
+        val registered = api.register(
+            RegisterRequest("existingperson", "sharedaddress@example.com", "pw12345", "false", "127.0.0.1", "1970-01-01")
+        ).body()!!
+
+        val google = signIn(api, email = "sharedaddress@example.com", acceptedPolicies = null).body()!!
+
+        assertEquals(registered.userId, google.userId)
+        assertEquals(false, google.createdAccount)
+    }
 
     @Test
     fun `first sign-in creates an account and a session`() = runTest {

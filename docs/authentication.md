@@ -46,8 +46,48 @@ sorted first.
 
 Every rejection above is a stable machine-readable code, never prose — clients
 map `google_email_ambiguous`, `google_email_unverified`,
-`invalid_google_token` and `google_sign_in_unavailable` to their own copy, the
+`invalid_google_token` and `google_sign_in_unavailable` to their own copy
+(and treat `policy_acceptance_required`, below, as a question rather than an error), the
 same way they already do for `account_banned` and `email_not_verified`.
+
+**Consent before creating an account.** Every client shows the Google button
+on its login screen as well as (on the website) its register page, and a first
+Google sign-in from the login screen used to create an account with no privacy
+policy or terms in sight. So the backend refuses to create one unless the
+request carries `accepted_policies: true`: when no account holds the token's
+`sub` or email, a request without the flag gets `policy_acceptance_required`
+(403) and nothing is written. Signing in to an existing account — including
+the first-time link to a password account above, and the two-factor challenge —
+needs no flag, so returning members never see a consent step. The check comes
+after the unverified-email and ambiguous-email refusals, so nobody is asked to
+agree to the policies for an account that would be refused anyway; an
+unparseable flag is an ordinary `Invalid fields [ACCEPTED_POLICIES]` error.
+
+Clients handle the code the same way everywhere: the first attempt never sends
+the flag; on `policy_acceptance_required` the login screen holds the ID token,
+shows a "Create your account" confirmation with the privacy policy text and the
+terms one tap away (the website links both in a new tab; iOS and Android open
+their in-app terms sheet/dialog over it), and on "Agree" retries with the same
+token plus the flag and `policy_version`. Google's ID tokens are valid for an hour, so the retry
+needs no second trip through Google. Cancelling discards the token and creates
+nothing. The website's register page already shows the privacy policy before
+its Google button does anything, so it sends the flag on its first and only
+attempt.
+
+The new account records when and to which version the user agreed, in
+`policies_accepted_time` and `policies_accepted_version` on
+`PositiveOnlySocialUser`. The version is the one the **client says it showed**
+(`policy_version`, a `YYYY-MM-DD` date; anything else is an
+`Invalid fields [POLICY_VERSION]` error), not the server's current
+`POLICY_VERSION`: each client bundles its own copy of the texts, so an app build
+from before a policy change shows the older version, and recording the server's
+would claim agreement to text the user never saw. A consenting request with no
+version records the time and a null version. `register/` accepts the same
+fields and records them the same way, but does not require them, so an app build
+from before the flag still registers; every client sends them from behind its
+register-screen privacy-policy confirmation. Accounts created before this, or by a client too
+old to send the flag, have both fields null. Nothing yet re-prompts existing
+members when `POLICY_VERSION` changes.
 
 **Creating an account.** Otherwise the sign-in creates one. A Google account
 brings no username, so one is generated from the email local part (non-word

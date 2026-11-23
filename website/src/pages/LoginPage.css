@@ -488,6 +488,22 @@
   gap: 1.25rem;
 }
 
+/* A body made of several paragraphs (the Google sign-up consent dialog on the
+   login page) scrolls as one block rather than each paragraph shrinking into
+   its own little scroll box. */
+.modal__scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.modal__scroll > .modal__body {
+  flex-shrink: 0;
+  overflow-y: visible;
+}
+
 .modal__title {
   margin: 0;
   font-size: 1.2rem;
