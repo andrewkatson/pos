@@ -152,8 +152,10 @@ terms, in the same change as the new text, so accounts that agreed to an older
 version can be told apart.
 Google sign-ups always record it; password registrations record it when the
 client sends `accepted_policies`, which every current client does. Accounts
-from before this field existed have it null, and existing members are not yet
-re-prompted when the version changes.
+from before this field existed have it null. The
+[re-accept prompt](#privacy-policy-re-accept-issue-620) asks every signed-in
+user on each launch regardless of version, but does not yet record their
+acceptance on the server, so those fields stay null for existing members.
 
 What the terms cover follows the behavior documented elsewhere in these docs:
 the 16+ [age floor and the adult/minor split](age-and-identity.md), the

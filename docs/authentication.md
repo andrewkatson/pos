@@ -86,8 +86,9 @@ version records the time and a null version. `register/` accepts the same
 fields and records them the same way, but does not require them, so an app build
 from before the flag still registers; every client sends them from behind its
 register-screen privacy-policy confirmation. Accounts created before this, or by a client too
-old to send the flag, have both fields null. Nothing yet re-prompts existing
-members when `POLICY_VERSION` changes.
+old to send the flag, have both fields null. Existing members see the
+[privacy policy re-accept prompt](accounts.md#privacy-policy-re-accept-issue-620)
+on each launch, but accepting it there is not yet recorded in these fields.
 
 **Creating an account.** Otherwise the sign-in creates one. A Google account
 brings no username, so one is generated from the email local part (non-word

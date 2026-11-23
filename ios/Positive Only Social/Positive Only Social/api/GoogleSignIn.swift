@@ -259,7 +259,6 @@ enum GoogleOAuth {
 
 // MARK: - Provider
 
-/// Injectable so views (and tests) never reach for ASWebAuthenticationSession.
 /// The consent step in front of a Google sign-up (see LoginView).
 enum GoogleSignUpConsent {
     /// Whether login/google/ refused because the sign-in would create an
@@ -271,6 +270,7 @@ enum GoogleSignUpConsent {
     }
 }
 
+/// Injectable so views (and tests) never reach for ASWebAuthenticationSession.
 protocol GoogleSignInProviding {
     /// False when no client ID is configured, in which case the button is hidden.
     var isConfigured: Bool { get }
