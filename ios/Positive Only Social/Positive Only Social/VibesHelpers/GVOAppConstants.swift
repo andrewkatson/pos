@@ -232,6 +232,8 @@ import Foundation
         ),
     ]
 
+    /// Lead-in for the re-accept prompt shown on opening the app (issue #620).
+    static let privacyPolicyUpdatedIntro = "Please review our Privacy Policy. You need to accept it to keep using Good Vibes Only."
     /// Version of `privacyPolicyText` *and* the terms of service, as the date
     /// of the last material change to either. Sent as `policy_version` whenever
     /// the user agrees to them, so the backend records the version this build

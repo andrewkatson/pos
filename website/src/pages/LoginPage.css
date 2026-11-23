@@ -520,6 +520,18 @@
   color: var(--auth-fg-strong);
 }
 
+/* The privacy-policy re-accept dialog (issue #620). The wrapper around the
+   routes adds no box of its own; the policy scrolls inside the dialog so the
+   Accept / Log Out buttons stay on screen however short the viewport. */
+.privacy-reaccept__page {
+  display: contents;
+}
+
+.privacy-reaccept__policy {
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
 .modal__actions {
   display: flex;
   justify-content: flex-end;

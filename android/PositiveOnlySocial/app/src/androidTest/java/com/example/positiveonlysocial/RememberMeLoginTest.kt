@@ -5,7 +5,10 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.positiveonlysocial.di.DependencyProvider
+import com.example.positiveonlysocial.fcm.PushNavigator
 import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -41,7 +44,13 @@ class RememberMeLoginTest {
     private var scenario: ActivityScenario<MainActivity>? = null
 
     @Before
-    fun clearPersistedAuth() = clearKeychain()
+    fun clearPersistedAuth() {
+        clearKeychain()
+        // The AuthenticationManager singleton outlives Activities too; start
+        // each test signed out so a launch isn't treated as reopening the app
+        // with a live session (issue #620).
+        kotlinx.coroutines.runBlocking { DependencyProvider.authManager.logout() }
+    }
 
     @After
     fun tearDown() {
@@ -77,7 +86,48 @@ class RememberMeLoginTest {
         composeTestRule.waitUntil(timeoutMillis = 10_000) {
             composeTestRule.onAllNodesWithText("Settings").fetchSemanticsNodes().isNotEmpty()
         }
+        // Reopening the app asks for the privacy policy again (issue #620).
+        acceptPrivacyPolicyUpdate()
         assertOnHomeView()
+    }
+
+    @Test
+    fun testRelaunchWithLinkAsksForPrivacyPolicyFirst() {
+        // Sign in with Remember Me and accept, then close the Activity. The
+        // process (and the signed-in AuthenticationManager singleton) survives.
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        registerUser(testUsername, strongPassword)
+        logoutUserFromHome()
+        loginWithRememberMe(testUsername, strongPassword)
+        scenario?.close()
+
+        // A shared profile link opens a brand-new Activity (issue #620). It
+        // must wait while Welcome restores the session (opening it then would
+        // cancel that restore) and while this opening's prompt is unanswered.
+        PushNavigator.openProfile(testUsername)
+        try {
+            scenario = ActivityScenario.launch(MainActivity::class.java)
+            composeTestRule.waitUntil(timeoutMillis = 10_000) {
+                composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isNotEmpty()
+            }
+            assertEquals(testUsername, PushNavigator.pendingProfileUsername.value)
+
+            composeTestRule.onNodeWithText("Accept").performClick()
+            composeTestRule.waitUntil(timeoutMillis = 10_000) {
+                PushNavigator.pendingProfileUsername.value == null
+            }
+            // The restore finished rather than being cancelled, so the saved
+            // session is still there for the screens that read it.
+            assertNotNull(
+                DependencyProvider.keychainHelper.load(
+                    com.example.positiveonlysocial.data.model.UserSession::class.java,
+                    keychainService,
+                    sessionAccount
+                )
+            )
+        } finally {
+            PushNavigator.clearProfileRequest()
+        }
     }
 
     // MARK: Helpers (mirrored from PositiveOnlySocialIntegrationTests)
@@ -97,6 +147,21 @@ class RememberMeLoginTest {
         composeTestRule.onNodeWithText("Login").assertExists()
         composeTestRule.onNodeWithText("Remember Me").assertExists()
         composeTestRule.onNodeWithText("Forgot Password?").assertExists()
+    }
+
+    /**
+     * Accepts the privacy-policy re-accept dialog (issue #620). It is
+     * unconditional for now, so it comes up after every sign-in and every
+     * remember-me auto-login, and Home can't be used until it is answered.
+     */
+    private fun acceptPrivacyPolicyUpdate() {
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText("Accept").performClick()
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isEmpty()
+        }
     }
 
     private fun assertOnHomeView() {
@@ -144,6 +209,7 @@ class RememberMeLoginTest {
         composeTestRule.onNodeWithText("Password").performTextInput(password)
         composeTestRule.onNodeWithText("Login").performClick()
 
+        acceptPrivacyPolicyUpdate()
         assertOnHomeView()
     }
 
@@ -169,6 +235,7 @@ class RememberMeLoginTest {
         composeTestRule.onNodeWithTag("RememberMeToggle").performClick()
 
         composeTestRule.onNodeWithText("Login").performClick()
+        acceptPrivacyPolicyUpdate()
         assertOnHomeView()
     }
 }

@@ -35,6 +35,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Before anything renders: a fresh launch, or Android restoring the app
+        // in a new process after killing it, is "opening the app" and asks for
+        // the privacy policy again, so a link this launch carries waits behind
+        // the prompt (issue #620). A configuration change is neither.
+        DependencyProvider.authManager.onActivityCreated(restoringState = savedInstanceState != null)
         // Before any push can arrive in the background and name a channel.
         PosFirebaseMessagingService.ensureChannels(this)
         maybeRequestNotificationPermission()

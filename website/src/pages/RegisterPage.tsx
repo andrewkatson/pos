@@ -16,6 +16,7 @@ import InterestPicker from '../components/InterestPicker'
 import type { InterestOption } from '../api/types'
 import { isTwoFactorRequired } from '../api/types'
 import { POLICY_VERSION, PRIVACY_POLICY_TEXT } from '../privacyPolicy'
+import { markPrivacyPolicyAccepted } from '../auth/privacyPolicyConsent'
 import { registerForPush } from '../push/webPush'
 import './LoginPage.css'
 
@@ -182,6 +183,9 @@ function RegisterPage() {
       // Unlike the password path this session is usable immediately: Google has
       // already verified the address, so there is no email to go and click.
       persistSession(response, false)
+      // They accepted the policy a moment ago to get here, so the re-accept
+      // gate (issue #620) mustn't ask again the moment they land on /home.
+      markPrivacyPolicyAccepted()
       void registerForPush({ promptIfNeeded: true })
       setMemberNumber(response.membership_number ?? null)
       setSignedUpWithGoogle(true)

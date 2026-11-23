@@ -270,7 +270,7 @@ struct LoginView: View {
             }
 
             let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
-            try completeLogin(with: loginDetails)
+            try completeLogin(with: loginDetails, acceptedPolicies: acceptedPolicies)
         } catch let error where GoogleSignUpConsent.isRequired(by: error) {
             // Not a failure: this sign-in would create an account. Ask first.
             pendingGoogleIdToken = idToken
@@ -348,13 +348,20 @@ struct LoginView: View {
     }
 
     /// Shared tail of both login steps: persist the session and tokens.
-    private func completeLogin(with loginDetails: LoginResponseFields) throws {
+    /// `acceptedPolicies` is true when this sign-in follows the Google consent
+    /// dialog, where the user has just agreed to the privacy policy.
+    private func completeLogin(with loginDetails: LoginResponseFields, acceptedPolicies: Bool = false) throws {
         guard let userId = loginDetails.userId else {
             throw NSError(domain: "LoginError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Login failed: server did not return a user ID."])
         }
 
         // MARK: - Securely Store Token in Keychain
         authManager.login(with: UserSession(sessionToken: loginDetails.sessionManagementToken, username: loginDetails.username ?? usernameOrEmail, userId: userId, isIdentityVerified: false))
+        // A sign-in asks the re-accept question afresh (#620); someone who
+        // answered it in the Google consent dialog a moment ago isn't asked twice.
+        if acceptedPolicies {
+            authManager.acceptPrivacyPolicy()
+        }
 
         NSLog("%@", "✅ Session token securely saved to Keychain.")
 

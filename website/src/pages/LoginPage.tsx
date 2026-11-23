@@ -23,6 +23,7 @@ import {
   saveRememberMeTokens,
 } from '../api/session'
 import { POLICY_VERSION, PRIVACY_POLICY_TEXT } from '../privacyPolicy'
+import { markPrivacyPolicyAccepted } from '../auth/privacyPolicyConsent'
 import { registerForPush } from '../push/webPush'
 import './LoginPage.css'
 
@@ -102,11 +103,18 @@ function LoginPage() {
     ? /^[0-9a-fA-F]{10}$/.test(twoFactorCode.trim())
     : /^\d{6}$/.test(twoFactorCode.trim())
 
-  /** Shared tail of both login steps: persist the session and enter the app. */
-  function completeLogin(response: AuthResponse) {
+  /**
+   * Shared tail of both login steps: persist the session and enter the app.
+   * `acceptedPolicies` is true when this sign-in follows the Google consent
+   * modal, where the user has just agreed to the privacy policy.
+   */
+  function completeLogin(response: AuthResponse, acceptedPolicies = false) {
     // When "Remember Me" is off the session goes to sessionStorage and is
     // cleared when the browser/tab closes; when on it persists in localStorage.
     persistSession(response, rememberMe)
+    // persistSession asks the re-accept question afresh (issue #620); someone
+    // who answered it in the consent modal a moment ago isn't asked twice.
+    if (acceptedPolicies) markPrivacyPolicyAccepted()
     // Persist the remember-me tokens (only returned when remember_me was
     // requested) so the session can be rotated on the next browser start;
     // otherwise drop any stale tokens from a previous "remember me" login.
@@ -186,7 +194,7 @@ function LoginPage() {
         setChallengeToken(response.challenge_token)
         return
       }
-      completeLogin(response)
+      completeLogin(response, acceptedPolicies)
     } catch (err) {
       const apiErr = err as ApiError
       if (apiErr.message === POLICY_ACCEPTANCE_REQUIRED) {

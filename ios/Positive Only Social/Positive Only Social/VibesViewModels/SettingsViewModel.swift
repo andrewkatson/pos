@@ -568,7 +568,9 @@ final class SettingsViewModel: ObservableObject {
                 
                 // Save updated session to keychain and auth manager
                 try keychainHelper.save(newSession, for: keychainService, account: account)
-                authManager.login(with: newSession)
+                // Same user, same session, mid-use: keep their privacy policy
+                // answer rather than asking again (#620).
+                authManager.login(with: newSession, keepPrivacyPolicyAcceptance: true)
                 
                 verificationMessage = "Identity verified successfully!"
                 showingVerificationAlert = true
