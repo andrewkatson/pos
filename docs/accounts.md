@@ -266,6 +266,36 @@ does, with the terms one tap away, since a signed-out user cannot reach
 Settings. The privacy policy stays the confirmation dialog that Register already
 puts up on both clients.
 
+**No account is created without that agreement, on any path.** The register
+screens gate the form behind the privacy-policy confirmation. Google sign-in
+can create an account from the *login* screen too, which has no such step, so
+`login/google/` refuses to create one unless the client says the user agreed
+(`accepted_policies: true`); each login screen then shows a "Create your
+account" confirmation with the privacy policy and a way to read the terms, and
+retries once the user agrees. Existing members signing in are never asked. See
+[consent before creating an account](authentication.md#signing-in-with-google)
+for the protocol.
+
+**When and to what each member agreed** is recorded at account creation in
+`PositiveOnlySocialUser.policies_accepted_time` and
+`policies_accepted_version`. The version is the date of the copy the client
+displayed, which each client sends as `policy_version` from its own constant:
+
+| Surface | Version constant |
+| --- | --- |
+| Backend (current) | `POLICY_VERSION` in `backend/user_system/constants.py` |
+| Website | `POLICY_VERSION` in `website/src/privacyPolicy.ts` |
+| iOS | `GVOAppConstants.policyVersion` |
+| Android | `Constants.POLICY_VERSION` |
+
+Bump all four to the date of any material change to the privacy policy or the
+terms, in the same change as the new text, so accounts that agreed to an older
+version can be told apart.
+Google sign-ups always record it; password registrations record it when the
+client sends `accepted_policies`, which every current client does. Accounts
+from before this field existed have it null, and existing members are not yet
+re-prompted when the version changes.
+
 What the terms cover follows the behavior documented elsewhere in these docs:
 the 16+ [age floor and the adult/minor split](age-and-identity.md), the
 [content guidelines](../README.md#content-guidelines), [automated moderation](post-classification.md),

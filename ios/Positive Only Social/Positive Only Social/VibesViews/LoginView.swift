@@ -26,6 +26,15 @@ struct LoginView: View {
     @State private var twoFactorCode = ""
     @State private var useRecoveryCode = false
 
+    // MARK: - Google Sign-Up Consent
+    // A Google ID token for which no account exists yet. The backend won't
+    // create one until the user agrees to the privacy policy and terms, so the
+    // token waits here while they read, then is retried with consent. Google's
+    // ID tokens stay valid for an hour, which is plenty.
+    @State private var pendingGoogleIdToken: String?
+    @State private var showingGoogleConsent = false
+    @State private var showingTermsOfService = false
+
     // Which field currently owns the keyboard. Cleared (set to nil) to dismiss
     // the keyboard through SwiftUI's focus system — the only dismissal that
     // sticks; see KeyboardDismiss.swift (issue #205).
@@ -68,6 +77,23 @@ struct LoginView: View {
         .navigationTitle(twoFactorChallengeToken != nil ? "Two-Factor Login" : "Login")
         .navigationDestination(for: String.self) { routeName in if routeName == "RequestResetView" { RequestResetView(api: api, keychainHelper: keychainHelper) } }
         .alert("Login Failed", isPresented: $showingErrorAlert) { Button("OK") {}.accessibilityIdentifier("LoginFailedOkButton") } message: { Text(errorMessage ?? "An unknown error occurred.") }
+        .alert(GVOAppConstants.googleSignUpConsentTitle, isPresented: $showingGoogleConsent) {
+            Button("Agree and Create Account") { acceptPoliciesAndSignUp() }
+                .accessibilityIdentifier("GoogleConsentAgreeButton")
+            // Opens the terms over the login screen; the alert comes back when
+            // the sheet closes (see its onDismiss) so the token isn't lost.
+            Button("Read Terms of Service") { showingTermsOfService = true }
+                .accessibilityIdentifier("GoogleConsentTermsButton")
+            Button("Cancel", role: .cancel) { pendingGoogleIdToken = nil }
+                .accessibilityIdentifier("GoogleConsentCancelButton")
+        } message: {
+            Text(GVOAppConstants.googleSignUpConsentIntro + "\n\n" + GVOAppConstants.privacyPolicyText)
+        }
+        .sheet(isPresented: $showingTermsOfService, onDismiss: {
+            if pendingGoogleIdToken != nil { showingGoogleConsent = true }
+        }) {
+            TermsOfServiceView()
+        }
     }
 
     @ViewBuilder
@@ -194,21 +220,7 @@ struct LoginView: View {
             isLoading = true
             do {
                 let idToken = try await googleSignIn.signIn()
-                let responseData = try await api.loginWithGoogle(idToken: idToken, rememberMe: String(rememberMe), ip: "127.0.0.1")
-
-                // A 2FA-enrolled account answers with a challenge here too:
-                // holding the Google account is a first factor, not a way past
-                // the second.
-                if let challenge = try? JSONDecoder().decode(TwoFactorRequiredFields.self, from: responseData),
-                   challenge.twoFactorRequired {
-                    twoFactorChallengeToken = challenge.challengeToken
-                    twoFactorCode = ""
-                    isLoading = false
-                    return
-                }
-
-                let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
-                try completeLogin(with: loginDetails)
+                await exchangeGoogleToken(idToken, acceptedPolicies: false)
             } catch GoogleSignInError.cancelled {
                 // Dismissing Google's sheet is a choice, not a failure — say
                 // nothing rather than popping an alert over it.
@@ -217,14 +229,58 @@ struct LoginView: View {
                 errorMessage = error.errorDescription
                 showingErrorAlert = true
                 NSLog("%@", "🔴 Google sign-in failed with error: \(error)")
-            } catch let error as APIError {
-                handleGoogleSignInError(error)
             } catch {
                 errorMessage = GVOAppConstants.googleSignInFailedMessage
                 showingErrorAlert = true
                 NSLog("%@", "🔴 Google sign-in failed with error: \(error)")
             }
             isLoading = false
+        }
+    }
+
+    /// The consent alert's "Agree": retry the held token, this time with consent.
+    private func acceptPoliciesAndSignUp() {
+        guard let idToken = pendingGoogleIdToken else { return }
+        pendingGoogleIdToken = nil
+        Task {
+            isLoading = true
+            await exchangeGoogleToken(idToken, acceptedPolicies: true)
+            isLoading = false
+        }
+    }
+
+    /// Trades a Google ID token for a session. The first attempt never claims
+    /// consent: an existing member needs none, and if the token belongs to
+    /// nobody yet the backend refuses with `policy_acceptance_required` — the
+    /// cue to show the privacy policy and terms and ask before an account is
+    /// created.
+    private func exchangeGoogleToken(_ idToken: String, acceptedPolicies: Bool) async {
+        do {
+            let responseData = try await api.loginWithGoogle(idToken: idToken, rememberMe: String(rememberMe), acceptedPolicies: acceptedPolicies, ip: "127.0.0.1")
+
+            // A 2FA-enrolled account answers with a challenge here too:
+            // holding the Google account is a first factor, not a way past
+            // the second.
+            if let challenge = try? JSONDecoder().decode(TwoFactorRequiredFields.self, from: responseData),
+               challenge.twoFactorRequired {
+                twoFactorChallengeToken = challenge.challengeToken
+                twoFactorCode = ""
+                isLoading = false
+                return
+            }
+
+            let loginDetails = try JSONDecoder().decode(LoginResponseFields.self, from: responseData)
+            try completeLogin(with: loginDetails)
+        } catch let error where GoogleSignUpConsent.isRequired(by: error) {
+            // Not a failure: this sign-in would create an account. Ask first.
+            pendingGoogleIdToken = idToken
+            showingGoogleConsent = true
+        } catch let error as APIError {
+            handleGoogleSignInError(error)
+        } catch {
+            errorMessage = GVOAppConstants.googleSignInFailedMessage
+            showingErrorAlert = true
+            NSLog("%@", "🔴 Google sign-in failed with error: \(error)")
         }
     }
 

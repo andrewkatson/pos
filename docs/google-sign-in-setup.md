@@ -103,7 +103,9 @@ Note again: the **web** client ID, not the Android one.
 
 1. The button appears on the login screen (and, on the website, the register
    page as well).
-2. Signing in with a Google account that has never used the app creates one:
+2. Signing in from the login screen with a Google account that has never used
+   the app first asks you to agree to the privacy policy and terms ("Create your
+   account"); cancelling creates nothing. Agreeing creates the account:
    the response carries `created_account: true` and a membership number, and the
    generated username comes from the email local part.
 3. Signing in again with the same Google account lands on the same account,

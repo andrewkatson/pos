@@ -255,6 +255,18 @@ class PositiveOnlySocialUser(AbstractUser):
     # account can never end up attached to two members.
     google_sub = models.TextField(null=True, blank=True, unique=True, default=None)
 
+    # When, and to which version, the member agreed to the privacy policy and
+    # terms of service. The version is the one the client says it displayed
+    # (each client bundles its own copy of the texts, so an older app build
+    # shows an older version than constants.POLICY_VERSION), or null if the
+    # client didn't say. Stamped at account creation:
+    # always for a Google sign-up, since login/google/ refuses to create an
+    # account without `accepted_policies`, and for a password registration when
+    # the client sent the flag. Null for accounts created before this existed,
+    # or by a client too old to send it.
+    policies_accepted_time = models.DateTimeField(null=True, blank=True, default=None)
+    policies_accepted_version = models.TextField(null=True, blank=True, default=None)
+
     creation_time = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     updated_time = models.DateTimeField(auto_now=True, null=True, blank=True)
 

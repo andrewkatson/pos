@@ -89,7 +89,12 @@ fun RegisterScreen(
                 onDismissRequest = { showingPrivacyPolicy = false },
                 title = { Text("Privacy Policy") },
                 text = {
-                    Text(Constants.PRIVACY_POLICY_TEXT)
+                    // Scrolls inside the dialog so the end of the policy stays
+                    // reachable on short screens or with large fonts.
+                    Text(
+                        Constants.PRIVACY_POLICY_TEXT,
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    )
                 },
                 confirmButton = {
                     Button(onClick = { 
@@ -106,7 +111,10 @@ fun RegisterScreen(
                                     ip = "127.0.0.1",
                                     dateOfBirth = dateOfBirth,
                                     interestCategories = selectedInterestSlugs.ifEmpty { null },
-                                    interestFreeform = freeformInterests.ifEmpty { null }
+                                    interestFreeform = freeformInterests.ifEmpty { null },
+                                    // Only reachable through this dialog's Ok.
+                                    acceptedPolicies = true,
+                                    policyVersion = Constants.POLICY_VERSION
                                 )
 
                                 val response = api.register(

@@ -10,7 +10,7 @@ from django.utils import timezone
 from .test_parent_case import PositiveOnlySocialTestCase
 from .. import views
 from ..constants import (
-    Fields, REVIEW_STATUS_CLEARED, REVIEW_STATUS_DISMISSED, REVIEW_STATUS_ESCALATED,
+    Fields, POLICY_VERSION, REVIEW_STATUS_CLEARED, REVIEW_STATUS_DISMISSED, REVIEW_STATUS_ESCALATED,
     USERNAME_CHANGE_COOLDOWN_DAYS, USERNAME_CHANGE_TOO_SOON, USERNAME_HOLD_DAYS, USERNAME_TAKEN,
 )
 from ..models import ModerationReview, UsernameHold, UserFollow
@@ -169,7 +169,7 @@ class ChangeUsernameTests(PositiveOnlySocialTestCase):
                 patch('user_system.views.text_classifier_class.is_text_positive', return_value=True):
             user, created = views._create_user_for_google(
                 None, {'sub': 'sub-for-hold-test', 'email': 'holdtest@example.com', 'email_verified': True},
-                '127.0.0.1')
+                '127.0.0.1', POLICY_VERSION)
         self.assertTrue(created)
         self.assertNotEqual(user.username, base)
 
@@ -302,13 +302,15 @@ class HeldNameRaceTests(PositiveOnlySocialTestCase):
                 patch.object(views, '_google_username_base', return_value='google_racer_name'), \
                 patch('user_system.views.text_classifier_class.is_text_positive', return_value=True):
             user, created = views._create_user_for_google(
-                None, {'sub': 'race-sub', 'email': 'gracer@example.com', 'email_verified': True}, '127.0.0.1')
+                None, {'sub': 'race-sub', 'email': 'gracer@example.com', 'email_verified': True}, '127.0.0.1',
+                POLICY_VERSION)
         self.assertTrue(created)
         self.assertNotEqual(user.username, 'google_racer_name')
 
     def test_google_creation_backs_off_when_its_address_was_just_taken(self):
         get_user_model().objects.filter(pk=self.user.pk).update(email='TAKEN@example.com')
         user, created = views._create_user_for_google(
-            None, {'sub': 'late-sub', 'email': 'taken@example.com', 'email_verified': True}, '127.0.0.1')
+            None, {'sub': 'late-sub', 'email': 'taken@example.com', 'email_verified': True}, '127.0.0.1',
+            POLICY_VERSION)
         self.assertIsNone(user)
         self.assertFalse(created)

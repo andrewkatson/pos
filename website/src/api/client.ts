@@ -131,6 +131,11 @@ export const GOOGLE_SIGN_IN_UNAVAILABLE = 'google_sign_in_unavailable'
 export const GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE =
   "Google sign-in isn't available right now. Please sign in with your password."
 export const GOOGLE_SIGN_IN_FAILED_MESSAGE = 'Google sign-in failed. Please try again.'
+/** login/google/ answers with this when the token belongs to nobody yet, so the
+ * sign-in would create an account, and the request did not say the user agreed
+ * to the privacy policy and terms. Not an error to show: the client asks for
+ * consent and retries with `accepted_policies: true`. */
+export const POLICY_ACCEPTANCE_REQUIRED = 'policy_acceptance_required'
 
 /** Maps a Google sign-in error code to its copy. A code that isn't here (a
  * transport failure, say) already carries readable wording of its own. */
