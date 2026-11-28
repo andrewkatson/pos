@@ -70,6 +70,10 @@ final class RealAPI: Networking {
         var policy_version: String = GVOAppConstants.policyVersion
     }
 
+    private struct AcceptPoliciesBody: Encodable {
+        let policy_version: String
+    }
+
     private struct VerifyIdentityBody: Encodable {
         let date_of_birth: String
     }
@@ -468,6 +472,17 @@ final class RealAPI: Networking {
         return try await performRequest(
             pathSegments: [GVOAppConstants.pathSegmentMe],
             method: .get,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Records that the signed-in user accepted the privacy policy (#620).
+    func acceptPolicies(sessionManagementToken: String, policyVersion: String) async throws -> Data {
+        let requestBody = try encode(AcceptPoliciesBody(policy_version: policyVersion))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentPolicies, GVOAppConstants.pathSegmentAccept],
+            method: .post,
+            body: requestBody,
             authToken: sessionManagementToken
         )
     }

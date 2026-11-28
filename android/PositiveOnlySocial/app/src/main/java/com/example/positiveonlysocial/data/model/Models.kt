@@ -144,7 +144,10 @@ data class CurrentUserResponse(
     // client tells the feature isn't there.
     @SerializedName("pending_email") val pendingEmail: String? = null,
     @SerializedName("has_password") val hasPassword: Boolean? = null,
-    @SerializedName("next_username_change_time") val nextUsernameChangeTime: String? = null
+    @SerializedName("next_username_change_time") val nextUsernameChangeTime: String? = null,
+    // The policy version the user last accepted (issue #620); null when
+    // nothing is on record or the backend predates it.
+    @SerializedName("policies_accepted_version") val policiesAcceptedVersion: String? = null
 )
 
 /** `POST me/username/` (issue #594). */
@@ -175,6 +178,16 @@ data class RequestEmailChangeRequest(
 
 data class RequestEmailChangeResponse(
     @SerializedName("pending_email") val pendingEmail: String
+)
+
+/** POST policies/accept/: the user accepted the privacy policy re-accept prompt (issue #620). */
+data class AcceptPoliciesRequest(
+    // The version (Constants.POLICY_VERSION) of the policies the user was shown.
+    @SerializedName("policy_version") val policyVersion: String
+)
+
+data class AcceptPoliciesResponse(
+    @SerializedName("policies_accepted_version") val policiesAcceptedVersion: String?
 )
 
 /**

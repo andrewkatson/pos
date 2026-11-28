@@ -80,19 +80,33 @@ fun NavGraph(
     // the incoming VIEW intent itself and build a back stack straight to an
     // authenticated screen, with no session behind it.
     //
-    // Requests also wait while the privacy-policy re-accept prompt is open
-    // (issue #620): opening a root destination would leave the signed-in app
-    // usable without an answer. Keying on the flag replays them on Accept.
+    // Requests also wait while the privacy-policy re-accept prompt is open, or
+    // while the backend is still being asked whether it needs to be (issue
+    // #620): opening a root destination would leave the signed-in app usable
+    // without an answer. Keying on the flags replays them once it's settled.
     val pendingPostId by PushNavigator.pendingPostId.collectAsState()
     val pushIsLoggedIn by authManager.isLoggedIn.collectAsState()
     val needsPrivacyPolicyAcceptance by authManager.needsPrivacyPolicyAcceptance.collectAsState()
+    val isCheckingPrivacyPolicyAcceptance by authManager.isCheckingPrivacyPolicyAcceptance.collectAsState()
+    val sessionToken = authManager.session.collectAsState().value?.sessionToken
     // Only once the user is actually inside the signed-in app. On a relaunch in
     // a surviving process the manager can already read "logged in" while
     // Welcome is still restoring the session; navigating away from Welcome then
     // would cancel that restore.
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
     val inSignedInArea = currentRoute != null && currentRoute !in SIGNED_OUT_ROUTES
-    val canOpenSignedInRequests = pushIsLoggedIn && !needsPrivacyPolicyAcceptance && inSignedInArea
+    val canOpenSignedInRequests = pushIsLoggedIn && !needsPrivacyPolicyAcceptance &&
+        !isCheckingPrivacyPolicyAcceptance && inSignedInArea
+
+    // Ask the backend whether this member already accepted the current privacy
+    // policy (issue #620) — once inside the signed-in app, like the dialog, so
+    // it asks with the session Welcome's restore settled on. A new session
+    // token restarts it.
+    LaunchedEffect(pushIsLoggedIn && inSignedInArea, isCheckingPrivacyPolicyAcceptance, sessionToken) {
+        if (pushIsLoggedIn && inSignedInArea && isCheckingPrivacyPolicyAcceptance) {
+            authManager.checkPrivacyPolicyAcceptance(api)
+        }
+    }
     LaunchedEffect(pendingPostId, canOpenSignedInRequests) {
         val postId = pendingPostId ?: return@LaunchedEffect
         if (!canOpenSignedInRequests) return@LaunchedEffect
@@ -162,7 +176,15 @@ fun NavGraph(
     if ((pushIsLoggedIn && needsPrivacyPolicyAcceptance && inSignedInArea) || isDecliningPrivacyPolicy) {
         PrivacyPolicyReacceptDialog(
             enabled = !isDecliningPrivacyPolicy,
-            onAccept = { authManager.acceptPrivacyPolicy() },
+            onAccept = {
+                // Let them in at once, then record it on the backend so they
+                // aren't asked again (best-effort, like logout).
+                val acceptingToken = authManager.session.value?.sessionToken
+                authManager.acceptPrivacyPolicy()
+                if (acceptingToken != null) {
+                    scope.launch { authManager.recordPrivacyPolicyAcceptance(api, acceptingToken) }
+                }
+            },
             onLogOut = {
                 isDecliningPrivacyPolicy = true
                 val sessionToken = authManager.session.value?.sessionToken

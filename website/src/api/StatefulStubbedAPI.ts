@@ -23,6 +23,8 @@ import {
 } from './interestVocabulary'
 import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
 import type {
+  AcceptPoliciesRequest,
+  AcceptPoliciesResponse,
   AuthResponse,
   BackgroundColor,
   CaptionFont,
@@ -166,6 +168,8 @@ interface UserMock {
   followers: Set<string>
   /** Private account (issue #96): only approved followers see its posts. */
   isPrivate: boolean
+  /** The policy version the user last accepted (issue #620), or null. */
+  policiesAcceptedVersion: string | null
   /** Incoming follow requests awaiting a decision, keyed by the requester's id
    * to the category they asked for, in arrival order. */
   followRequests: Map<string, FollowCategory>
@@ -478,6 +482,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       followCategories: new Map(),
       followers: new Set(),
       isPrivate: false,
+      // Recorded only alongside accepted_policies, as on the backend.
+      policiesAcceptedVersion: body.accepted_policies ? (body.policy_version ?? null) : null,
       followRequests: new Map(),
       isVerified: Boolean(body.date_of_birth),
       isAdult: age !== null && age >= 18,
@@ -646,6 +652,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         followCategories: new Map(),
         followers: new Set(),
         isPrivate: false,
+        // Creating an account here required accepted_policies, as on the backend.
+        policiesAcceptedVersion: body.policy_version ?? null,
         followRequests: new Map(),
         isVerified: false,
         isAdult: false,
@@ -895,6 +903,7 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       // The hold on the given-up name is as long as the cooldown (both 30 days).
       former_username: this.nextUsernameChangeTime(user) ? (user.formerUsername ?? null) : null,
       former_username_held_until: this.nextUsernameChangeTime(user),
+      policies_accepted_version: user.policiesAcceptedVersion,
     }
   }
 
@@ -968,6 +977,21 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
     user.pendingEmail = null
     user.pendingEmailToken = null
     return { message: 'Email changed' }
+  }
+
+  async acceptPolicies(body: AcceptPoliciesRequest): Promise<AcceptPoliciesResponse> {
+    const user = this.requireUser()
+    // Same validation as the backend: a real YYYY-MM-DD date.
+    const valid =
+      typeof body.policy_version === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(body.policy_version) &&
+      !Number.isNaN(Date.parse(`${body.policy_version}T00:00:00Z`)) &&
+      new Date(`${body.policy_version}T00:00:00Z`).toISOString().startsWith(body.policy_version)
+    if (!valid) {
+      throw new ApiError(400, 'Invalid fields [POLICY_VERSION]')
+    }
+    user.policiesAcceptedVersion = body.policy_version
+    return { policies_accepted_version: body.policy_version }
   }
 
   // ---------------------------------------------------------------------------

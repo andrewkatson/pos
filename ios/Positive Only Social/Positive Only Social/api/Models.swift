@@ -121,6 +121,9 @@ struct CurrentUserFields: Codable {
     let pendingEmail: String?
     let hasPassword: Bool?
     let nextUsernameChangeTime: String?
+    /// The policy version the user last accepted (issue #620); nil when
+    /// nothing is on record or the backend predates it.
+    let policiesAcceptedVersion: String?
 
     enum CodingKeys: String, CodingKey {
         case username
@@ -129,6 +132,7 @@ struct CurrentUserFields: Codable {
         case pendingEmail = "pending_email"
         case hasPassword = "has_password"
         case nextUsernameChangeTime = "next_username_change_time"
+        case policiesAcceptedVersion = "policies_accepted_version"
     }
 }
 

@@ -1,7 +1,9 @@
 package com.example.positiveonlysocial.data.auth
 
 import android.util.Log
+import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.constants.Constants
+import com.example.positiveonlysocial.data.model.AcceptPoliciesRequest
 import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import kotlinx.coroutines.CancellationException
@@ -73,15 +75,31 @@ class AuthenticationManager(
     private val _needsPrivacyPolicyAcceptance = MutableStateFlow(false)
     /**
      * Whether the signed-in user still has to accept the privacy policy before
-     * using the app (issue #620).
+     * using the app (issue #620). Drives the re-accept dialog.
      *
-     * For now this is unconditional: nothing records which version of the policy
-     * a user accepted, so every launch that restores a session, and every fresh
-     * login, asks again. It lives in memory only, so reopening the app counts as
-     * "opening the app" and re-prompts. Once the backend records an acceptance
-     * timestamp, this is the flag to drive from it.
+     * Every opening of the app while signed in, and every fresh login, starts a
+     * check ([isCheckingPrivacyPolicyAcceptance]): [checkPrivacyPolicyAcceptance]
+     * asks the backend which version the user last accepted, and this only turns
+     * true when that is missing or older than [Constants.POLICY_VERSION] — or
+     * when the check fails, since asking is the safe answer. Accepting records
+     * the bundled version on the backend ([recordPrivacyPolicyAcceptance]).
      */
     val needsPrivacyPolicyAcceptance: StateFlow<Boolean> = _needsPrivacyPolicyAcceptance.asStateFlow()
+
+    // Backing property for isCheckingPrivacyPolicyAcceptance
+    private val _isCheckingPrivacyPolicyAcceptance = MutableStateFlow(false)
+    /**
+     * True from a login (or an opening of the app while signed in) until the
+     * backend has said whether the user still has to accept the privacy policy
+     * (issue #620). Shared links and notification taps wait on it too.
+     */
+    val isCheckingPrivacyPolicyAcceptance: StateFlow<Boolean> =
+        _isCheckingPrivacyPolicyAcceptance.asStateFlow()
+
+    // Bumped by every new check and every logout, so a check still in flight
+    // for an earlier session or opening can't settle the next one.
+    @Volatile
+    private var privacyPolicyCheckGeneration = 0
 
     // --- Private Properties ---
 
@@ -126,8 +144,8 @@ class AuthenticationManager(
                 // We're logged in, publish the session
                 _session.value = loadedSession
                 _isLoggedIn.value = true
-                // Opening the app with a saved session asks again (#620).
-                _needsPrivacyPolicyAcceptance.value = true
+                // Opening the app with a saved session checks again (#620).
+                startPrivacyPolicyCheck()
             } else {
                 // No session object found
                 _session.value = null
@@ -191,12 +209,12 @@ class AuthenticationManager(
             }
 
             // Signing in, or being signed in automatically when the app opens,
-            // has to accept the privacy policy (#620). This deliberately doesn't
-            // look at isLoggedIn: this manager is a process-wide singleton, so it
-            // can still read "logged in" when the app is reopened in a process
-            // that outlived its Activity.
+            // checks the privacy policy acceptance (#620). This deliberately
+            // doesn't look at isLoggedIn: this manager is a process-wide
+            // singleton, so it can still read "logged in" when the app is
+            // reopened in a process that outlived its Activity.
             if (!keepPrivacyPolicyAcceptance || !_isLoggedIn.value) {
-                _needsPrivacyPolicyAcceptance.value = true
+                startPrivacyPolicyCheck()
             }
 
             // Publish the new session and state
@@ -232,20 +250,74 @@ class AuthenticationManager(
     }
 
     /**
-     * The app was opened while possibly still signed in: ask that user to
-     * accept the privacy policy again for this opening (#620).
+     * The app was opened while possibly still signed in: check that user's
+     * privacy policy acceptance again for this opening (#620).
      */
     fun onAppOpened() {
         if (_isLoggedIn.value) {
-            _needsPrivacyPolicyAcceptance.value = true
+            startPrivacyPolicyCheck()
         }
     }
 
+    private fun startPrivacyPolicyCheck() {
+        privacyPolicyCheckGeneration += 1
+        _needsPrivacyPolicyAcceptance.value = false
+        _isCheckingPrivacyPolicyAcceptance.value = true
+    }
+
     /**
-     * Records that the signed-in user accepted the privacy policy (#620).
+     * Asks the backend which privacy policy version the signed-in user last
+     * accepted (GET me/) and settles the pending check (#620): the dialog only
+     * comes up when that is missing or older than [Constants.POLICY_VERSION], or
+     * when the request fails. Does nothing when no check is pending.
+     */
+    suspend fun checkPrivacyPolicyAcceptance(api: PositiveOnlySocialAPI) {
+        if (!_isCheckingPrivacyPolicyAcceptance.value) return
+        val token = _session.value?.sessionToken ?: return
+        val generation = privacyPolicyCheckGeneration
+        val acceptedVersion = try {
+            val response = api.getCurrentUser(token)
+            if (response.isSuccessful) response.body()?.policiesAcceptedVersion else null
+        } catch (e: CancellationException) {
+            // Cancelled, not failed: leave the check pending for the next try.
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Privacy policy acceptance check failed", e)
+            null
+        }
+        if (generation != privacyPolicyCheckGeneration || !_isCheckingPrivacyPolicyAcceptance.value) return
+        _isCheckingPrivacyPolicyAcceptance.value = false
+        _needsPrivacyPolicyAcceptance.value = !isPolicyVersionCurrent(acceptedVersion)
+    }
+
+    /**
+     * Records, for this session, that the signed-in user accepted the privacy
+     * policy (#620). Also used right after the Google consent dialog, whose
+     * sign-up the backend already records.
      */
     fun acceptPrivacyPolicy() {
+        privacyPolicyCheckGeneration += 1
+        _isCheckingPrivacyPolicyAcceptance.value = false
         _needsPrivacyPolicyAcceptance.value = false
+    }
+
+    /**
+     * Records on the backend that the user holding [sessionToken] accepted the
+     * re-accept dialog, with the version this build bundles (#620). Best-effort,
+     * like logout: if it fails they are simply asked again next time. Returns
+     * whether it was recorded.
+     */
+    suspend fun recordPrivacyPolicyAcceptance(api: PositiveOnlySocialAPI, sessionToken: String): Boolean {
+        return try {
+            val response = api.acceptPolicies(sessionToken, AcceptPoliciesRequest(Constants.POLICY_VERSION))
+            if (!response.isSuccessful) Log.w(TAG, "Recording privacy policy acceptance failed: ${response.code()}")
+            response.isSuccessful
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Recording privacy policy acceptance failed", e)
+            false
+        }
     }
 
     /**
@@ -256,6 +328,8 @@ class AuthenticationManager(
         // Drop the prompt before waiting on the lock: logging out is also how
         // the user declines the policy, and the dialog should close at once
         // rather than linger until the session is cleared.
+        privacyPolicyCheckGeneration += 1
+        _isCheckingPrivacyPolicyAcceptance.value = false
         _needsPrivacyPolicyAcceptance.value = false
 
         // Use mutex.withLock to ensure atomic operation
@@ -290,5 +364,18 @@ class AuthenticationManager(
      */
     fun clearForcedLogout() {
         _forcedLogout.value = false
+    }
+
+    companion object {
+        /**
+         * Whether a version on record covers the one this build shows. Versions
+         * are `YYYY-MM-DD` dates, so they compare as strings; someone who
+         * accepted a newer copy on a more up-to-date client isn't asked about
+         * this one (#620).
+         */
+        fun isPolicyVersionCurrent(
+            acceptedVersion: String?,
+            bundledVersion: String = Constants.POLICY_VERSION
+        ): Boolean = acceptedVersion != null && acceptedVersion >= bundledVersion
     }
 }

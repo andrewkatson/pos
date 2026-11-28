@@ -226,6 +226,11 @@ export interface CurrentUser {
    * counts as the user's own only until then. */
   former_username?: string | null
   former_username_held_until?: string | null
+  /**
+   * The POLICY_VERSION the user last accepted (issue #620); null when nothing
+   * is on record, absent on older backends.
+   */
+  policies_accepted_version?: string | null
 }
 
 /** `POST /me/username/` (issue #594). */
@@ -252,6 +257,16 @@ export interface RequestEmailChangeRequest {
 export interface RequestEmailChangeResponse {
   pending_email: string
   message: string
+}
+
+/** `POST /policies/accept/`: the user accepted the privacy policy re-accept prompt. */
+export interface AcceptPoliciesRequest {
+  /** The version (POLICY_VERSION) of the policies the user was shown. */
+  policy_version: string
+}
+
+export interface AcceptPoliciesResponse {
+  policies_accepted_version: string
 }
 
 export interface ChangePasswordRequest {

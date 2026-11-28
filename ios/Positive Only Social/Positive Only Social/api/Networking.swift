@@ -65,6 +65,11 @@ protocol Networking {
     /// can only ever reveal the requester's own address.
     func getCurrentUser(sessionManagementToken: String) async throws -> Data
 
+    /// Records that the signed-in user accepted the privacy policy re-accept
+    /// prompt (issue #620), and which version: the one this build bundles
+    /// (`GVOAppConstants.policyVersion`). `getCurrentUser` reads it back.
+    func acceptPolicies(sessionManagementToken: String, policyVersion: String) async throws -> Data
+
     /// Changes the signed-in account's password. Requires the current password
     /// as well as the session, so a stolen session alone cannot change it. On
     /// success the backend evicts every *other* session and all remember-me

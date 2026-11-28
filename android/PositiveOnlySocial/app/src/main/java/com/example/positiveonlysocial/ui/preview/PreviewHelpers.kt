@@ -2,6 +2,7 @@ package com.example.positiveonlysocial.ui.preview
 
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
+import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.model.*
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import retrofit2.Response
@@ -140,7 +141,11 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
 
     override suspend fun getCurrentUser(token: String): Response<CurrentUserResponse> {
         return Response.success(
-            CurrentUserResponse(username = "mock_user", email = "mock_user@example.com")
+            CurrentUserResponse(
+                username = "mock_user",
+                email = "mock_user@example.com",
+                policiesAcceptedVersion = Constants.POLICY_VERSION
+            )
         )
     }
 
@@ -160,6 +165,13 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
 
     override suspend fun cancelEmailChange(token: String): Response<GenericResponse> {
         return Response.success(GenericResponse(message = "ok", error = null))
+    }
+
+    override suspend fun acceptPolicies(
+        token: String,
+        request: AcceptPoliciesRequest
+    ): Response<AcceptPoliciesResponse> {
+        return Response.success(AcceptPoliciesResponse(request.policyVersion))
     }
 
     override suspend fun changePassword(

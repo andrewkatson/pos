@@ -545,6 +545,11 @@ class Fields:
     # Which version (a POLICY_VERSION-style date) of the policies the client
     # showed when the user agreed. Recorded as-is alongside accepted_policies.
     policy_version = "policy_version"
+    # The version the signed-in user last agreed to, as recorded in
+    # PositiveOnlySocialUser.policies_accepted_version; null when nothing is on
+    # record. Returned by me/ and policies/accept/ so clients can skip the
+    # privacy-policy re-accept prompt (issue #620) when it is current.
+    policies_accepted_version = "policies_accepted_version"
     totp_code = "totp_code"
     recovery_code = "recovery_code"
     totp_secret = "totp_secret"

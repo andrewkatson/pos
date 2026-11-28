@@ -63,16 +63,23 @@ struct Positive_Only_SocialApp: App {
                 if authManager.isLoggedIn {
                     HomeView(api: api, keychainHelper: keychainHelper)
                         .environmentObject(authManager) // Make the manager available to all subviews
+                        // Ask the backend whether this member has already
+                        // accepted the current privacy policy (issue #620);
+                        // re-runs for every new session.
+                        .task(id: authManager.session?.sessionToken) {
+                            await authManager.checkPrivacyPolicyAcceptance(api: api)
+                        }
                         // Re-accept the privacy policy on opening the app (issue
-                        // #620). There is no way to dismiss it without choosing:
-                        // the setter ignores SwiftUI's dismissal, and each button
-                        // clears the flag itself.
+                        // #620) unless it is already on record. There is no way
+                        // to dismiss it without choosing: the setter ignores
+                        // SwiftUI's dismissal, and each button clears the flag
+                        // itself.
                         .alert("Privacy Policy Updated", isPresented: Binding(
                             get: { authManager.needsPrivacyPolicyAcceptance },
                             set: { _ in }
                         )) {
                             Button("Accept") {
-                                authManager.acceptPrivacyPolicy()
+                                authManager.acceptPrivacyPolicy(recordingWith: api)
                             }
                             .accessibilityIdentifier("AcceptPrivacyPolicyButton")
                             Button("Log Out", role: .cancel) {

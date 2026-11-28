@@ -146,6 +146,9 @@ import Foundation
     // username or email from Settings (issue #594).
     static let pathSegmentUsername = "username"
     static let pathSegmentEmail = "email"
+    // POST policies/accept/ — record the privacy policy re-accept (#620).
+    static let pathSegmentPolicies = "policies"
+    static let pathSegmentAccept = "accept"
     static let pathSegmentNotification = "notification"
     static let pathSegmentNotifications = "notifications"
     // GET/POST notifications/preferences/ — the Settings push toggles (#342/#343).

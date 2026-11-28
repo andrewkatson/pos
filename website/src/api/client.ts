@@ -22,6 +22,8 @@ import type {
   ChangeUsernameRequest,
   ChangeUsernameResponse,
   CurrentUser,
+  AcceptPoliciesRequest,
+  AcceptPoliciesResponse,
   CreatePostResponse,
   CreateUploadUrlResponse,
   DisableTotpRequest,
@@ -589,6 +591,11 @@ export class ApiClient implements PositiveOnlySocialAPI {
   /** Confirm a new email from the link sent to it. Needs no session. */
   confirmEmailChange(body: VerifyEmailRequest): Promise<MessageResponse> {
     return this.request<MessageResponse>('POST', '/verify-email-change/', { body })
+  }
+
+  /** Records that the signed-in user accepted the privacy policy (issue #620). */
+  acceptPolicies(body: AcceptPoliciesRequest): Promise<AcceptPoliciesResponse> {
+    return this.request<AcceptPoliciesResponse>('POST', '/policies/accept/', { body, auth: true })
   }
 
   // ===========================================================================

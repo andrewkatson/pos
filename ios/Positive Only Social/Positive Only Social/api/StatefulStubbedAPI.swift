@@ -48,6 +48,11 @@ struct MockUser {
     var bio: String = ""
     // Private account (issue #96): only approved followers see its posts.
     var isPrivate: Bool = false
+    // The policy version last accepted through the re-accept prompt (issue
+    // #620). Unlike the backend, the stub's register doesn't record one, so a
+    // new or seeded account is asked once and remembered for the rest of the
+    // run, as an existing member would be.
+    var policiesAcceptedVersion: String? = nil
     // Positive interest tags (issues #446/#35): weighting buckets (picks ∪
     // mapped freeform) and the freeform terms the user typed.
     var interestCategories: [String] = []
@@ -1058,7 +1063,8 @@ final class StatefulStubbedAPI: Networking {
         return try createSerializedResponse(fields: CurrentUserFields(
             username: user.username, email: user.email, isPrivate: user.isPrivate,
             pendingEmail: user.pendingEmail, hasPassword: !user.passwordHash.hasPrefix("no-password-"),
-            nextUsernameChangeTime: nextUsernameChangeTime(for: user)))
+            nextUsernameChangeTime: nextUsernameChangeTime(for: user),
+            policiesAcceptedVersion: user.policiesAcceptedVersion))
     }
 
     /// Mirrors USERNAME_CHANGE_COOLDOWN_DAYS in backend/user_system/constants.py.
@@ -1143,6 +1149,27 @@ final class StatefulStubbedAPI: Networking {
         users[index].email = pending
         users[index].pendingEmail = nil
         users[index].pendingEmailToken = nil
+    }
+
+    func acceptPolicies(sessionManagementToken: String, policyVersion: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let userIndex = users.firstIndex(where: { $0.id == user.id }) else {
+            throw APIError.badServerResponse(statusCode: 401)
+        }
+        // Same check as the backend: a real YYYY-MM-DD date.
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard policyVersion.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil,
+              let date = formatter.date(from: policyVersion),
+              formatter.string(from: date) == policyVersion else {
+            throw APIError.badServerResponse(statusCode: 400)
+        }
+        users[userIndex].policiesAcceptedVersion = policyVersion
+        struct Fields: Codable { let policies_accepted_version: String }
+        return try createSerializedResponse(fields: Fields(policies_accepted_version: policyVersion))
     }
 
     func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data {

@@ -130,6 +130,11 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         var bio: String = "",
         // Private account (issue #96): only approved followers see its posts.
         var isPrivate: Boolean = false,
+        // The policy version last accepted through the re-accept prompt (issue
+        // #620). Unlike the backend, the stub's register doesn't record one, so
+        // a new or seeded account is asked once and remembered for the rest of
+        // the run, as an existing member would be.
+        var policiesAcceptedVersion: String? = null,
         // Incoming follow requests awaiting a decision, requester id -> the
         // category they asked for, in arrival order.
         val followRequests: LinkedHashMap<String, String> = linkedMapOf(),
@@ -690,7 +695,8 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
                 username = user.username, email = user.email, isPrivate = user.isPrivate,
                 pendingEmail = user.pendingEmail,
                 hasPassword = !user.passwordHash.startsWith("no-password-"),
-                nextUsernameChangeTime = nextUsernameChangeTime(user)))
+                nextUsernameChangeTime = nextUsernameChangeTime(user),
+                policiesAcceptedVersion = user.policiesAcceptedVersion))
     }
 
     private fun nextUsernameChangeTime(user: UserMock): String? {
@@ -766,6 +772,20 @@ class StatefulStubbedAPI : PositiveOnlySocialAPI {
         user.pendingEmail = null
         user.pendingEmailToken = null
         return true
+    }
+
+    override suspend fun acceptPolicies(
+        token: String,
+        request: AcceptPoliciesRequest
+    ): Response<AcceptPoliciesResponse> {
+        val user = getAuthorizedUser(token) ?: return errorGeneric(401, "Invalid session")
+        // Same check as the backend: a real YYYY-MM-DD date.
+        val version = request.policyVersion
+        val isRealDate = Regex("^\\d{4}-\\d{2}-\\d{2}$").matches(version) &&
+            runCatching { LocalDate.parse(version) }.isSuccess
+        if (!isRealDate) return errorGeneric(400, "Invalid fields ['POLICY_VERSION']")
+        user.policiesAcceptedVersion = version
+        return Response.success(AcceptPoliciesResponse(version))
     }
 
     override suspend fun changePassword(token: String, request: ChangePasswordRequest): Response<GenericResponse> {

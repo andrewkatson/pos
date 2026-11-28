@@ -49,6 +49,10 @@ urlpatterns = [
     # POST /logout/ (Token in header)
     path('logout/', views.logout_user, name='logout_user'),
 
+    # POST /policies/accept/ (Token in header) — record the privacy policy
+    # re-accept (issue #620); the accepted version is read back from me/
+    path('policies/accept/', views.accept_policies, name='accept_policies'),
+
     # POST /user/delete/ (Token in header)
     path('user/delete/', views.delete_user, name='delete_user'),
 

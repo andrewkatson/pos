@@ -18,6 +18,8 @@ import type {
   CreatePostResponse,
   CreateUploadUrlResponse,
   CurrentUser,
+  AcceptPoliciesRequest,
+  AcceptPoliciesResponse,
   DisableTotpRequest,
   DisableTotpResponse,
   EditCommentResponse,
@@ -98,6 +100,8 @@ export interface PositiveOnlySocialAPI {
   cancelEmailChange(): Promise<MessageResponse>
   /** Confirm a new email from the link sent to it (no session needed). */
   confirmEmailChange(body: VerifyEmailRequest): Promise<MessageResponse>
+  /** Records that the signed-in user accepted the privacy policy (issue #620). */
+  acceptPolicies(body: AcceptPoliciesRequest): Promise<AcceptPoliciesResponse>
 
   // Two-factor authentication (TOTP)
   loginWithTwoFactor(body: LoginTwoFactorRequest): Promise<AuthResponse>
