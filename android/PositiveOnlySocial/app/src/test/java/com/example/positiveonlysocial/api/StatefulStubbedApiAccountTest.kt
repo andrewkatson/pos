@@ -1,11 +1,13 @@
 package com.example.positiveonlysocial.api
 
+import com.example.positiveonlysocial.data.model.AcceptPoliciesRequest
 import com.example.positiveonlysocial.data.model.ChangePasswordRequest
 import com.example.positiveonlysocial.data.model.LoginRequest
 import com.example.positiveonlysocial.data.model.RegisterRequest
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -32,6 +34,37 @@ class StatefulStubbedApiAccountTest {
 
         assertEquals("ada", me.username)
         assertEquals("ada@test.com", me.email)
+    }
+
+    @Test
+    fun `acceptPolicies records the version getCurrentUser then reports (issue 620)`() = runTest {
+        val api = StatefulStubbedAPI()
+        val token = register(api, "lovelace", "Password1")
+        assertNull(api.getCurrentUser(token).body()!!.policiesAcceptedVersion)
+
+        val response = api.acceptPolicies(token, AcceptPoliciesRequest("2026-11-22"))
+
+        assertTrue(response.isSuccessful)
+        assertEquals("2026-11-22", response.body()!!.policiesAcceptedVersion)
+        assertEquals("2026-11-22", api.getCurrentUser(token).body()!!.policiesAcceptedVersion)
+    }
+
+    @Test
+    fun `acceptPolicies rejects a malformed version, like the backend`() = runTest {
+        val api = StatefulStubbedAPI()
+        val token = register(api, "babbage", "Password1")
+
+        for (bad in listOf("2026-11-2", "20261122", "2026-02-30", "")) {
+            assertEquals(bad, 400, api.acceptPolicies(token, AcceptPoliciesRequest(bad)).code())
+        }
+        assertNull(api.getCurrentUser(token).body()!!.policiesAcceptedVersion)
+    }
+
+    @Test
+    fun `acceptPolicies rejects an unknown session`() = runTest {
+        val api = StatefulStubbedAPI()
+
+        assertEquals(401, api.acceptPolicies("not-a-real-token", AcceptPoliciesRequest("2026-11-22")).code())
     }
 
     @Test

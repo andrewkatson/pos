@@ -179,6 +179,18 @@ struct Positive_Only_SocialTests_RealAPI {
         #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/me")
     }
 
+    /// POST /policies/accept/ records the privacy policy re-accept (#620).
+    @Test func testAcceptPoliciesUsesPoliciesAcceptPath() async throws {
+        CapturingURLProtocol.lastRequestURL = nil
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+
+        _ = try await RealAPI().acceptPolicies(sessionManagementToken: "token",
+                                               policyVersion: GVOAppConstants.policyVersion)
+
+        #expect(CapturingURLProtocol.lastRequestURL?.path == "/user_index/policies/accept")
+    }
+
     /// POST /password/change/ changes the signed-in account's password (#197).
     @Test func testChangePasswordUsesPasswordChangePath() async throws {
         CapturingURLProtocol.lastRequestURL = nil

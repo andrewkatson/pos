@@ -317,7 +317,41 @@ test('getCurrentUser returns the signed-in account’s own username and email', 
     username: 'ada',
     email: 'ada@example.com',
     is_private: false,
+    policies_accepted_version: null,
   })
+})
+
+test('acceptPolicies records the version getCurrentUser then reports (issue #620)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  expect(await api.acceptPolicies({ policy_version: '2026-11-22' })).toEqual({
+    policies_accepted_version: '2026-11-22',
+  })
+  expect((await api.getCurrentUser()).policies_accepted_version).toBe('2026-11-22')
+})
+
+test('acceptPolicies rejects a malformed version, like the backend', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  for (const bad of ['2026-11-2', '20261122', '2026-02-30', '']) {
+    await expect(api.acceptPolicies({ policy_version: bad })).rejects.toThrow('POLICY_VERSION')
+  }
+  expect((await api.getCurrentUser()).policies_accepted_version).toBeNull()
+})
+
+test('registering with accepted_policies records the version shown', async () => {
+  const api = new StatefulStubbedAPI()
+  await api.register({
+    username: 'ada',
+    email: 'ada@example.com',
+    password: 'password123',
+    accepted_policies: true,
+    policy_version: '2026-11-22',
+  })
+
+  expect((await api.getCurrentUser()).policies_accepted_version).toBe('2026-11-22')
 })
 
 test('changePassword enforces the current password and strength, then updates it', async () => {

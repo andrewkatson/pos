@@ -135,10 +135,12 @@ retries once the user agrees. Existing members signing in are never asked. See
 [consent before creating an account](authentication.md#signing-in-with-google)
 for the protocol.
 
-**When and to what each member agreed** is recorded at account creation in
+**When and to what each member agreed** is recorded in
 `PositiveOnlySocialUser.policies_accepted_time` and
-`policies_accepted_version`. The version is the date of the copy the client
-displayed, which each client sends as `policy_version` from its own constant:
+`policies_accepted_version` — at account creation, and again each time a
+member accepts the [re-accept prompt](#privacy-policy-re-accept-issue-620). The
+version is the date of the copy the client displayed, which each client sends as
+`policy_version` from its own constant:
 
 | Surface | Version constant |
 | --- | --- |
@@ -152,10 +154,8 @@ terms, in the same change as the new text, so accounts that agreed to an older
 version can be told apart.
 Google sign-ups always record it; password registrations record it when the
 client sends `accepted_policies`, which every current client does. Accounts
-from before this field existed have it null. The
-[re-accept prompt](#privacy-policy-re-accept-issue-620) asks every signed-in
-user on each launch regardless of version, but does not yet record their
-acceptance on the server, so those fields stay null for existing members.
+from before this field existed have it null until the member accepts the
+re-accept prompt, which is what fills it in for them.
 
 What the terms cover follows the behavior documented elsewhere in these docs:
 the 16+ [age floor and the adult/minor split](age-and-identity.md), the
@@ -188,30 +188,48 @@ including the one that launched the app — wait until it is answered and the
 user is in the app, then open, and Log Out keeps
 the dialog up (buttons disabled) until the local session is gone.
 
-**For now the prompt is unconditional.** Nothing records which version a user
-accepted, so every client asks on every "open":
+**The prompt only appears when the member hasn't accepted this version.** Each
+"open" (below) starts a check: the client reads `policies_accepted_version` from
+`GET /me/` and asks only when it is null or older than the version the client
+bundles (the table above). Versions are `YYYY-MM-DD` dates and compare as
+strings, so someone who accepted a newer copy on a more up-to-date client isn't
+asked about an older build's. If the check fails (network error, stale session)
+the client asks, since that's the safe answer. While the check is in flight the
+prompt isn't shown, but nothing behind it is usable either: the website keeps
+the page `inert`, and Android holds shared links and notification taps. **Accept**
+lets the user in at once and calls `POST /policies/accept/` with the client's
+`policy_version` (validated like `register/`'s, and required), which stamps
+`policies_accepted_time` and `policies_accepted_version`; the next open finds it
+and doesn't ask. Recording is best-effort, like logout: if the call fails the
+user is simply asked again next time.
 
-| Surface | Asks when | Acceptance is held in |
+| Surface | Checks when | State is held in |
 | --- | --- | --- |
-| Website | Any signed-in page after a page load or a sign-in; not on the signed-out flows (`/`, `/login`, `/register`, email/reset pages, `/delete-account`) or the public legal/support pages | `website/src/auth/privacyPolicyConsent.ts`, shown by `PrivacyPolicyReacceptGate` beside the routes |
-| iOS | Every login, including a launch that restores a saved session | `AuthenticationManager.needsPrivacyPolicyAcceptance`, shown as an alert over `HomeView` |
-| Android | Every login; every fresh launch of the app's Activity while still signed in (the process can outlive it); and Android restoring the app in a new process after killing it, which also reloads the saved session the restored screens use | `AuthenticationManager.needsPrivacyPolicyAcceptance`, shown as `PrivacyPolicyReacceptDialog` from `NavGraph`, above every destination |
+| Website | Any signed-in page after a page load or a sign-in; not on the signed-out flows (`/`, `/login`, `/register`, email/reset pages, `/delete-account`) or the public legal/support pages | `website/src/auth/privacyPolicyConsent.ts` (`unknown` → `checking` → `accepted`/`needed`), driven and shown by `PrivacyPolicyReacceptGate` beside the routes |
+| iOS | Every login, including a launch that restores a saved session | `AuthenticationManager.isCheckingPrivacyPolicyAcceptance` / `needsPrivacyPolicyAcceptance`; `HomeView` runs `checkPrivacyPolicyAcceptance` and shows the alert |
+| Android | Every login; every fresh launch of the app's Activity while still signed in (the process can outlive it); and Android restoring the app in a new process after killing it, which also reloads the saved session the restored screens use | `AuthenticationManager.isCheckingPrivacyPolicyAcceptance` / `needsPrivacyPolicyAcceptance`; `NavGraph` runs `checkPrivacyPolicyAcceptance` and shows `PrivacyPolicyReacceptDialog` above every destination |
 
-The acceptance lives in memory only and is dropped on logout (including a ban
-or unverified-email sign-out), so reopening the app or signing in again asks
-again. Every login asks, including remember-me auto-login at launch; the one
+The check's answer lives in memory and is dropped on logout (including a ban or
+unverified-email sign-out), so reopening the app or signing in again checks
+again. Every login checks, including remember-me auto-login at launch; the one
 exception is identity verification in Settings, which rewrites the session of
 someone already using the app and keeps the answer they gave. (Android's
 `AuthenticationManager` is a process-wide singleton that can still read "logged
-in" when the app is reopened, so the prompt keys off the login, not that flag.)
-A sign-in that follows the user agreeing to the policy counts as accepting, so a
-new member isn't asked twice on landing in the app: the website's Google sign-up
-from Register, and on every client the Google sign-in that creates an account
-after its consent dialog.
+in" when the app is reopened, so the check keys off the login, not that flag,
+and runs only once the user is inside the signed-in app, with the session
+Welcome's restore settled on.) A check still in flight when the session changes
+is discarded. A sign-in that follows the user agreeing to the policy counts as
+accepting, so a new member isn't asked twice on landing in the app: the
+website's Google sign-up from Register, and on every client the Google sign-in
+that creates an account after its consent dialog — the backend records both
+sign-ups' acceptance itself.
 
-Recording an acceptance timestamp on the backend, so the prompt only appears
-when the policy is newer than what the user accepted, is the planned follow-up;
-each client's flag above is the single place that decision plugs into.
+A password registration records acceptance too, so a new member signing in
+after verifying their email isn't asked. The test stubs (each client's
+`StatefulStubbedAPI`) record `POST /policies/accept/` and report it from
+`GET /me/`; the iOS and Android stubs' register does not record a version, so a
+UI test's first sign-in of an account is asked and later ones in the same run
+aren't.
 
 ## Support page
 
