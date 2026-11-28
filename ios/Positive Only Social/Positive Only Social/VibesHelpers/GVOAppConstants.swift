@@ -32,6 +32,19 @@ import Foundation
     static let bearer = "Bearer"
     static let decodingError = "Failed to decode the server response: "
     static let emailNotVerifiedError = "email_not_verified"
+
+    // Error codes from the username and email change endpoints (issue #594),
+    // and the copy each maps to (see APIError.userFacingMessage).
+    static let usernameTakenError = "username_taken"
+    static let usernameChangeTooSoonError = "username_change_too_soon"
+    static let emailInUseError = "email_in_use"
+    static let reauthenticationRequiredError = "reauthentication_required"
+    static let accountChangeMessages: [String: String] = [
+        usernameTakenError: "That username is already taken.",
+        usernameChangeTooSoonError: "You've changed your username recently. Please try again later.",
+        emailInUseError: "Another account already uses that email address.",
+        reauthenticationRequiredError: "That didn't confirm it's you. Please check your password and try again.",
+    ]
     // Returned by login/2fa/ when the challenge is expired, used, or invalid.
     // A stable code (like the two above) rather than prose, so the login screen
     // can branch on it without depending on backend wording.
@@ -129,6 +142,10 @@ import Foundation
     static let pathSegmentLogout = "logout"
     // GET /me/ — the signed-in account's own username + email (#194/#197).
     static let pathSegmentMe = "me"
+    // POST me/username/, me/email/ and me/email/cancel/ — changing the
+    // username or email from Settings (issue #594).
+    static let pathSegmentUsername = "username"
+    static let pathSegmentEmail = "email"
     // POST policies/accept/ — record the privacy policy re-accept (#620).
     static let pathSegmentPolicies = "policies"
     static let pathSegmentAccept = "accept"

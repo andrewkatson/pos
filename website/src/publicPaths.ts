@@ -20,7 +20,15 @@
  * before it can delete anything, so it handles those same errors itself with a
  * message rather than silently continuing.
  */
-export const PUBLIC_PATHS = ['/support', '/privacy-policy', '/terms-of-service'] as const
+export const PUBLIC_PATHS = [
+  '/support',
+  '/privacy-policy',
+  '/terms-of-service',
+  // The emailed link confirming a new address (issue #594) needs no session and
+  // may be opened in a browser holding some other, dead one; bouncing to /login
+  // would throw away the token in the URL.
+  '/verify-email-change',
+] as const
 
 /**
  * True when `pathname` is one of the signed-out-reachable pages above.

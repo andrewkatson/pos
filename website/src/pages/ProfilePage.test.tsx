@@ -913,3 +913,14 @@ test('reporting during a block revalidation still brings the counts back (#602)'
   // ...but its replacement read still settles the revalidation.
   expect(await screen.findByText('10')).toBeInTheDocument()
 })
+
+test('an old username moves to the account’s current one (#594)', async () => {
+  // The backend still resolves a name the account gave up, answering with the
+  // current name; the page then replaces the route with that one.
+  mockGetProfile.mockImplementation(async (name: string) =>
+    name === 'bob' ? { ...baseProfile, username: 'bob_renamed_now' } : { ...baseProfile, username: name },
+  )
+  renderProfile()
+  expect(await screen.findByRole('heading', { name: 'bob_renamed_now' })).toBeInTheDocument()
+  expect(mockGetProfile).toHaveBeenCalledWith('bob_renamed_now')
+})

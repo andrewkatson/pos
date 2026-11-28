@@ -12,7 +12,9 @@ def is_valid_uuid(uuid_to_test):
     try:
         uuid_obj = UUID(uuid_to_test, version=4)
     except ValueError:
-        logger.debug(f"UUID validation failed: ValueError for {uuid_to_test}")
+        # The rejected value is not logged: callers pass arbitrary user input
+        # here (CodeQL py/clear-text-logging-sensitive-data).
+        logger.debug("UUID validation failed: not a valid UUID string")
         return False
     except AttributeError:
         if type(uuid_to_test) is not uuid.UUID:
@@ -22,7 +24,7 @@ def is_valid_uuid(uuid_to_test):
         
     is_valid = str(uuid_obj) == uuid_to_test
     if not is_valid:
-        logger.debug(f"UUID validation failed: String mismatch for {uuid_to_test}")
+        logger.debug("UUID validation failed: not in canonical form")
     return is_valid
 
 

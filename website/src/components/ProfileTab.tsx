@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { apiClient } from '../api/client'
-import { getCurrentUsername } from '../api/session'
+import { useCurrentUsername } from '../api/useCurrentUsername'
 import type { UserSearchResult } from '../api/types'
 import { focusableIn } from '../utils/focusable'
 import { profilePathFor } from '../utils/profilePath'
@@ -19,7 +19,8 @@ import Avatar from './Avatar'
  */
 function ProfileTab() {
   const navigate = useNavigate()
-  const username = getCurrentUsername()
+  // Reactive: a rename (issue #594) re-renders the tab under the new name.
+  const username = useCurrentUsername()
 
   // Track mount state so a search that resolves after the tab is switched away
   // (HomePage unmounts inactive tabs) doesn't set state on an unmounted view.

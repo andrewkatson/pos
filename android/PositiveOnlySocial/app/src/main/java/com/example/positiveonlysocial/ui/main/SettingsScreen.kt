@@ -36,6 +36,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.positiveonlysocial.api.PositiveOnlySocialAPI
 import com.example.positiveonlysocial.data.auth.AuthenticationManager
+import com.example.positiveonlysocial.data.auth.GoogleSignInFailure
+import com.example.positiveonlysocial.data.auth.GoogleSignInProvider
+import com.example.positiveonlysocial.data.auth.GoogleSignInProviding
+import androidx.compose.ui.platform.LocalContext
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import com.example.positiveonlysocial.data.constants.Constants
 import com.example.positiveonlysocial.data.security.KeychainHelper
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
@@ -53,7 +61,10 @@ fun SettingsScreen(
     navController: NavController,
     api: PositiveOnlySocialAPI,
     keychainHelper: KeychainHelperProtocol,
-    authenticationManager: AuthenticationManager
+    authenticationManager: AuthenticationManager,
+    // A Google-only account confirms an email change by signing in with Google
+    // again (issue #594); injectable like LoginScreen's for previews and tests.
+    googleSignIn: GoogleSignInProviding = remember { GoogleSignInProvider() }
 ) {
     PositiveOnlySocialTheme {
         val viewModel: SettingsViewModel = viewModel(
@@ -126,6 +137,18 @@ fun SettingsScreen(
         val savingPreferences by viewModel.savingPreferences.collectAsState()
         val isSavingPrivacy by viewModel.isSavingPrivacy.collectAsState()
 
+        // Username and email change dialogs (issue #594).
+        var showingChangeUsername by remember { mutableStateOf(false) }
+        var showingChangeEmail by remember { mutableStateOf(false) }
+        var newUsername by remember { mutableStateOf("") }
+        var newEmail by remember { mutableStateOf("") }
+        var changeEmailPassword by remember { mutableStateOf("") }
+        val accountChangeError by viewModel.accountChangeError.collectAsState()
+        val isChangingAccountDetails by viewModel.isChangingAccountDetails.collectAsState()
+        val accountChangeDone by viewModel.accountChangeDone.collectAsState()
+        val accountChangeMessage by viewModel.accountChangeMessage.collectAsState()
+        val context = LocalContext.current
+
         // Interests dialog (issues #446/#35).
         var showingInterests by remember { mutableStateOf(false) }
         var showingInterestsSavedDialog by remember { mutableStateOf(false) }
@@ -177,6 +200,79 @@ fun SettingsScreen(
 
         // Load the signed-in account's own username + email once, on mount.
         LaunchedEffect(Unit) { viewModel.loadCurrentUser() }
+
+        // A successful rename or email request closes its dialog (and wipes the
+        // entered password); the confirmation is raised from accountChangeMessage.
+        LaunchedEffect(accountChangeDone) {
+            if (accountChangeDone) {
+                showingChangeUsername = false
+                showingChangeEmail = false
+                changeEmailPassword = ""
+                viewModel.resetAccountChangeDialog()
+            }
+        }
+
+        if (accountChangeMessage != null) {
+            AlertDialog(
+                onDismissRequest = { viewModel.clearAccountChangeMessage() },
+                title = { Text("Account") },
+                text = { Text(accountChangeMessage!!) },
+                confirmButton = {
+                    Button(onClick = { viewModel.clearAccountChangeMessage() }) { Text("OK") }
+                }
+            )
+        }
+
+        if (showingChangeUsername) {
+            ChangeUsernameDialog(
+                currentUsername = currentUser?.username.orEmpty(),
+                newUsername = newUsername,
+                onNewUsernameChange = { newUsername = it },
+                errorMessage = accountChangeError,
+                isChanging = isChangingAccountDetails,
+                onChange = { viewModel.changeUsername(newUsername.trim()) },
+                onCancel = {
+                    showingChangeUsername = false
+                    viewModel.resetAccountChangeDialog()
+                }
+            )
+        }
+
+        if (showingChangeEmail) {
+            ChangeEmailDialog(
+                currentEmail = currentUser?.email.orEmpty(),
+                hasPassword = currentUser?.hasPassword != false,
+                googleConfigured = googleSignIn.isConfigured,
+                newEmail = newEmail,
+                onNewEmailChange = { newEmail = it },
+                password = changeEmailPassword,
+                onPasswordChange = { changeEmailPassword = it },
+                errorMessage = accountChangeError,
+                isChanging = isChangingAccountDetails,
+                onSendWithPassword = {
+                    viewModel.requestEmailChange(newEmail.trim(), password = changeEmailPassword, idToken = null)
+                },
+                onConfirmWithGoogle = {
+                    scope.launch {
+                        try {
+                            val idToken = googleSignIn.signIn(context)
+                            viewModel.requestEmailChange(newEmail.trim(), password = null, idToken = idToken)
+                        } catch (e: GoogleSignInFailure.Cancelled) {
+                            // Dismissing the account picker is a choice, not an error.
+                        } catch (e: GoogleSignInFailure) {
+                            viewModel.showAccountChangeError(e.message)
+                        } catch (e: Exception) {
+                            viewModel.showAccountChangeError("Google sign-in failed. Please try again.")
+                        }
+                    }
+                },
+                onCancel = {
+                    showingChangeEmail = false
+                    changeEmailPassword = ""
+                    viewModel.resetAccountChangeDialog()
+                }
+            )
+        }
         // Load the per-type push toggles (#342/#343) once, on mount.
         LaunchedEffect(Unit) { viewModel.loadNotificationPreferences() }
 
@@ -697,13 +793,55 @@ fun SettingsScreen(
             )
 
             // The signed-in user's own username + email (issue #197/#194). Shows
-            // a placeholder until loadCurrentUser() resolves. Read-only rows, so
-            // they aren't rendered as clickable no-op tap targets.
-            StaticListItem(text = currentUser?.username ?: "…")
+            // a placeholder until loadCurrentUser() resolves. On a backend that
+            // supports changing them (issue #594) each row opens its dialog;
+            // otherwise they stay read-only rather than no-op tap targets.
+            val user = currentUser
+            if (user?.hasPassword != null) {
+                val nextRename = formatChangeDate(user.nextUsernameChangeTime)
+                AccountDetailRow(
+                    value = user.username,
+                    // One rename per cooldown: the hint says when the next one
+                    // is allowed instead of opening a form that would only fail.
+                    enabled = nextRename == null,
+                    testTag = "ChangeUsernameRow",
+                    onClick = {
+                        newUsername = ""
+                        showingChangeUsername = true
+                    }
+                )
+                if (nextRename != null) {
+                    SettingsHint("You can change your username again on $nextRename.")
+                }
 
-            HorizontalDivider()
+                HorizontalDivider()
 
-            StaticListItem(text = currentUser?.email ?: "…")
+                AccountDetailRow(
+                    value = user.email,
+                    enabled = true,
+                    testTag = "ChangeEmailRow",
+                    onClick = {
+                        newEmail = ""
+                        changeEmailPassword = ""
+                        showingChangeEmail = true
+                    }
+                )
+                user.pendingEmail?.let { pending ->
+                    SettingsHint("Waiting for you to confirm $pending — open the link we sent there.")
+                    TextButton(
+                        onClick = { viewModel.cancelEmailChange() },
+                        modifier = Modifier.padding(horizontal = 8.dp).testTag("CancelEmailChangeButton")
+                    ) {
+                        Text("Cancel email change", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            } else {
+                StaticListItem(text = user?.username ?: "…")
+
+                HorizontalDivider()
+
+                StaticListItem(text = user?.email ?: "…")
+            }
 
             HorizontalDivider()
 
@@ -1109,6 +1247,215 @@ fun ListListItem(text: String, textColor: Color = Color.Unspecified, onClick: ()
             modifier = Modifier.padding(16.dp)
         )
     }
+}
+
+/**
+ * A Contact Information row whose value can be changed (issue #594): the value on
+ * the left, "Change" on the right.
+ */
+@Composable
+private fun AccountDetailRow(value: String, enabled: Boolean, testTag: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth().testTag(testTag)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = value, modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(
+                text = "Change",
+                color = if (enabled) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsHint(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+    )
+}
+
+/** "March 3, 2027" for an ISO time, or null if there is none or it doesn't parse. */
+internal fun formatChangeDate(iso: String?): String? {
+    if (iso.isNullOrBlank()) return null
+    return try {
+        val instant = Instant.parse(iso)
+        if (instant.isBefore(Instant.now())) null
+        else DateTimeFormatter.ofLocalizedDate(FormatStyle.LONG)
+            .withZone(ZoneId.systemDefault())
+            .format(instant)
+    } catch (e: Exception) {
+        null
+    }
+}
+
+/** Mirrors Patterns.username: 10–150 letters, digits and underscores. */
+private val USERNAME_PATTERN = Regex("^[\\p{L}\\p{N}_]{10,150}$")
+private val EMAIL_PATTERN = Regex("^[^@]+@[^@]+\\.[^@]+$")
+
+/**
+ * Rename the account (issue #594). The backend checks the name like a
+ * registration one and allows one rename per cooldown; the old name stays
+ * reserved for this account for a while, so links to it keep working.
+ */
+@Composable
+private fun ChangeUsernameDialog(
+    currentUsername: String,
+    newUsername: String,
+    onNewUsernameChange: (String) -> Unit,
+    errorMessage: String?,
+    isChanging: Boolean,
+    onChange: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val trimmed = newUsername.trim()
+    val isValid = USERNAME_PATTERN.matches(trimmed) && trimmed != currentUsername
+    AlertDialog(
+        properties = DialogProperties(dismissOnBackPress = !isChanging, dismissOnClickOutside = !isChanging),
+        onDismissRequest = { if (!isChanging) onCancel() },
+        title = { Text("Change Username") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "You can change your username once every 30 days. Your old username stays " +
+                        "reserved for you for 30 days, so links to your profile keep working."
+                )
+                errorMessage?.let {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("AccountChangeError"))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                TextField(
+                    value = newUsername,
+                    onValueChange = onNewUsernameChange,
+                    label = { Text("New username") },
+                    singleLine = true,
+                    modifier = Modifier.testTag("NewUsernameField")
+                )
+                if (newUsername.isNotEmpty() && !isValid) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Use 10 to 150 letters, numbers, and underscores, different from your current username.",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onChange,
+                enabled = isValid && !isChanging,
+                modifier = Modifier.testTag("ConfirmChangeUsernameButton")
+            ) { Text("Change Username") }
+        },
+        dismissButton = {
+            Button(onClick = onCancel, enabled = !isChanging) { Text("Cancel") }
+        }
+    )
+}
+
+/**
+ * Ask to move the account to a new email (issue #594). Nothing changes until the
+ * link sent to the new address is followed. The password is asked for so a
+ * stolen session alone can't redirect password resets; a Google-only account
+ * has none and signs in with Google again instead.
+ */
+@Composable
+private fun ChangeEmailDialog(
+    currentEmail: String,
+    hasPassword: Boolean,
+    googleConfigured: Boolean,
+    newEmail: String,
+    onNewEmailChange: (String) -> Unit,
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    errorMessage: String?,
+    isChanging: Boolean,
+    onSendWithPassword: () -> Unit,
+    onConfirmWithGoogle: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val trimmed = newEmail.trim()
+    val isValid = EMAIL_PATTERN.matches(trimmed) && !trimmed.equals(currentEmail, ignoreCase = true)
+    AlertDialog(
+        properties = DialogProperties(dismissOnBackPress = !isChanging, dismissOnClickOutside = !isChanging),
+        onDismissRequest = { if (!isChanging) onCancel() },
+        title = { Text("Change Email") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "We'll send a link to your new address. Your email changes once you open it — " +
+                        "until then, your current address keeps working."
+                )
+                errorMessage?.let {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("AccountChangeError"))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                TextField(
+                    value = newEmail,
+                    onValueChange = onNewEmailChange,
+                    label = { Text("New email") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier.testTag("NewEmailField")
+                )
+                if (newEmail.isNotEmpty() && !isValid) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Enter a valid email address that's different from your current one.",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                if (hasPassword) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextField(
+                        value = password,
+                        onValueChange = onPasswordChange,
+                        label = { Text("Current password") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.testTag("ChangeEmailPasswordField")
+                    )
+                } else {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        if (googleConfigured) "Sign in with Google again to confirm it's you."
+                        else "Google sign-in isn't available right now."
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (hasPassword) {
+                Button(
+                    onClick = onSendWithPassword,
+                    enabled = isValid && password.isNotEmpty() && !isChanging,
+                    modifier = Modifier.testTag("ConfirmChangeEmailButton")
+                ) { Text("Send Link") }
+            } else if (googleConfigured) {
+                Button(
+                    onClick = onConfirmWithGoogle,
+                    enabled = isValid && !isChanging,
+                    modifier = Modifier.testTag("ConfirmEmailWithGoogleButton")
+                ) { Text("Confirm with Google") }
+            }
+        },
+        dismissButton = {
+            Button(onClick = onCancel, enabled = !isChanging) { Text("Cancel") }
+        }
+    )
 }
 
 /**

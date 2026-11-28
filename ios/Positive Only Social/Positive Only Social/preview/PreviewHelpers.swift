@@ -135,6 +135,8 @@ struct MockedAPI: Networking {
 
     func getCurrentUser(sessionManagementToken: String) async throws -> Data {
         return try encode(CurrentUserFields(username: "preview_user", email: "preview@example.com",
+                                            isPrivate: false, pendingEmail: nil, hasPassword: true,
+                                            nextUsernameChangeTime: nil,
                                             policiesAcceptedVersion: GVOAppConstants.policyVersion))
     }
 
@@ -144,6 +146,19 @@ struct MockedAPI: Networking {
 
     func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data {
         return try encode(["message": "Password changed successfully"])
+    }
+
+    func changeUsername(sessionManagementToken: String, newUsername: String) async throws -> Data {
+        return try encode(ChangeUsernameFields(username: newUsername, nextUsernameChangeTime: nil,
+                                               formerUsername: nil, formerUsernameHeldUntil: nil))
+    }
+
+    func requestEmailChange(sessionManagementToken: String, email: String, password: String?, idToken: String?) async throws -> Data {
+        return try encode(RequestEmailChangeFields(pendingEmail: email))
+    }
+
+    func cancelEmailChange(sessionManagementToken: String) async throws -> Data {
+        return try encodeGenericSuccess()
     }
 
     func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data {

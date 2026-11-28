@@ -49,6 +49,12 @@ interface ProfileViewProps {
    * join in place of Follow / Block. Defaults to signed in.
    */
   isSignedIn?: boolean
+  /**
+   * Called when the profile came back under a different name than the one
+   * asked for — an old username the account gave up, which the backend still
+   * resolves for a while (issue #594) — so the page can move to the current one.
+   */
+  onCanonicalUsername?: (username: string) => void
 }
 
 /**
@@ -76,6 +82,7 @@ function ProfileView({
   isOwnProfile,
   currentUsername,
   isSignedIn = true,
+  onCanonicalUsername,
 }: ProfileViewProps) {
   const navigate = useNavigate()
   // Track mount state so async loads that resolve after navigating away don't
@@ -195,6 +202,12 @@ function ProfileView({
   // flight is left alone.
   const profileGeneration = useRef(0)
 
+  // In a ref so a new callback identity on re-render never re-runs the load.
+  const onCanonicalUsernameRef = useRef(onCanonicalUsername)
+  useEffect(() => {
+    onCanonicalUsernameRef.current = onCanonicalUsername
+  })
+
   const loadProfile = useCallback(async () => {
     const generation = loadGeneration.current
     const profileGen = profileGeneration.current
@@ -206,6 +219,10 @@ function ProfileView({
         profileGen !== profileGeneration.current
       )
         return
+      if (details.username !== username && onCanonicalUsernameRef.current) {
+        onCanonicalUsernameRef.current(details.username)
+        return
+      }
       setProfile(details)
       applyRelationship(details)
       setLoadFailed(false)
@@ -222,7 +239,7 @@ function ProfileView({
       )
         setLoadFailed(true)
     }
-  }, [fetchProfile, applyRelationship])
+  }, [fetchProfile, applyRelationship, username])
 
   // Deferred to a microtask so the fetch's setState calls don't run
   // synchronously inside the effect (React flags that as cascading renders),

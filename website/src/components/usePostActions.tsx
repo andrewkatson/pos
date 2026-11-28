@@ -8,6 +8,7 @@ import AnchoredMenu, { AnchoredMenuItem } from './AnchoredMenu'
 import CommentComposerDialog from './CommentComposerDialog'
 import LikesModal from './LikesModal'
 import type { MenuAnchor } from './menuAnchor'
+import { useOwnUsernames } from '../api/useCurrentUsername'
 
 /** Anything can be thrown in JS, so never assume the caught value is an Error:
  * reading `.message` off a string or null would lose the text or throw again.
@@ -119,12 +120,17 @@ export function usePostActions({
 } {
   const [overrides, setOverrides] = useState<Record<string, PostOverride>>({})
   const [dialog, setDialog] = useState<Dialog | null>(null)
+  // Names this account gave up this session (issue #594): rows fetched before a
+  // rename still carry them, and they are reserved for this account.
+  const ownUsernames = useOwnUsernames()
   const [reportReason, setReportReason] = useState('')
 
   function stateFor(post: FeedPost): PostActionState {
     const override = overrides[post.post_identifier] ?? {}
     return {
-      isOwn: post.author_username === currentUsername,
+      isOwn:
+        post.author_username === currentUsername ||
+        (currentUsername !== null && ownUsernames.includes(post.author_username)),
       isLiked: override.isLiked ?? post.is_liked ?? false,
       likeCount: override.likeCount ?? post.post_likes ?? 0,
       isSaved: override.isSaved ?? post.is_saved ?? false,

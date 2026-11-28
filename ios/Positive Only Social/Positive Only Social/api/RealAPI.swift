@@ -129,6 +129,23 @@ final class RealAPI: Networking {
         let new_password: String
     }
 
+    private struct ChangeUsernameBody: Encodable {
+        let username: String
+    }
+
+    /// Exactly one of `password` / `idToken` is sent; a nil one is omitted.
+    private struct RequestEmailChangeBody: Encodable {
+        let email: String
+        let password: String?
+        let idToken: String?
+
+        enum CodingKeys: String, CodingKey {
+            case email
+            case password
+            case idToken = "id_token"
+        }
+    }
+
     private struct ResetPasswordBody: Encodable {
         let username: String
         let email: String
@@ -479,6 +496,38 @@ final class RealAPI: Networking {
             pathSegments: [GVOAppConstants.pathSegmentPassword, GVOAppConstants.pathSegmentChange],
             method: .post,
             body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Renames the signed-in account (issue #594).
+    func changeUsername(sessionManagementToken: String, newUsername: String) async throws -> Data {
+        let requestBody = try encode(ChangeUsernameBody(username: newUsername))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentMe, GVOAppConstants.pathSegmentUsername],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Asks to move the signed-in account to a new email (issue #594).
+    func requestEmailChange(sessionManagementToken: String, email: String, password: String?, idToken: String?) async throws -> Data {
+        let requestBody = try encode(RequestEmailChangeBody(email: email, password: password, idToken: idToken))
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentMe, GVOAppConstants.pathSegmentEmail],
+            method: .post,
+            body: requestBody,
+            authToken: sessionManagementToken
+        )
+    }
+
+    /// Withdraws a pending email change (issue #594).
+    func cancelEmailChange(sessionManagementToken: String) async throws -> Data {
+        return try await performRequest(
+            pathSegments: [GVOAppConstants.pathSegmentMe, GVOAppConstants.pathSegmentEmail,
+                           GVOAppConstants.pathSegmentCancel],
+            method: .post,
             authToken: sessionManagementToken
         )
     }

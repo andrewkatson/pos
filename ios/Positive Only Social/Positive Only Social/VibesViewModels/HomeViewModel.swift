@@ -37,9 +37,12 @@ final class HomeViewModel: ObservableObject {
     // dropped from this grid's cached list.
     private var postDeletedCancellable: AnyCancellable?
 
-    /// The signed-in user's username, loaded once at init. Search results use it
-    /// so tapping yourself doesn't navigate to a profile you're already on (#347).
-    private(set) var currentUsername: String?
+    /// The signed-in user's username, loaded at init and kept current across a
+    /// rename (issue #594). Search results use it so tapping yourself doesn't
+    /// navigate to a profile you're already on (#347).
+    @Published private(set) var currentUsername: String?
+    // Listens for `.usernameChanged` to keep `currentUsername` current.
+    private var usernameChangedCancellable: AnyCancellable?
 
     // MARK: - Initializer
     convenience init(api: Networking, keychainHelper: KeychainHelperProtocol) {
@@ -61,6 +64,15 @@ final class HomeViewModel: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] searchText in
                 self?.performSearch(for: searchText)
+            }
+
+        // DispatchQueue.main rather than RunLoop.main, so the update isn't held
+        // back while the user is scrolling (RunLoop.main runs in .default mode).
+        usernameChangedCancellable = notificationCenter.publisher(for: .usernameChanged)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let username = notification.object as? String else { return }
+                self?.currentUsername = username
             }
 
         // When a post is deleted (from its detail view), remove it from the grid

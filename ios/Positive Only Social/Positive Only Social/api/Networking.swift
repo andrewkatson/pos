@@ -76,6 +76,20 @@ protocol Networking {
     /// cookies, keeping only the caller's current session.
     func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data
 
+    /// Renames the signed-in account (issue #594). The backend checks the name
+    /// like a registration one and allows one rename per cooldown; the old name
+    /// stays reserved for this account for a while and still resolves to it.
+    func changeUsername(sessionManagementToken: String, newUsername: String) async throws -> Data
+
+    /// Asks to move the signed-in account to a new email (issue #594). Nothing
+    /// changes until the link sent to the new address is followed (on the
+    /// website). Proof of ownership is the password, or — for a Google-only
+    /// account, which has none — a fresh Google ID token for the linked account.
+    func requestEmailChange(sessionManagementToken: String, email: String, password: String?, idToken: String?) async throws -> Data
+
+    /// Withdraws a pending email change; its link stops working.
+    func cancelEmailChange(sessionManagementToken: String) async throws -> Data
+
     /// Resets the user's password. Requires a reset token issued by verifyPasswordReset.
     func resetPassword(username: String, email: String, newPassword: String, resetToken: String) async throws -> Data
 

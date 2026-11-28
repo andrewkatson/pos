@@ -149,6 +149,24 @@ class MockPositiveOnlySocialAPI : PositiveOnlySocialAPI {
         )
     }
 
+    override suspend fun changeUsername(
+        token: String,
+        request: ChangeUsernameRequest
+    ): Response<ChangeUsernameResponse> {
+        return Response.success(ChangeUsernameResponse(username = request.username))
+    }
+
+    override suspend fun requestEmailChange(
+        token: String,
+        request: RequestEmailChangeRequest
+    ): Response<RequestEmailChangeResponse> {
+        return Response.success(RequestEmailChangeResponse(pendingEmail = request.email))
+    }
+
+    override suspend fun cancelEmailChange(token: String): Response<GenericResponse> {
+        return Response.success(GenericResponse(message = "ok", error = null))
+    }
+
     override suspend fun acceptPolicies(
         token: String,
         request: AcceptPoliciesRequest

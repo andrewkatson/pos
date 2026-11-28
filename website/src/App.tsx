@@ -4,6 +4,7 @@ import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import CheckEmailPage from './pages/CheckEmailPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
+import VerifyEmailChangePage from './pages/VerifyEmailChangePage'
 import RequestResetPage from './pages/RequestResetPage'
 import VerifyResetPage from './pages/VerifyResetPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
@@ -33,6 +34,7 @@ function App() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/check-email" element={<CheckEmailPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route path="/verify-email-change" element={<VerifyEmailChangePage />} />
         <Route path="/request-reset" element={<RequestResetPage />} />
         <Route path="/verify-reset" element={<VerifyResetPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />

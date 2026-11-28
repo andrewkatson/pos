@@ -41,3 +41,8 @@ test('a path that merely starts with a public one is not public', () => {
   expect(isPublicPath('/supportive')).toBe(false)
   expect(isPublicPath('/support/ticket')).toBe(false)
 })
+
+test('the email-change confirmation link is public (#594)', () => {
+  // It needs no session; a dead one in storage must not bounce it to /login.
+  expect(isPublicPath('/verify-email-change')).toBe(true)
+})

@@ -10,7 +10,9 @@ Like or Delete it has no ownership condition.
 A **profile** can be shared the same way (issue #510). Every profile — your own
 and everyone else's — carries a three-dots (⋯) options menu at the top of its
 header offering **Share**, handing off the website's profile page,
-`https://smiling.social/profile/<username>`. Like a post link it works signed
+`https://smiling.social/profile/<username>`. A link made before the account was
+renamed keeps working while the old name is held
+([issue #594](accounts.md#changing-the-username-issue-594)). Like a post link it works signed
 out: see [What a recipient sees](#what-a-recipient-sees-issue-381) below. On
 someone else's profile, a signed-in viewer's menu also offers **Report** (or
 **Retract report**) for the account — see

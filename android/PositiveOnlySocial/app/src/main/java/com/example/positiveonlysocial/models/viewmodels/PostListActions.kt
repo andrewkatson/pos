@@ -10,6 +10,7 @@ import com.example.positiveonlysocial.data.model.UserSession
 import com.example.positiveonlysocial.data.security.KeychainHelperProtocol
 import com.example.positiveonlysocial.util.CaptionEdit
 import com.example.positiveonlysocial.util.PostEvents
+import com.example.positiveonlysocial.util.SessionEvents
 import com.example.positiveonlysocial.util.savedEditIsNewer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,6 +56,29 @@ class PostListActions(
     private val _currentUsername = MutableStateFlow<String?>(null)
     val currentUsername: StateFlow<String?> = _currentUsername.asStateFlow()
 
+    // Names this account gave up while these actions were alive (issue #594),
+    // each with when its hold ends (epoch ms). A renamed-away name stays reserved
+    // for its former owner until then, so rows fetched before the rename — still
+    // carrying it — are still the user's own; after it, someone else may hold it.
+    private val formerUsernames = mutableMapOf<String, Long>()
+
+    /** Remembers only the old name the server says is still held, and only
+     * until its hold ends — never the name cached here, which after a rename
+     * missed elsewhere may already belong to someone else. */
+    private fun setCurrentUsername(
+        username: String?,
+        formerUsername: String? = null,
+        formerHeldUntilMillis: Long? = null,
+    ) {
+        if (formerUsername != null && formerUsername != username &&
+            formerHeldUntilMillis != null && formerHeldUntilMillis > System.currentTimeMillis()
+        ) {
+            formerUsernames[formerUsername] = formerHeldUntilMillis
+        }
+        if (username != null) formerUsernames.remove(username)
+        _currentUsername.value = username
+    }
+
     private val _alertMessage = MutableStateFlow<String?>(null)
     val alertMessage: StateFlow<String?> = _alertMessage.asStateFlow()
 
@@ -96,6 +120,12 @@ class PostListActions(
         // its now-missing image doesn't linger as an empty black tile (issue #256).
         scope.launch {
             PostEvents.deletedPostIds.collect { deletedId -> removeLocally(deletedId) }
+        }
+        // Ownership checks follow a rename made in Settings (issue #594).
+        scope.launch {
+            SessionEvents.usernameChanges.collect {
+                setCurrentUsername(it.username, it.formerUsername, it.formerHeldUntilMillis)
+            }
         }
         // Likewise keep the lock-comments menu action in sync with a toggle made
         // on the post detail screen (issue #492).
@@ -154,9 +184,11 @@ class PostListActions(
     fun canEdit(post: Post): Boolean = isOwnPost(post) && post.hidden != true
 
     /** Whether [post] was authored by the signed-in user. */
-    fun isOwnPost(post: Post): Boolean {
+    fun isOwnPost(post: Post, nowMillis: Long = System.currentTimeMillis()): Boolean {
         val username = _currentUsername.value ?: return false
-        return post.authorUsername == username
+        if (post.authorUsername == username) return true
+        val heldUntil = formerUsernames[post.authorUsername] ?: return false
+        return heldUntil > nowMillis
     }
 
     fun dismissAlert() {
@@ -452,7 +484,7 @@ class PostListActions(
             _alertMessage.value = "Not logged in."
             return null
         }
-        _currentUsername.value = session.username
+        setCurrentUsername(session.username)
         return session.sessionToken
     }
 

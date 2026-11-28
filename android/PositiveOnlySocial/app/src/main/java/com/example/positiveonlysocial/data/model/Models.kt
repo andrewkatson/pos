@@ -136,9 +136,48 @@ data class CurrentUserResponse(
     // The private account setting (issue #96), shown as a Settings toggle.
     // Nullable so a response from an older backend still parses.
     @SerializedName("is_private") val isPrivate: Boolean? = null,
+    // Changing the username or email (issue #594): an address waiting on its
+    // confirmation link, whether the account has a password to re-enter (a
+    // Google-only account confirms with Google instead), and when the next
+    // rename is allowed (ISO time; null when it is now). All nullable so an
+    // older backend's response still parses; `hasPassword == null` is how the
+    // client tells the feature isn't there.
+    @SerializedName("pending_email") val pendingEmail: String? = null,
+    @SerializedName("has_password") val hasPassword: Boolean? = null,
+    @SerializedName("next_username_change_time") val nextUsernameChangeTime: String? = null,
     // The policy version the user last accepted (issue #620); null when
     // nothing is on record or the backend predates it.
     @SerializedName("policies_accepted_version") val policiesAcceptedVersion: String? = null
+)
+
+/** `POST me/username/` (issue #594). */
+data class ChangeUsernameRequest(
+    @SerializedName("username") val username: String
+)
+
+data class ChangeUsernameResponse(
+    @SerializedName("username") val username: String,
+    @SerializedName("next_username_change_time") val nextUsernameChangeTime: String? = null,
+    // The name this account gave up that is still reserved for it, and until
+    // when (ISO time). Content under exactly that name counts as the user's own
+    // only until then.
+    @SerializedName("former_username") val formerUsername: String? = null,
+    @SerializedName("former_username_held_until") val formerUsernameHeldUntil: String? = null
+)
+
+/**
+ * `POST me/email/` (issue #594): the new address plus proof that the owner is
+ * asking — the password, or for a Google-only account a fresh Google ID token.
+ * Gson omits a null field, so only the one in use is sent.
+ */
+data class RequestEmailChangeRequest(
+    @SerializedName("email") val email: String,
+    @SerializedName("password") val password: String? = null,
+    @SerializedName("id_token") val idToken: String? = null
+)
+
+data class RequestEmailChangeResponse(
+    @SerializedName("pending_email") val pendingEmail: String
 )
 
 /** POST policies/accept/: the user accepted the privacy policy re-accept prompt (issue #620). */

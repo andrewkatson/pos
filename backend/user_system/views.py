@@ -16,7 +16,7 @@ from django.conf import settings
 from django.contrib.auth import login, logout, get_user_model
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.mail import send_mail
-from django.db import transaction, IntegrityError
+from django.db import connection, transaction, IntegrityError
 from django.db.models import Count, Max, OuterRef, Q, Subquery
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -57,13 +57,16 @@ from .constants import Patterns, Params, POST_BATCH_SIZE, \
     GOOGLE_SIGN_IN_UNAVAILABLE, INVALID_GOOGLE_TOKEN, GOOGLE_EMAIL_UNVERIFIED, \
     GOOGLE_EMAIL_AMBIGUOUS, POLICY_ACCEPTANCE_REQUIRED, \
     GENERATED_USERNAME_FALLBACK_PREFIX, MIN_GENERATED_USERNAME_LENGTH, \
-    MAX_GENERATED_USERNAME_ATTEMPTS
+    MAX_GENERATED_USERNAME_ATTEMPTS, \
+    USERNAME_CHANGE_COOLDOWN_DAYS, USERNAME_HOLD_DAYS, USERNAME_TAKEN, USERNAME_CHANGE_TOO_SOON, \
+    EMAIL_IN_USE, EMAIL_CHANGE_TOKEN_HOURS, REAUTHENTICATION_REQUIRED
 from .feed_algorithm import feed_algorithm
 from .google_auth import GoogleTokenError, is_google_sign_in_configured, verify_google_id_token
 from .input_validator import is_valid_pattern
 from .models import LoginCookie, Session, Post, CommentThread, PositiveOnlySocialUser, Comment, CommentLike, \
     PostLike, SavedPost, UserBlock, UserBan, UserFollow, KnownDevice, Appeal, TwoFactorChallenge, RecoveryCode, \
-    InterestCategory, UserFreeformInterest, DeviceToken, NotificationPreference, FollowRequest, AccountReport
+    InterestCategory, UserFreeformInterest, DeviceToken, NotificationPreference, FollowRequest, AccountReport, \
+    UsernameHold
 from .utils import convert_to_bool, generate_login_cookie_token, generate_management_token, generate_series_identifier, \
     get_queryset_batch
 from .cloudfront import sign_compressed_url, sign_original_url
@@ -144,6 +147,58 @@ def get_user_with_username(username):
         return existing
     except get_user_model().DoesNotExist:
         return None
+
+
+def get_user_by_handle(username):
+    """The account a `users/<username>/…` route names: the one holding that
+    username now, or else the one that gave it up within the hold window
+    (issue #594), so links and cached names from before a rename still work.
+
+    Only for addressing someone else's profile. Sign-in, registration and
+    password reset match the current username exactly (get_user_with_username):
+    an old name is a pointer to the account, not a credential for it.
+    """
+    existing = get_user_with_username(username)
+    if existing is not None:
+        return existing
+    hold = UsernameHold.objects.filter(username=username, expires__gt=timezone.now()) \
+        .select_related('user').first()
+    return hold.user if hold is not None else None
+
+
+def is_username_held_for_someone_else(username, user=None):
+    """Whether `username` is reserved for an account other than `user` because
+    it gave the name up recently (issue #594). Pass no user to ask about anyone."""
+    holds = UsernameHold.objects.filter(username=username, expires__gt=timezone.now())
+    if user is not None:
+        holds = holds.exclude(user=user)
+    return holds.exists()
+
+
+class _AccountClaimConflict(Exception):
+    """A username or email turned out to be taken once the write was made."""
+
+
+def _lock_email_address(email):
+    """Serialize everything that hands out an email address — registration,
+    a first Google sign-in, confirming an email change (issue #594) — on that
+    address, case-insensitively. Nothing in the database makes emails unique,
+    so without this two of those can each check that an address is free and
+    both commit it. Postgres takes a transaction-scoped advisory lock; SQLite
+    already serializes writers. Call inside transaction.atomic()."""
+    if connection.vendor == 'postgresql':
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [email.lower()])
+
+
+def _taken_name_is_held(username, user):
+    """Whether a username `user` has just been written with is reserved for
+    someone else (issue #594). Checked *after* the write, in the same
+    transaction: a write that had to wait on the username's unique index for a
+    rename to release the name only proceeds once that rename — and the hold it
+    creates in the same transaction — has committed, so this read sees the hold.
+    A check made only before the write would miss it."""
+    return is_username_held_for_someone_else(username, user)
 
 
 def get_user_with_email(email):
@@ -872,7 +927,10 @@ def register(request):
         }, status=403)
 
     # Check no user has this email or username.
-    if get_user_with_username(username) is not None or get_user_with_email(email) is not None:
+    # A name another account gave up within the hold window is still theirs
+    # (issue #594), and is refused exactly like one that is in use.
+    if get_user_with_username(username) is not None or get_user_with_email(email) is not None \
+            or is_username_held_for_someone_else(username):
         logger.warning("Registration failed: User already exists")
         return log_and_return_json("register", {'error': "User already exists"}, status=400)
 
@@ -888,13 +946,27 @@ def register(request):
             Fields.appealable: False,
         }, status=400)
 
-    new_user = get_user_model().objects.create_user(username=username, email=email)
-    new_user.set_password(password)
-    new_user.identity_is_verified = True if date_of_birth_str else False
-    new_user.is_adult = is_adult
-    if accepted_policies:
-        _record_policy_acceptance(new_user, policy_version)
-    new_user.save()
+    try:
+        with transaction.atomic():
+            # Re-checked under the address lock, so an email change confirmed
+            # meanwhile can't leave two accounts on one address (issue #594).
+            _lock_email_address(email)
+            if get_user_with_email(email) is not None:
+                raise _AccountClaimConflict()
+            new_user = get_user_model().objects.create_user(username=username, email=email)
+            new_user.set_password(password)
+            new_user.identity_is_verified = True if date_of_birth_str else False
+            new_user.is_adult = is_adult
+            if accepted_policies:
+                _record_policy_acceptance(new_user, policy_version)
+            new_user.save()
+            if _taken_name_is_held(username, new_user):
+                raise _AccountClaimConflict()
+    except (_AccountClaimConflict, IntegrityError):
+        # The username's unique index, a hold created by a concurrent rename, or
+        # an address taken meanwhile: the same answer as the check above.
+        logger.warning("Registration failed: User already exists (taken concurrently)")
+        return log_and_return_json("register", {'error': "User already exists"}, status=400)
 
     # Stamp their join number now, in creation order, so the client can greet
     # them with "You're member #n!" (issue #198).
@@ -1116,19 +1188,30 @@ def _link_google_identity(user, claims):
     """Attach a Google identity to the account we matched by verified email.
 
     Returns the account that ends up holding it: normally `user`, but the row a
-    concurrent request linked first if that one won the race.
+    concurrent request linked first if that one won the race — or None if
+    `user` stopped holding the address before it could be linked (issue #594),
+    in which case the caller carries on as if nothing matched.
     """
-    user.google_sub = claims['sub']
-    # Google vouching for the address settles our own verification too: an
-    # account still sitting on an unclicked link is now proven.
-    user.email_verified = True
-    user.email_verification_token = None
-    user.email_verification_token_expires = None
     try:
         # Named columns only, so a concurrent write to anything else on this row
         # — a bio edit, a profile photo — isn't clobbered by a whole-row save
         # from an instance that was read moments ago.
         with transaction.atomic():
+            # The match was made by email, outside any lock; an email change
+            # confirmed since (issue #594) means this account no longer holds
+            # the address Google vouched for, so it is not the same person's.
+            # Re-read under the row lock that confirmation also takes.
+            locked = get_user_model().objects.select_for_update(no_key=True).filter(pk=user.pk).first()
+            if locked is None or (locked.email or "").lower() != claims['email'].lower():
+                logger.info("Google sign-in: matched account no longer holds that address; not linking")
+                return None
+            user = locked
+            user.google_sub = claims['sub']
+            # Google vouching for the address settles our own verification too:
+            # an account still sitting on an unclicked link is now proven.
+            user.email_verified = True
+            user.email_verification_token = None
+            user.email_verification_token_expires = None
             user.save(update_fields=[
                 'google_sub', 'email_verified',
                 'email_verification_token', 'email_verification_token_expires',
@@ -1169,6 +1252,10 @@ def _create_user_for_google(request, claims, ip, policy_version):
         candidate = _google_username_candidate(base, attempt)
         if not is_valid_pattern(candidate, Patterns.username):
             continue
+        # A name someone gave up recently is still reserved for them (issue
+        # #594). No unique constraint backs that, so check it here.
+        if is_username_held_for_someone_else(candidate):
+            continue
         try:
             # The unique constraints, not the lookups, are what actually decide:
             # two Google sign-ins racing on the same generated name (or on a name
@@ -1176,6 +1263,13 @@ def _create_user_for_google(request, claims, ip, policy_version):
             # simply draws different digits. The savepoint keeps the failure from
             # poisoning any surrounding transaction.
             with transaction.atomic():
+                _lock_email_address(email)
+                if get_user_model().objects.filter(email__iexact=email).exists():
+                    # An email change confirmed this address onto another
+                    # account since the caller looked (issue #594). Creating a
+                    # second holder would make Google sign-in ambiguous; the
+                    # next attempt links to that account instead.
+                    raise _AccountClaimConflict()
                 new_user = get_user_model().objects.create_user(username=candidate, email=email)
                 new_user.set_unusable_password()
                 new_user.google_sub = claims['sub']
@@ -1183,6 +1277,13 @@ def _create_user_for_google(request, claims, ip, policy_version):
                 # The caller refuses to get here without accepted_policies.
                 _record_policy_acceptance(new_user, policy_version)
                 new_user.save()
+                if _taken_name_is_held(candidate, new_user):
+                    # A concurrent rename freed this name and reserved it in the
+                    # same commit our insert waited on. Draw another.
+                    raise IntegrityError("generated username is held")
+        except _AccountClaimConflict:
+            logger.warning("Google account creation lost a race for its email address")
+            return None, False
         except IntegrityError:
             # Two columns here are unique, and only one of them is worth
             # retrying. If google_sub is the one that tripped, a concurrent
@@ -1886,20 +1987,27 @@ def request_reset(request):
         token = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
 
+        # The code is stored and addressed from a freshly locked row, the lock
+        # confirming an email change also takes (issue #594): a reset in flight
+        # can't write a code meant for the old mailbox after that change voided
+        # reset codes, and the mail goes to whichever address the account holds
+        # once the code is saved.
+        with transaction.atomic():
+            user = get_user_model().objects.select_for_update(no_key=True).get(pk=user.pk)
+            user.verification_token = token_hash
+            user.verification_token_expires = timezone.now() + timedelta(hours=1)
+            user.reset_token = None
+            user.reset_token_expires = None
+            user.verification_failed_attempts = 0
+            user.verification_lockout_until = None
+            user.save(update_fields=['verification_token', 'verification_token_expires', 'reset_token', 'reset_token_expires', 'verification_failed_attempts', 'verification_lockout_until'])
+
         send_mail(
             "Password Reset",
             f"Your password reset verification token is:\n\n{token}\n\nEnter this in the app to proceed. It expires in 1 hour.",
             settings.EMAIL_HOST_USER,
             [user.email],
         )
-
-        user.verification_token = token_hash
-        user.verification_token_expires = timezone.now() + timedelta(hours=1)
-        user.reset_token = None
-        user.reset_token_expires = None
-        user.verification_failed_attempts = 0
-        user.verification_lockout_until = None
-        user.save(update_fields=['verification_token', 'verification_token_expires', 'reset_token', 'reset_token_expires', 'verification_failed_attempts', 'verification_lockout_until'])
         logger.info(f"Password reset request successful for user_id: {user.id}")
         return log_and_return_json("request_reset", {'message': 'Reset email sent'})
     else:
@@ -2043,7 +2151,13 @@ def reset_password(request):
             user.set_password(password)
             user.reset_token = None
             user.reset_token_expires = None
-            user.save(update_fields=['password', 'reset_token', 'reset_token_expires'])
+            # A reset is account recovery: an email change someone requested
+            # before it (issue #594) must not survive it.
+            user.pending_email = None
+            user.pending_email_token = None
+            user.pending_email_token_expires = None
+            user.save(update_fields=['password', 'reset_token', 'reset_token_expires',
+                                     'pending_email', 'pending_email_token', 'pending_email_token_expires'])
             Session.objects.filter(management_user=user).delete()
             LoginCookie.objects.filter(cookie_user=user).delete()
     except get_user_model().DoesNotExist:
@@ -2106,7 +2220,12 @@ def change_password(request):
             )
 
         user.set_password(new_password)
-        user.save(update_fields=['password'])
+        # A pending email change (issue #594) was authorized by the old
+        # password; whoever asked for it must not be able to finish it now.
+        user.pending_email = None
+        user.pending_email_token = None
+        user.pending_email_token_expires = None
+        user.save(update_fields=['password', 'pending_email', 'pending_email_token', 'pending_email_token_expires'])
         # Evict other devices but keep the session that made this request, so the
         # caller isn't logged out of the device they just changed the password on.
         Session.objects.filter(management_user=user).exclude(management_token=request.token).delete()
@@ -2114,6 +2233,373 @@ def change_password(request):
 
     logger.info(f"Password change successful for user_id: {user.id}, username: {user.username}")
     return log_and_return_json("change_password", {'message': 'Password changed successfully'})
+
+
+# =============================================================================
+# USERNAME AND EMAIL CHANGE VIEWS (issue #594)
+# =============================================================================
+
+def _next_username_change_time(user, now=None):
+    """When `user` may rename again, or None if they may rename now."""
+    if user.username_changed_time is None:
+        return None
+    allowed_at = user.username_changed_time + timedelta(days=USERNAME_CHANGE_COOLDOWN_DAYS)
+    return allowed_at if allowed_at > (now or timezone.now()) else None
+
+
+def _former_username_fields(user):
+    """The name `user` gave up whose hold is still running, with its expiry
+    (issue #594) — read from the hold itself, so a client that missed a rename
+    elsewhere learns which name is actually reserved rather than pairing an
+    expiry with whatever name it had cached. Both None when there is no live
+    hold. The cooldown equals the hold, so at most one is ever running."""
+    hold = UsernameHold.objects.filter(user=user, expires__gt=timezone.now()).order_by('-expires').first()
+    return {
+        Fields.former_username: hold.username if hold else None,
+        Fields.former_username_held_until: hold.expires if hold else None,
+    }
+
+
+def _username_too_soon_response(endpoint, allowed_at):
+    return log_and_return_json(endpoint, {
+        'error': USERNAME_CHANGE_TOO_SOON,
+        Fields.next_username_change_time: allowed_at,
+    }, status=400)
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='10/h', block=True)
+@require_POST
+def change_username(request):
+    """Rename the signed-in account (issue #594).
+
+    The new name passes the same checks as one chosen at registration — the
+    username pattern, nobody else holding it, and the positivity classifier
+    (a rejection is not appealable: pick another). An account may rename once
+    per USERNAME_CHANGE_COOLDOWN_DAYS. The name given up is held for its former
+    owner for USERNAME_HOLD_DAYS (see UsernameHold), during which nobody else can
+    take it and profile routes still resolve it to this account.
+
+    Every relation points at the user's id, not its name, so nothing else needs
+    rewriting. A rename does change the profile under report review, so it
+    releases a decided review exactly like a new bio does.
+
+    No password is asked for: a username is a public handle, not a credential,
+    and the cooldown caps what a stolen session could do with it.
+    """
+    logger.info("Endpoint change_username invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("change_username", {'error': "Invalid JSON data"}, status=400)
+
+    new_username = data.get(Fields.username)
+    if not new_username or not isinstance(new_username, str) \
+            or not is_valid_pattern(new_username, Patterns.username):
+        return log_and_return_json("change_username", {'error': f"Invalid fields ['{Params.username}']"},
+                                   status=400)
+
+    user = request.user
+    if new_username == user.username:
+        return log_and_return_json("change_username", {
+            'error': "New username must be different from the current one"}, status=400)
+
+    # Cheap checks first, so a refused rename never pays for a classification.
+    # Both are repeated under the row lock below.
+    allowed_at = _next_username_change_time(user)
+    if allowed_at is not None:
+        logger.warning(f"Username change refused: cooldown has not elapsed for user_id: {user.id}")
+        return _username_too_soon_response("change_username", allowed_at)
+    if get_user_with_username(new_username) is not None \
+            or is_username_held_for_someone_else(new_username, user):
+        return log_and_return_json("change_username", {'error': USERNAME_TAKEN}, status=400)
+
+    username_result = text_classifier_class.is_text_positive(new_username)
+    if not username_result:
+        logger.warning(f"Username change refused: username not positive for user_id: {user.id}")
+        return log_and_return_json("change_username", {
+            'error': f"Username is not positive because it {username_result.public_reason()}.",
+            Fields.reason_code: username_result.public_reason_code(),
+            Fields.appealable: False,
+        }, status=400)
+
+    now = timezone.now()
+    with transaction.atomic():
+        # The user's row is the content row of any report review of this
+        # account (issue #602), so it is locked through the moderation protocol
+        # before the review it may release. The fresh read is also what makes
+        # the cooldown hold against two renames racing each other.
+        locked = moderation.lock_reviewed_content(account=user)
+        allowed_at = _next_username_change_time(locked, now)
+        if allowed_at is not None:
+            return _username_too_soon_response("change_username", allowed_at)
+        if is_username_held_for_someone_else(new_username, locked):
+            return log_and_return_json("change_username", {'error': USERNAME_TAKEN}, status=400)
+
+        old_username = locked.username
+        locked.username = new_username
+        locked.username_changed_time = now
+        try:
+            # The unique constraint is what really decides between two accounts
+            # racing for the same name; the savepoint keeps the loser's failure
+            # from poisoning this transaction.
+            with transaction.atomic():
+                locked.save(update_fields=['username', 'username_changed_time'])
+                if _taken_name_is_held(new_username, locked):
+                    raise IntegrityError("username is held")
+        except IntegrityError:
+            logger.warning(f"Username change refused: name was taken concurrently for user_id: {locked.id}")
+            return log_and_return_json("change_username", {'error': USERNAME_TAKEN}, status=400)
+
+        # Expired holds are dead weight everywhere; sweep them while we're here.
+        UsernameHold.objects.filter(expires__lte=now).delete()
+        # Taking back a name this account held is just ending its hold.
+        UsernameHold.objects.filter(username=new_username, user=locked).delete()
+        UsernameHold.objects.update_or_create(
+            username=old_username,
+            defaults={'user': locked, 'expires': now + timedelta(days=USERNAME_HOLD_DAYS)},
+        )
+        moderation.profile_content_changed(locked)
+
+    logger.info(f"Username changed for user_id: {locked.id}")
+    return log_and_return_json("change_username", {
+        Fields.username: locked.username,
+        Fields.next_username_change_time: _next_username_change_time(locked),
+        **_former_username_fields(locked),
+        'message': "Your username has been changed.",
+    })
+
+
+def _email_change_link(token):
+    return f"{settings.FRONTEND_BASE_URL}/verify-email-change?token={token}"
+
+
+def _google_proof_for_email_change(data):
+    """The verified claims of the Google ID token a Google-only account offers
+    as proof for an email change, or None if there is no valid one. Verified
+    before the row lock (it is a network call); compared with the locked row
+    in _email_change_proof_holds."""
+    raw_token = data.get(Fields.id_token)
+    if not raw_token or not isinstance(raw_token, str) \
+            or not is_valid_pattern(raw_token, Patterns.google_id_token):
+        return None
+    try:
+        return verify_google_id_token(raw_token)
+    except GoogleTokenError:
+        logger.warning("Email change: Google ID token did not verify")
+        return None
+
+
+def _email_change_proof_holds(locked, data, google_claims):
+    """Whether the caller proved they own `locked` (issue #594), judged against
+    the freshly locked row rather than the snapshot loaded at authentication, so
+    a password changed or reset in between invalidates the old one.
+
+    The email is where password resets go, so a stolen session alone must not be
+    able to redirect it — the same reasoning as change_password. An account with
+    a password re-enters it. A Google-only account has none, so it presents a
+    fresh Google ID token, which must be for the Google account already linked
+    to it: a token for any other Google account proves nothing about this one.
+    """
+    if locked.has_usable_password():
+        password = data.get(Fields.password)
+        return bool(password) and isinstance(password, str) \
+            and is_valid_pattern(password, Patterns.login_password) \
+            and check_password(password, locked.password)
+    return google_claims is not None and bool(locked.google_sub) \
+        and google_claims['sub'] == locked.google_sub
+
+
+def _email_held_by_another_account(email, user):
+    # Case-insensitive, unlike registration's exact match: addresses differing
+    # only in case are one mailbox, and two accounts holding it is what makes
+    # Google sign-in refuse with google_email_ambiguous. A change must never
+    # create that situation.
+    return get_user_model().objects.filter(email__iexact=email).exclude(pk=user.pk).exists()
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='5/h', block=True)
+@require_POST
+def request_email_change(request):
+    """Ask to move the signed-in account to a new email address (issue #594).
+
+    Nothing changes yet: the new address is stored as pending and sent a
+    confirmation link, and only following it (confirm_email_change) swaps it in.
+    Until then the current address keeps working for login, password reset and
+    every notice. Requesting again replaces the pending address and its link.
+    """
+    logger.info("Endpoint request_email_change invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("request_email_change", {'error': "Invalid JSON data"}, status=400)
+
+    new_email = data.get(Fields.email)
+    # 254 is the email column's max_length; Patterns.email does not bound it.
+    if not new_email or not isinstance(new_email, str) or len(new_email) > 254 \
+            or not is_valid_pattern(new_email, Patterns.email):
+        return log_and_return_json("request_email_change", {'error': f"Invalid fields ['{Params.email}']"},
+                                   status=400)
+
+    google_claims = None
+    if not request.user.has_usable_password():
+        if not is_google_sign_in_configured():
+            return log_and_return_json("request_email_change", {'error': GOOGLE_SIGN_IN_UNAVAILABLE}, status=503)
+        google_claims = _google_proof_for_email_change(data)
+
+    token = secrets.token_urlsafe(32)
+    with transaction.atomic():
+        locked = get_user_model().objects.select_for_update(no_key=True).get(pk=request.user.pk)
+        # A password change or reset can land between authentication and this
+        # lock and revoke the session making the request; it must not then go on
+        # to redirect the account's email.
+        if not Session.objects.filter(management_user=locked, management_token=request.token).exists():
+            logger.warning(f"Email change refused: session revoked mid-request for user_id: {locked.id}")
+            return log_and_return_json("request_email_change", {'error': "Invalid session"}, status=401)
+        if not _email_change_proof_holds(locked, data, google_claims):
+            logger.warning(f"Email change refused: re-authentication failed for user_id: {locked.id}")
+            return log_and_return_json("request_email_change", {'error': REAUTHENTICATION_REQUIRED}, status=400)
+
+        if new_email.lower() == (locked.email or "").lower():
+            return log_and_return_json("request_email_change", {
+                'error': "New email must be different from the current one"}, status=400)
+        if _email_held_by_another_account(new_email, locked):
+            logger.warning(f"Email change refused: address already in use, user_id: {locked.id}")
+            return log_and_return_json("request_email_change", {'error': EMAIL_IN_USE}, status=400)
+
+        locked.pending_email = new_email
+        locked.pending_email_token = hashlib.sha256(token.encode()).hexdigest()
+        locked.pending_email_token_expires = timezone.now() + timedelta(hours=EMAIL_CHANGE_TOKEN_HOURS)
+        locked.save(update_fields=['pending_email', 'pending_email_token', 'pending_email_token_expires'])
+
+    try:
+        send_mail(
+            "Confirm your new email for Good Vibes Only",
+            f"Hi {locked.username},\n\nYou asked to change the email address on your account to this one. "
+            "Confirm it by clicking the link below:\n\n"
+            f"{_email_change_link(token)}\n\n"
+            f"The link expires in {EMAIL_CHANGE_TOKEN_HOURS} hours. Until you confirm, your account keeps "
+            "using your current address.\n\n"
+            "If you didn't ask for this, ignore this email — nothing changes unless the link is followed.",
+            settings.EMAIL_HOST_USER,
+            [new_email],
+        )
+    except Exception:
+        logger.exception("Failed to send email-change confirmation for user_id: %s", locked.id)
+
+    logger.info(f"Email change requested for user_id: {locked.id}")
+    return log_and_return_json("request_email_change", {
+        Fields.pending_email: new_email,
+        'message': "Check your new inbox for a link to confirm the change.",
+    })
+
+
+@csrf_exempt
+@api_login_required
+@ratelimit(key='user', rate='20/h', block=True)
+@require_POST
+def cancel_email_change(request):
+    """Withdraw a pending email change; its link stops working (issue #594)."""
+    logger.info("Endpoint cancel_email_change invoked by IP or User")
+    with transaction.atomic():
+        locked = get_user_model().objects.select_for_update(no_key=True).get(pk=request.user.pk)
+        locked.pending_email = None
+        locked.pending_email_token = None
+        locked.pending_email_token_expires = None
+        locked.save(update_fields=['pending_email', 'pending_email_token', 'pending_email_token_expires'])
+    logger.info(f"Email change cancelled for user_id: {locked.id}")
+    return log_and_return_json("cancel_email_change", {'message': "Email change cancelled"})
+
+
+@ratelimit(key=_get_client_ip, rate='10/h', block=True)
+@csrf_exempt
+@require_POST
+def confirm_email_change(request):
+    """Follow the link sent to a requested new address and make it the
+    account's email (issue #594).
+
+    Like verify_email it needs no session — the link may well be opened on
+    another device — and the token alone identifies the account. On success
+    the old address is told about the change, so an owner whose account was
+    taken over hears about it at the address they still control. A
+    password-reset link already mailed to the old address stops working.
+    """
+    logger.info("Endpoint confirm_email_change invoked by IP or User")
+    data = _get_json_body(request)
+    if data is None:
+        return log_and_return_json("confirm_email_change", {'error': "Invalid JSON data"}, status=400)
+
+    token = data.get(Fields.verification_token)
+    _URLSAFE_TOKEN_LEN = 43
+    _URLSAFE_TOKEN_CHARS = frozenset('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-')
+    if (not token or not isinstance(token, str) or len(token) != _URLSAFE_TOKEN_LEN
+            or not all(c in _URLSAFE_TOKEN_CHARS for c in token)):
+        return log_and_return_json("confirm_email_change",
+                                   {'error': f"Invalid fields ['{Params.verification_token}']"}, status=400)
+
+    submitted_hash = hashlib.sha256(token.encode()).hexdigest()
+    with transaction.atomic():
+        user = get_user_model().objects.select_for_update(no_key=True).filter(
+            pending_email_token=submitted_hash).first()
+        if (user is None or not user.pending_email or user.pending_email_token_expires is None
+                or timezone.now() > user.pending_email_token_expires):
+            logger.warning("Email change confirmation failed: Invalid or expired token")
+            return log_and_return_json("confirm_email_change",
+                                       {'error': "Invalid or expired verification token"}, status=400)
+
+        new_email = user.pending_email
+        # Checked again, under the address lock: another account may have taken
+        # the address since the request — including another confirmation racing
+        # this one. This one can then never succeed, so it is cleared.
+        _lock_email_address(new_email)
+        if _email_held_by_another_account(new_email, user):
+            user.pending_email = None
+            user.pending_email_token = None
+            user.pending_email_token_expires = None
+            user.save(update_fields=['pending_email', 'pending_email_token', 'pending_email_token_expires'])
+            logger.warning(f"Email change confirmation failed: address taken since the request, user_id: {user.id}")
+            return log_and_return_json("confirm_email_change", {'error': EMAIL_IN_USE}, status=400)
+
+        old_email = user.email
+        user.email = new_email
+        user.pending_email = None
+        user.pending_email_token = None
+        user.pending_email_token_expires = None
+        # Following the link proves the new mailbox, the same proof verify_email
+        # takes.
+        user.email_verified = True
+        user.email_verification_token = None
+        user.email_verification_token_expires = None
+        # Both stages of a password reset went to the old address — the emailed
+        # code (verification_token) and the reset token it is exchanged for —
+        # and that mailbox no longer names the account, so neither may keep
+        # working.
+        user.verification_token = None
+        user.verification_token_expires = None
+        user.reset_token = None
+        user.reset_token_expires = None
+        user.save(update_fields=[
+            'email', 'pending_email', 'pending_email_token', 'pending_email_token_expires',
+            'email_verified', 'email_verification_token', 'email_verification_token_expires',
+            'verification_token', 'verification_token_expires', 'reset_token', 'reset_token_expires',
+        ])
+
+    if old_email:
+        try:
+            send_mail(
+                "Your Good Vibes Only email was changed",
+                f"Hi {user.username},\n\nThe email address on your account was just changed, so we'll "
+                "use the new address from now on and this one won't get account emails any more.\n\n"
+                "If you didn't make this change, reply to this email right away so we can help.",
+                settings.EMAIL_HOST_USER,
+                [old_email],
+            )
+        except Exception:
+            logger.exception("Failed to send email-changed notice for user_id: %s", user.id)
+
+    logger.info(f"Email change confirmed for user_id: {user.id}")
+    return log_and_return_json("confirm_email_change", {'message': 'Email changed'})
 
 
 # =============================================================================
@@ -3358,7 +3844,7 @@ def get_posts_for_user(request, username, batch):
     if batch < 0:
         return log_and_return_json("get_posts_for_user", {'error': "Invalid batch parameter"}, status=400)
 
-    target_user = get_user_with_username(username)
+    target_user = get_user_by_handle(username)
     if not target_user:
         return log_and_return_json("get_posts_for_user", {'error': "User not found"}, status=400)
 
@@ -4621,7 +5107,7 @@ def _get_public_profile_user(username):
     not public. Both collapse into one None so callers return the same 404."""
     if not is_valid_pattern(username, Patterns.username):
         return None
-    profile_user = get_user_with_username(username)
+    profile_user = get_user_by_handle(username)
     if profile_user is None:
         return None
     # The same exclusion user search applies for this viewer: a shadow-banned
@@ -4832,7 +5318,7 @@ def follow_user(request, username_to_follow):
     if not is_valid_pattern(username_to_follow, Patterns.username):
         return log_and_return_json("follow_user", {'error': "Invalid username fragment"}, status=400)
 
-    user_to_follow_obj = get_user_with_username(username_to_follow)
+    user_to_follow_obj = get_user_by_handle(username_to_follow)
     # An account outside the follower's age band is treated as if it does not
     # exist (issue #329) — the same response as a genuinely missing user, so an
     # adult cannot even confirm an underage account by name, and vice versa.
@@ -4984,7 +5470,7 @@ def unfollow_user(request, username_to_unfollow):
     if not is_valid_pattern(username_to_unfollow, Patterns.username):
         return log_and_return_json("unfollow_user", {'error': "Invalid username fragment"}, status=400)
 
-    user_to_unfollow_obj = get_user_with_username(username_to_unfollow)
+    user_to_unfollow_obj = get_user_by_handle(username_to_unfollow)
     # A cross-band account is treated as if it does not exist (issue #329), the
     # same response as a genuinely missing user, so neither band can confirm the
     # other by name.
@@ -5015,7 +5501,7 @@ def set_follow_category(request, username):
     if not is_valid_pattern(username, Patterns.username):
         return log_and_return_json("set_follow_category", {'error': "Invalid username fragment"}, status=400)
 
-    target_user = get_user_with_username(username)
+    target_user = get_user_by_handle(username)
     if not target_user:
         return log_and_return_json("set_follow_category", {'error': "User does not exist"}, status=400)
 
@@ -5050,7 +5536,7 @@ def toggle_block(request, username_to_toggle_block):
     if not is_valid_pattern(username_to_toggle_block, Patterns.username):
         return log_and_return_json("toggle_block", {'error': "Invalid username"}, status=400)
 
-    user_to_toggle_obj = get_user_with_username(username_to_toggle_block)
+    user_to_toggle_obj = get_user_by_handle(username_to_toggle_block)
     # A cross-band account is treated as if it does not exist (issue #329): the
     # bands never interact, so there is nothing to block, and the response must
     # not confirm the account by name.
@@ -5097,7 +5583,7 @@ def _reportable_account(request, endpoint, username):
     everywhere else, so the report endpoints cannot confirm it exists."""
     if not is_valid_pattern(username, Patterns.username):
         return None, log_and_return_json(endpoint, {'error': f"Invalid fields ['{Params.username}']"}, status=400)
-    account = get_user_with_username(username)
+    account = get_user_by_handle(username)
     if account is None or not in_same_age_band(request.user, account):
         return None, log_and_return_json(endpoint, {'error': "User does not exist"}, status=400)
     return account, None
@@ -5269,7 +5755,7 @@ def _incoming_follow_request(request, endpoint, username):
     (issue #329), so these endpoints cannot confirm such an account exists."""
     if not is_valid_pattern(username, Patterns.username):
         return None, log_and_return_json(endpoint, {'error': "Invalid username"}, status=400)
-    requester = get_user_with_username(username)
+    requester = get_user_by_handle(username)
     # Compare against a fresh read of the owner, not the `request.user` loaded at
     # authentication: callers lock the owner first, and an identity verification
     # may have changed its band in between.
@@ -5310,7 +5796,7 @@ def approve_follow_request(request, username):
         # waits until the follow edge exists and then removes it, and an
         # identity verification moving the requester into the other band can't
         # land between the band check and the insert.
-        requester = (get_user_with_username(username)
+        requester = (get_user_by_handle(username)
                      if is_valid_pattern(username, Patterns.username) else None)
         _lock_users(request.user, *([requester] if requester else []))
         follow_request, error = _incoming_follow_request(request, "approve_follow_request", username)
@@ -5353,7 +5839,7 @@ def cancel_follow_request(request, username):
     logger.info("Endpoint cancel_follow_request invoked by IP or User")
     if not is_valid_pattern(username, Patterns.username):
         return log_and_return_json("cancel_follow_request", {'error': "Invalid username"}, status=400)
-    target_user = get_user_with_username(username)
+    target_user = get_user_by_handle(username)
     if target_user is None:
         return log_and_return_json("cancel_follow_request", {'error': "User does not exist"}, status=400)
     with transaction.atomic():
@@ -6086,6 +6572,13 @@ def get_current_user(request):
         Fields.email: request.user.email,
         # The private account setting (issue #96), so Settings can show its toggle.
         Fields.is_private: request.user.is_private,
+        # Changing the username or email (issue #594): an address awaiting its
+        # confirmation link, whether a change asks for the password (or for a
+        # Google re-sign-in instead), and when the next rename is allowed.
+        Fields.pending_email: request.user.pending_email,
+        Fields.has_password: request.user.has_usable_password(),
+        Fields.next_username_change_time: _next_username_change_time(request.user),
+        **_former_username_fields(request.user),
         # Which version of the policies the member last agreed to (issue #620),
         # so clients skip the re-accept prompt when it is not older than the
         # version they bundle. Null when nothing is on record.
@@ -6108,7 +6601,7 @@ def get_profile_details(request, username):
     if not is_valid_pattern(username, Patterns.username):
         return log_and_return_json("get_profile_details", {'error': "Invalid username"}, status=400)
 
-    profile_user = get_user_with_username(username)
+    profile_user = get_user_by_handle(username)
     if not profile_user:
         logger.warning(f"Get profile details failed: User with username fragment not found")
         return log_and_return_json("get_profile_details", {'error': "User not found"}, status=400)

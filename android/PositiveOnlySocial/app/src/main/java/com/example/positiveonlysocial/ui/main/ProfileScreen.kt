@@ -754,7 +754,7 @@ fun ProfileBody(
                                     }
                                     PostActionBar(
                                         post = post,
-                                        isOwnPost = post.authorUsername == currentUsername,
+                                        isOwnPost = currentUsername != null && postActions.isOwnPost(post),
                                         onToggleLike = { postActions.toggleLike(post) },
                                         onOpenMenu = { postActions.setPostForAction(post) },
                                         compact = true,
@@ -765,7 +765,7 @@ fun ProfileBody(
                                                 post,
                                                 expanded = postForAction?.postIdentifier ==
                                                     post.postIdentifier,
-                                                isOwn = post.authorUsername == currentUsername
+                                                isOwn = currentUsername != null && postActions.isOwnPost(post)
                                             )
                                         }
                                     )

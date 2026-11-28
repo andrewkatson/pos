@@ -430,7 +430,9 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
             user_model, 'save',
             side_effect=IntegrityError('duplicate key value violates unique constraint "google_sub"'),
         ):
-            linked = views._link_google_identity(target, claims())
+            # Linking is only ever reached through the account holding the
+            # address on the token, and re-checks that under its lock (#594).
+            linked = views._link_google_identity(target, claims(email='shared@example.com'))
 
         self.assertEqual(linked, winner)
 
@@ -443,7 +445,7 @@ class GoogleLoginTests(PositiveOnlySocialTestCase):
         target = user_model.objects.get(id=registered[Fields.user_id])
 
         with patch.object(user_model, 'save') as save:
-            views._link_google_identity(target, claims())
+            views._link_google_identity(target, claims(email='narrow@example.com'))
 
         self.assertEqual(
             sorted(save.call_args.kwargs['update_fields']),

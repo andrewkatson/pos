@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import com.example.positiveonlysocial.util.SessionEvents
 
 private const val TAG = "HomeViewModel"
 private const val SEARCH_BATCH_SIZE = 10
@@ -98,6 +99,11 @@ class HomeViewModel(
         } catch (e: Exception) {
             Log.e(TAG, "Failed to read the stored session", e)
             null
+        }
+
+        // A rename made in Settings (issue #594) is this destination's user too.
+        viewModelScope.launch {
+            SessionEvents.usernameChanges.collect { _currentUsername.value = it.username }
         }
 
         viewModelScope.launch {

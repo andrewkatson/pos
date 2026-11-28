@@ -180,6 +180,20 @@ class PositiveOnlySocialUser(AbstractUser):
     email_verification_token = models.TextField(null=True, blank=True, default=None)
     email_verification_token_expires = models.DateTimeField(null=True, blank=True, default=None)
 
+    # Changing the registered email (issue #594). A requested address waits here
+    # until its owner clicks the link sent to it; `email` (and so login, password
+    # reset and every notice) keeps using the current address meanwhile, and the
+    # account stays verified throughout. Only the token's SHA-256 hash is kept,
+    # the same scheme as email_verification_token. Requesting another change
+    # replaces all three; confirming or cancelling clears them.
+    pending_email = models.EmailField(null=True, blank=True, default=None)
+    pending_email_token = models.TextField(null=True, blank=True, default=None, db_index=True)
+    pending_email_token_expires = models.DateTimeField(null=True, blank=True, default=None)
+
+    # When the username was last changed (issue #594), for the cooldown between
+    # renames. Null for an account that has kept the name it started with.
+    username_changed_time = models.DateTimeField(null=True, blank=True, default=None)
+
     # Time-based one-time-password (TOTP) two-factor authentication. The shared
     # secret has to be stored as entered (both sides derive the same code from
     # it), unlike the tokens above which are only kept hashed. totp_enabled
@@ -295,6 +309,25 @@ class LoginCookie(models.Model):
     series_identifier = models.UUIDField(default=uuid.uuid4, primary_key=True, unique=True, editable=False)
     token = models.TextField(null=True)
     cookie_user = models.ForeignKey(PositiveOnlySocialUser, on_delete=models.CASCADE)
+
+
+# A username an account recently gave up by renaming (issue #594). For
+# USERNAME_HOLD_DAYS the old name stays reserved for its former owner — nobody
+# else can register, rename to, or be generated it — and every
+# `users/<username>/…` route still resolves it to that account, so share links,
+# push notifications already delivered and other clients' cached names keep
+# working, and nobody can pick up a just-freed name to pass themselves off as its
+# previous owner. A hold past `expires` is ignored everywhere and is deleted the
+# next time anyone renames; one name has at most one row, replaced when the name
+# is given up again later.
+class UsernameHold(models.Model):
+    username = models.CharField(max_length=150, unique=True)
+    user = models.ForeignKey(PositiveOnlySocialUser, related_name='username_holds', on_delete=models.CASCADE)
+    expires = models.DateTimeField(db_index=True)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = 'user_system'
 
 
 # A pending two-factor login. Issued by login_user once the password (and ban

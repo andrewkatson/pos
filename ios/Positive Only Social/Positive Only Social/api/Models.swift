@@ -111,16 +111,55 @@ struct CurrentUserFields: Codable {
     let email: String
     /// The private account setting (issue #96), shown as a Settings toggle.
     /// Optional so a response from an older backend still decodes.
-    var isPrivate: Bool? = nil
+    let isPrivate: Bool?
+    /// Changing the username or email (issue #594): an address waiting on its
+    /// confirmation link, whether the account has a password to re-enter (a
+    /// Google-only account confirms with Google instead), and when the next
+    /// rename is allowed (ISO time; nil when it is now). All optional so an
+    /// older backend's response still decodes — `hasPassword` being nil is how
+    /// the client tells that the feature isn't there.
+    let pendingEmail: String?
+    let hasPassword: Bool?
+    let nextUsernameChangeTime: String?
     /// The policy version the user last accepted (issue #620); nil when
     /// nothing is on record or the backend predates it.
-    var policiesAcceptedVersion: String? = nil
+    let policiesAcceptedVersion: String?
 
     enum CodingKeys: String, CodingKey {
         case username
         case email
         case isPrivate = "is_private"
+        case pendingEmail = "pending_email"
+        case hasPassword = "has_password"
+        case nextUsernameChangeTime = "next_username_change_time"
         case policiesAcceptedVersion = "policies_accepted_version"
+    }
+}
+
+/// `POST me/username/` (issue #594).
+struct ChangeUsernameFields: Codable {
+    let username: String
+    let nextUsernameChangeTime: String?
+    /// The name this account gave up that is still reserved for it, and until
+    /// when (ISO time). Content under exactly that name counts as the user's
+    /// own only until then.
+    let formerUsername: String?
+    let formerUsernameHeldUntil: String?
+
+    enum CodingKeys: String, CodingKey {
+        case username
+        case nextUsernameChangeTime = "next_username_change_time"
+        case formerUsername = "former_username"
+        case formerUsernameHeldUntil = "former_username_held_until"
+    }
+}
+
+/// `POST me/email/` (issue #594).
+struct RequestEmailChangeFields: Codable {
+    let pendingEmail: String
+
+    enum CodingKeys: String, CodingKey {
+        case pendingEmail = "pending_email"
     }
 }
 

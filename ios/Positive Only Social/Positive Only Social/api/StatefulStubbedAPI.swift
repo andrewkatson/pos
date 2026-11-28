@@ -60,6 +60,12 @@ struct MockUser {
     // Google's `sub` claim once this account is linked to a Google identity
     // (issue #10); nil for password-only accounts.
     var googleSub: String? = nil
+    // Changing the username or email (issue #594). The stub keeps no username
+    // holds; it renames, enforces the cooldown, and parks a requested address
+    // until confirmEmailChange.
+    var usernameChangedAt: Date? = nil
+    var pendingEmail: String? = nil
+    var pendingEmailToken: String? = nil
 
     init(username: String, email: String, passwordHash: String) {
         self.username = username
@@ -1054,14 +1060,95 @@ final class StatefulStubbedAPI: Networking {
     func getCurrentUser(sessionManagementToken: String) async throws -> Data {
         await simulateNetwork()
         guard let user = findUser(bySessionToken: sessionManagementToken) else { throw APIError.badServerResponse(statusCode: 401) }
-        struct Fields: Codable {
-            let username, email: String
-            let is_private: Bool
-            let policies_accepted_version: String?
+        return try createSerializedResponse(fields: CurrentUserFields(
+            username: user.username, email: user.email, isPrivate: user.isPrivate,
+            pendingEmail: user.pendingEmail, hasPassword: !user.passwordHash.hasPrefix("no-password-"),
+            nextUsernameChangeTime: nextUsernameChangeTime(for: user),
+            policiesAcceptedVersion: user.policiesAcceptedVersion))
+    }
+
+    /// Mirrors USERNAME_CHANGE_COOLDOWN_DAYS in backend/user_system/constants.py.
+    static let usernameChangeCooldown: TimeInterval = 30 * 24 * 60 * 60
+
+    private func nextUsernameChangeTime(for user: MockUser) -> String? {
+        guard let changedAt = user.usernameChangedAt else { return nil }
+        let allowedAt = changedAt.addingTimeInterval(Self.usernameChangeCooldown)
+        return allowedAt > Date() ? ISO8601DateFormatter().string(from: allowedAt) : nil
+    }
+
+    func changeUsername(sessionManagementToken: String, newUsername: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let userIndex = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 401) }
+        // Patterns.username: 10–150 word characters.
+        guard newUsername.range(of: "^\\w{10,150}$", options: .regularExpression) != nil else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid fields ['USERNAME']")
         }
-        return try createSerializedResponse(fields: Fields(
-            username: user.username, email: user.email, is_private: user.isPrivate,
-            policies_accepted_version: user.policiesAcceptedVersion))
+        guard newUsername != user.username else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "New username must be different from the current one")
+        }
+        guard nextUsernameChangeTime(for: user) == nil else {
+            throw APIError.serverError(statusCode: 400, serverMessage: GVOAppConstants.usernameChangeTooSoonError)
+        }
+        guard !users.contains(where: { $0.username == newUsername }) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: GVOAppConstants.usernameTakenError)
+        }
+        guard !newUsername.lowercased().contains("negative") else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Username is not positive because it is negative.")
+        }
+        users[userIndex].username = newUsername
+        users[userIndex].usernameChangedAt = Date()
+        // The hold on the given-up name is as long as the cooldown (both 30 days).
+        let heldUntil = nextUsernameChangeTime(for: users[userIndex])
+        return try createSerializedResponse(fields: ChangeUsernameFields(
+            username: newUsername, nextUsernameChangeTime: heldUntil,
+            formerUsername: user.username, formerUsernameHeldUntil: heldUntil))
+    }
+
+    func requestEmailChange(sessionManagementToken: String, email: String, password: String?, idToken: String?) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let userIndex = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 401) }
+        guard email.range(of: "^[^@]+@[^@]+\\.[^@]+$", options: .regularExpression) != nil else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "Invalid fields ['EMAIL']")
+        }
+        let hasPassword = !user.passwordHash.hasPrefix("no-password-")
+        let reauthenticated = hasPassword ? password == user.passwordHash : (idToken?.isEmpty == false)
+        guard reauthenticated else {
+            throw APIError.serverError(statusCode: 400, serverMessage: GVOAppConstants.reauthenticationRequiredError)
+        }
+        guard email.lowercased() != user.email.lowercased() else {
+            throw APIError.serverError(statusCode: 400, serverMessage: "New email must be different from the current one")
+        }
+        guard !users.contains(where: { $0.id != user.id && $0.email.lowercased() == email.lowercased() }) else {
+            throw APIError.serverError(statusCode: 400, serverMessage: GVOAppConstants.emailInUseError)
+        }
+        users[userIndex].pendingEmail = email
+        users[userIndex].pendingEmailToken = "stub_email_change_token_\(user.username)"
+        return try createSerializedResponse(fields: RequestEmailChangeFields(pendingEmail: email))
+    }
+
+    func cancelEmailChange(sessionManagementToken: String) async throws -> Data {
+        await simulateNetwork()
+        guard let user = findUser(bySessionToken: sessionManagementToken),
+              let userIndex = users.firstIndex(where: { $0.id == user.id })
+        else { throw APIError.badServerResponse(statusCode: 401) }
+        users[userIndex].pendingEmail = nil
+        users[userIndex].pendingEmailToken = nil
+        return try createEmptySuccessResponse()
+    }
+
+    /// The emailed link's confirmation (issue #594). Not part of `Networking`:
+    /// the link opens the website, so only tests drive this.
+    func confirmEmailChange(token: String) throws {
+        guard let index = users.firstIndex(where: { $0.pendingEmailToken == token }),
+              let pending = users[index].pendingEmail
+        else { throw APIError.serverError(statusCode: 400, serverMessage: "Invalid or expired verification token") }
+        users[index].email = pending
+        users[index].pendingEmail = nil
+        users[index].pendingEmailToken = nil
     }
 
     func acceptPolicies(sessionManagementToken: String, policyVersion: String) async throws -> Data {

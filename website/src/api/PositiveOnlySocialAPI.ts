@@ -10,6 +10,8 @@ import type {
   CommentOnPostResponse,
   CommentThreadRef,
   ChangePasswordRequest,
+  ChangeUsernameRequest,
+  ChangeUsernameResponse,
   ConfirmTotpRequest,
   ConfirmTotpResponse,
   CreatePostRequest,
@@ -46,6 +48,8 @@ import type {
   SetNotificationPreferenceResponse,
   RemoveProfilePhotoResponse,
   ReplyResponse,
+  RequestEmailChangeRequest,
+  RequestEmailChangeResponse,
   RequestResetRequest,
   ResendVerificationEmailRequest,
   ResetPasswordRequest,
@@ -88,6 +92,14 @@ export interface PositiveOnlySocialAPI {
   deleteAccount(): Promise<MessageResponse>
   /** The signed-in account's own username and registered email (Settings). */
   getCurrentUser(): Promise<CurrentUser>
+  /** Rename the signed-in account (issue #594). */
+  changeUsername(body: ChangeUsernameRequest): Promise<ChangeUsernameResponse>
+  /** Ask to move to a new email; applies once the emailed link is followed. */
+  requestEmailChange(body: RequestEmailChangeRequest): Promise<RequestEmailChangeResponse>
+  /** Withdraw a pending email change. */
+  cancelEmailChange(): Promise<MessageResponse>
+  /** Confirm a new email from the link sent to it (no session needed). */
+  confirmEmailChange(body: VerifyEmailRequest): Promise<MessageResponse>
   /** Records that the signed-in user accepted the privacy policy (issue #620). */
   acceptPolicies(body: AcceptPoliciesRequest): Promise<AcceptPoliciesResponse>
 

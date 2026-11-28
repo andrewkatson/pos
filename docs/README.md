@@ -39,9 +39,9 @@ changes.
 
 ## Accounts and sign-in
 
-- [Accounts](accounts.md) — account settings, usernames, membership numbers,
-  account deletion, the terms of service, the privacy-policy re-accept prompt,
-  and the public support page.
+- [Accounts](accounts.md) — account settings, usernames, changing the username
+  or email, membership numbers, account deletion, the terms of service, the
+  privacy-policy re-accept prompt, and the public support page.
 - [Authentication](authentication.md) — Google sign-in, email verification,
   two-factor authentication, and new-device login emails.
 - [Google sign-in setup](google-sign-in-setup.md) — wiring the OAuth client
