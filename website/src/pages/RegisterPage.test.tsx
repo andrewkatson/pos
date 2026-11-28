@@ -3,6 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach } from 'vitest'
 import RegisterPage from './RegisterPage'
+import {
+  hasAcceptedPrivacyPolicy,
+  resetPrivacyPolicyAcceptance,
+} from '../auth/privacyPolicyConsent'
+import { POLICY_VERSION } from '../privacyPolicy'
 
 vi.mock('../api/client', () => ({
   apiClient: {
@@ -287,6 +292,8 @@ test('includes picked interests in the register call', async () => {
     expect.objectContaining({
       interest_categories: ['nature'],
       interest_freeform: ['jazz'],
+      accepted_policies: true,
+      policy_version: POLICY_VERSION,
     }),
   )
 })
@@ -365,7 +372,12 @@ test('accepting the policy creates the account and greets the new member', async
   await userEvent.click(screen.getByRole('button', { name: 'Sign up with Google' }))
   await userEvent.click(screen.getByRole('button', { name: 'Ok' }))
 
-  expect(mockLoginWithGoogle).toHaveBeenCalledWith({ id_token: 'a.google.token' })
+  // The modal's Ok is the consent the backend requires before creating it.
+  expect(mockLoginWithGoogle).toHaveBeenCalledWith({
+    id_token: 'a.google.token',
+    accepted_policies: true,
+    policy_version: POLICY_VERSION,
+  })
   expect(await screen.findByText(/You're member #7!/)).toBeInTheDocument()
   // Google has already verified the address, so there is no inbox to visit.
   expect(screen.queryByText(/Check your email/)).not.toBeInTheDocument()
@@ -388,6 +400,36 @@ test('a Google sign-up goes straight into the app, not to the check-email page',
   // The session is kept, unlike the password path which clears it pending
   // email verification.
   expect(sessionStorageMock.setItem).toHaveBeenCalledWith('session_token', 'google-token')
+})
+
+test('the policy accepted during a Google sign-up satisfies the re-accept gate', async () => {
+  resetPrivacyPolicyAcceptance()
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    session_management_token: 'google-token',
+    user_id: 'u1',
+    username: 'hopefulperson',
+    created_account: true,
+  })
+  renderRegisterPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign up with Google' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Ok' }))
+  await screen.findByRole('button', { name: 'Continue' })
+
+  // Otherwise the brand-new member would be asked again on landing at /home
+  // (issue #620).
+  expect(hasAcceptedPrivacyPolicy()).toBe(true)
+  resetPrivacyPolicyAcceptance()
+})
+
+test('declining the policy during sign-up does not count as accepting it', async () => {
+  resetPrivacyPolicyAcceptance()
+  renderRegisterPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign up with Google' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+  expect(hasAcceptedPrivacyPolicy()).toBe(false)
 })
 
 test('an existing 2FA account is pointed at the login page rather than stranded', async () => {

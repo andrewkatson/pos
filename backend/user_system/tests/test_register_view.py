@@ -10,7 +10,7 @@ from .test_constants import (
     invalid_email, invalid_bool, false, true
 )
 from .test_parent_case import PositiveOnlySocialTestCase
-from ..constants import Fields, Params, Patterns, AGE_RESTRICTED, MINIMUM_AGE, MAX_USERNAME_LENGTH
+from ..constants import Fields, Params, Patterns, AGE_RESTRICTED, MINIMUM_AGE, MAX_USERNAME_LENGTH, POLICY_VERSION
 from ..input_validator import is_valid_pattern
 
 import os
@@ -233,6 +233,77 @@ class RegisterTests(PositiveOnlySocialTestCase):
 
         self.assertNotIn(Fields.login_cookie_token, fields)
         self.assertNotIn(Fields.series_identifier, fields)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_accepted_policies_records_when_and_which_version_was_agreed_to(self):
+        data = self.valid_data.copy()
+        data['accepted_policies'] = true
+        data['policy_version'] = POLICY_VERSION
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 201)
+        user = get_user_model().objects.get(id=response.json()[Fields.user_id])
+        self.assertIsNotNone(user.policies_accepted_time)
+        self.assertEqual(user.policies_accepted_version, POLICY_VERSION)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_the_recorded_version_is_the_one_the_client_showed(self):
+        """Not the server's current one: an older build shows older text."""
+        data = self.valid_data.copy()
+        data['accepted_policies'] = true
+        data['policy_version'] = '2026-01-01'
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 201)
+        user = get_user_model().objects.get(id=response.json()[Fields.user_id])
+        self.assertEqual(user.policies_accepted_version, '2026-01-01')
+
+    def test_malformed_policy_version_is_a_validation_error(self):
+        # Shaped like a date but not one counts as malformed too.
+        for bad in ['latest', '2026-02-30', '0000-08-13']:
+            with self.subTest(policy_version=bad):
+                data = self.valid_data.copy()
+                data['accepted_policies'] = true
+                data['policy_version'] = bad
+
+                response = self.client.post(self.url, data=data, content_type='application/json')
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('POLICY_VERSION', response.json()['error'])
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_registering_without_the_flag_still_works_but_records_nothing(self):
+        """Recorded, not required: an app build from before the flag existed
+        still shows the policy before registering, it just cannot say so."""
+        response = self.client.post(self.url, data=self.valid_data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 201)
+        user = get_user_model().objects.get(id=response.json()[Fields.user_id])
+        self.assertIsNone(user.policies_accepted_time)
+        self.assertIsNone(user.policies_accepted_version)
+
+    @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
+    def test_accepted_policies_false_records_nothing(self):
+        data = self.valid_data.copy()
+        data['accepted_policies'] = false
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 201)
+        user = get_user_model().objects.get(id=response.json()[Fields.user_id])
+        self.assertIsNone(user.policies_accepted_time)
+
+    def test_unparseable_accepted_policies_is_a_validation_error(self):
+        data = self.valid_data.copy()
+        data['accepted_policies'] = 'perhaps'
+
+        response = self.client.post(self.url, data=data, content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('ACCEPTED_POLICIES', response.json()['error'])
+        self.assertFalse(get_user_model().objects.filter(username=self.local_username).exists())
 
     @patch.dict(os.environ, {"TESTING": "True"}, clear=True)
     def test_register_creates_adult_user(self):

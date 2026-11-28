@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import GoogleSignInButton from '../components/GoogleSignInButton'
 import Logo from '../components/Logo'
 import {
@@ -10,6 +10,7 @@ import {
   GOOGLE_SIGN_IN_FAILED_MESSAGE,
   GOOGLE_SIGN_IN_MESSAGES,
   INVALID_TWO_FACTOR_CHALLENGE,
+  POLICY_ACCEPTANCE_REQUIRED,
   apiClient,
 } from '../api/client'
 import type { ApiError } from '../api/client'
@@ -21,6 +22,8 @@ import {
   persistSession,
   saveRememberMeTokens,
 } from '../api/session'
+import { POLICY_VERSION, PRIVACY_POLICY_TEXT } from '../privacyPolicy'
+import { markPrivacyPolicyAccepted } from '../auth/privacyPolicyConsent'
 import { registerForPush } from '../push/webPush'
 import './LoginPage.css'
 
@@ -48,6 +51,40 @@ function LoginPage() {
   const [twoFactorCode, setTwoFactorCode] = useState('')
   const [useRecoveryCode, setUseRecoveryCode] = useState(false)
 
+  // A Google credential for which no account exists yet. The backend won't
+  // create one until the user has agreed to the privacy policy and terms, so
+  // the credential waits here while the consent modal is up, then is retried
+  // with the flag. Google's ID tokens stay valid for an hour, which is plenty.
+  const [pendingGoogleToken, setPendingGoogleToken] = useState<string | null>(null)
+  // Whatever had focus when the Google sign-in began (normally Google's
+  // button). It gets focus back when the dialog is declined, so keyboard users
+  // aren't dropped at the top of the page. Captured before the request, not
+  // when the dialog opens: GoogleSignInButton hides itself while a request is
+  // in flight, which takes focus off it before the refusal ever arrives, and
+  // the dialog's autoFocus would move it again anyway.
+  const focusBeforeConsent = useRef<Element | null>(null)
+
+  useEffect(() => {
+    if (!pendingGoogleToken) return
+    function onKeyDown(e: KeyboardEvent) {
+      // Escape is a decline, and declining discards the credential.
+      if (e.key === 'Escape') setPendingGoogleToken(null)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      const previouslyFocused = focusBeforeConsent.current
+      focusBeforeConsent.current = null
+      if (
+        previouslyFocused instanceof HTMLElement &&
+        previouslyFocused !== document.body &&
+        previouslyFocused.isConnected
+      ) {
+        previouslyFocused.focus()
+      }
+    }
+  }, [pendingGoogleToken])
+
   // If a remembered session was restored on startup (see main.tsx), a returning
   // user who lands here is already signed in — send them into the app instead of
   // asking them to log in (and clear 2FA) again (issue #411). The forced-logout
@@ -66,11 +103,18 @@ function LoginPage() {
     ? /^[0-9a-fA-F]{10}$/.test(twoFactorCode.trim())
     : /^\d{6}$/.test(twoFactorCode.trim())
 
-  /** Shared tail of both login steps: persist the session and enter the app. */
-  function completeLogin(response: AuthResponse) {
+  /**
+   * Shared tail of both login steps: persist the session and enter the app.
+   * `acceptedPolicies` is true when this sign-in follows the Google consent
+   * modal, where the user has just agreed to the privacy policy.
+   */
+  function completeLogin(response: AuthResponse, acceptedPolicies = false) {
     // When "Remember Me" is off the session goes to sessionStorage and is
     // cleared when the browser/tab closes; when on it persists in localStorage.
     persistSession(response, rememberMe)
+    // persistSession asks the re-accept question afresh (issue #620); someone
+    // who answered it in the consent modal a moment ago isn't asked twice.
+    if (acceptedPolicies) markPrivacyPolicyAccepted()
     // Persist the remember-me tokens (only returned when remember_me was
     // requested) so the session can be rotated on the next browser start;
     // otherwise drop any stale tokens from a previous "remember me" login.
@@ -124,15 +168,24 @@ function LoginPage() {
     }
   }
 
-  /** Google handed us an ID token; trade it for a session (issue #10). */
-  async function handleGoogleCredential(idToken: string) {
+  /**
+   * Google handed us an ID token; trade it for a session (issue #10).
+   *
+   * The first attempt never claims consent. If the token belongs to an existing
+   * member that is all it takes; if it doesn't, the backend refuses to create
+   * an account until the user has seen and agreed to the privacy policy and
+   * terms, and the same token is retried from the consent modal.
+   */
+  async function handleGoogleCredential(idToken: string, acceptedPolicies = false) {
     if (isLoading) return
+    const focusedBeforeRequest = document.activeElement
     setErrorMessage(null)
     setIsLoading(true)
     try {
       const response = await apiClient.loginWithGoogle({
         id_token: idToken,
         remember_me: rememberMe,
+        ...(acceptedPolicies ? { accepted_policies: true, policy_version: POLICY_VERSION } : {}),
       })
       if (isTwoFactorRequired(response)) {
         // Same reasoning as the password path: no session has been issued yet,
@@ -141,9 +194,15 @@ function LoginPage() {
         setChallengeToken(response.challenge_token)
         return
       }
-      completeLogin(response)
+      completeLogin(response, acceptedPolicies)
     } catch (err) {
       const apiErr = err as ApiError
+      if (apiErr.message === POLICY_ACCEPTANCE_REQUIRED) {
+        // Not a failure: this sign-in would make a new account. Ask first.
+        focusBeforeConsent.current = focusedBeforeRequest
+        setPendingGoogleToken(idToken)
+        return
+      }
       // The backend answers with stable codes, not prose (see constants.py), so
       // the copy lives client-side. An unmapped message is a transport failure
       // that already reads well on its own.
@@ -187,6 +246,16 @@ function LoginPage() {
     }
   }
 
+  function acceptPoliciesAndSignUp() {
+    const idToken = pendingGoogleToken
+    if (!idToken) return
+    // Agreeing starts the sign-up request, which hides the Google button
+    // again; there is nothing useful to hand focus back to.
+    focusBeforeConsent.current = null
+    setPendingGoogleToken(null)
+    void handleGoogleCredential(idToken, true)
+  }
+
   function backToLogin() {
     setChallengeToken(null)
     setTwoFactorCode('')
@@ -196,7 +265,64 @@ function LoginPage() {
 
   return (
     <div className="auth-page">
-      <div className="auth-card">
+      {pendingGoogleToken && (
+        <div className="modal-overlay">
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="google-consent-title"
+            aria-describedby="google-consent-body"
+          >
+            <h2 className="modal__title" id="google-consent-title">
+              Create your account
+            </h2>
+            {/* Scrolls on its own so a short or zoomed viewport can still
+                read every word and reach both buttons below. */}
+            <div id="google-consent-body" className="modal__scroll">
+              <p className="modal__body">
+                There's no Good Vibes Only account for that Google account yet. Signing in will
+                create one, so please read our Privacy Policy first:
+              </p>
+              <p className="modal__body">{PRIVACY_POLICY_TEXT}</p>
+              {/* New tab, so reading them doesn't throw away the credential
+                  waiting on this modal. */}
+              <p className="modal__body">
+                By creating an account you agree to our{' '}
+                <Link to="/terms-of-service" target="_blank" rel="noopener noreferrer">
+                  Terms of Service
+                </Link>{' '}
+                and{' '}
+                <Link to="/privacy-policy" target="_blank" rel="noopener noreferrer">
+                  Privacy Policy
+                </Link>
+                .
+              </p>
+            </div>
+            <div className="modal__actions">
+              <button
+                type="button"
+                className="modal__cancel"
+                onClick={() => setPendingGoogleToken(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="modal__confirm"
+                onClick={acceptPoliciesAndSignUp}
+                autoFocus
+              >
+                Agree and create account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inert while the consent dialog is up, so Tab can't wander into the
+          login controls hidden behind it. */}
+      <div className="auth-card" inert={pendingGoogleToken !== null}>
         <button
           type="button"
           className="auth-back"

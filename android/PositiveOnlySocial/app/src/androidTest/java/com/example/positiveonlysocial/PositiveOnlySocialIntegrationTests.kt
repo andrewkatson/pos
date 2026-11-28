@@ -5,12 +5,16 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.espresso.Espresso
 import com.example.positiveonlysocial.di.DependencyProvider
+import com.example.positiveonlysocial.fcm.PushNavigator
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.UUID
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 
 @RunWith(AndroidJUnit4::class)
 class PositiveOnlySocialIntegrationTests {
@@ -27,6 +31,12 @@ class PositiveOnlySocialIntegrationTests {
         val keychain = DependencyProvider.keychainHelper
         keychain.delete("positive-only-social.Positive-Only-Social", "userRememberMeTokens")
         keychain.delete("positive-only-social.Positive-Only-Social", "userSessionToken")
+        // The AuthenticationManager singleton also outlives each test's
+        // Activity. Left signed in, the fresh launch would treat this as
+        // reopening the app and put the privacy-policy prompt over Welcome
+        // (issue #620); logging it out clears that too.
+        kotlinx.coroutines.runBlocking { DependencyProvider.authManager.logout() }
+        composeTestRule.waitForIdle()
     }
 
     private val testUsername = "test_user_${UUID.randomUUID().toString().take(5)}"
@@ -61,6 +71,38 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Login").assertExists()
         composeTestRule.onNodeWithText("Remember Me").assertExists()
         composeTestRule.onNodeWithText("Forgot Password?").assertExists()
+    }
+
+    /**
+     * Accepts the privacy-policy re-accept dialog (issue #620). It comes up
+     * after a sign-in or an opening of the app until the account's acceptance
+     * of the current version is on record. The stub records it on Accept and
+     * keeps it for the rest of the run, but its register doesn't, so this is
+     * for an account's first sign-in; later ones use
+     * [assertPrivacyPolicyNotAskedAgain].
+     */
+    private fun acceptPrivacyPolicyUpdate() {
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText("Accept").performClick()
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isEmpty()
+        }
+    }
+
+    /**
+     * The account's acceptance is already on record, so once the backend check
+     * that follows a sign-in or an opening settles, no dialog comes up (#620).
+     */
+    private fun assertPrivacyPolicyNotAskedAgain() {
+        val auth = DependencyProvider.authManager
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            auth.isLoggedIn.value && !auth.isCheckingPrivacyPolicyAcceptance.value
+        }
+        composeTestRule.waitForIdle()
+        assertFalse(auth.needsPrivacyPolicyAcceptance.value)
+        composeTestRule.onNodeWithText("Privacy Policy Updated").assertDoesNotExist()
     }
 
     private fun assertOnHomeView() {
@@ -162,6 +204,7 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Password").performTextInput(password)
         composeTestRule.onNodeWithText("Login").performClick()
 
+        acceptPrivacyPolicyUpdate()
         assertOnHomeView()
     }
 
@@ -182,6 +225,8 @@ class PositiveOnlySocialIntegrationTests {
         }
 
         composeTestRule.onNodeWithText("Login").performClick()
+        // Registering through the UI already signed in and accepted once.
+        if (registerToo) assertPrivacyPolicyNotAskedAgain() else acceptPrivacyPolicyUpdate()
         assertOnHomeView()
     }
 
@@ -275,6 +320,71 @@ class PositiveOnlySocialIntegrationTests {
     }
 
     @Test
+    fun testDecliningPrivacyPolicyUpdateLogsOut() {
+        registerUserViaApi(testUsername, strongPassword)
+
+        // Sign in by hand: loginUser accepts the dialog.
+        composeTestRule.onNodeWithText("Login").performClick()
+        assertOnLoginView()
+        composeTestRule.onNodeWithText("Username or Email").performTextInput(testUsername)
+        composeTestRule.onNodeWithText("Password").performTextInput(strongPassword)
+        composeTestRule.onNodeWithText("Login").performClick()
+
+        // The re-accept dialog (issue #620) comes up over Home; Log Out declines it.
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText("Log Out").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithText("Username or Email").fetchSemanticsNodes().isNotEmpty()
+        }
+        assertOnLoginView()
+        composeTestRule.onNodeWithText("Privacy Policy Updated").assertDoesNotExist()
+    }
+
+    @Test
+    fun testSharedLinkWaitsForPrivacyPolicyAcceptance() {
+        registerUserViaApi(testUsername, strongPassword)
+        registerUserViaApi(otherTestUsername, strongPassword)
+
+        composeTestRule.onNodeWithText("Login").performClick()
+        assertOnLoginView()
+        composeTestRule.onNodeWithText("Username or Email").performTextInput(testUsername)
+        composeTestRule.onNodeWithText("Password").performTextInput(strongPassword)
+        composeTestRule.onNodeWithText("Login").performClick()
+        composeTestRule.waitUntil(timeoutMillis = 10_000) {
+            composeTestRule.onAllNodesWithText("Privacy Policy Updated").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // A shared profile link arrives while the re-accept prompt is open
+        // (issue #620). Opening it would push a screen outside the prompt, so
+        // it has to wait.
+        try {
+            PushNavigator.openProfile(otherTestUsername)
+            composeTestRule.waitForIdle()
+            composeTestRule.onNodeWithText("Privacy Policy Updated").assertExists()
+            // Still held, not consumed. (The Home tab is the user's own profile,
+            // which has no Follow button; the other user's profile would.)
+            assertEquals(otherTestUsername, PushNavigator.pendingProfileUsername.value)
+            composeTestRule.onAllNodes(hasText("Follow") and hasClickAction()).assertCountEquals(0)
+
+            // Accepting replays it.
+            composeTestRule.onNodeWithText("Accept").performClick()
+            composeTestRule.waitUntil(timeoutMillis = 10_000) {
+                composeTestRule.onAllNodes(hasText("Follow") and hasClickAction())
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            assertNull(PushNavigator.pendingProfileUsername.value)
+            composeTestRule.onNodeWithText("Privacy Policy Updated").assertDoesNotExist()
+        } finally {
+            // PushNavigator is process-wide: a request left behind by a failure
+            // here would open in whichever test signs in next.
+            PushNavigator.clearProfileRequest()
+        }
+    }
+
+    @Test
     fun testResetPassword() {
         // Register
         registerUser(testUsername, strongPassword)
@@ -310,6 +420,8 @@ class PositiveOnlySocialIntegrationTests {
         composeTestRule.onNodeWithText("Username or Email").performTextInput(testUsername)
         composeTestRule.onNodeWithText("Password").performTextInput(newStrongPassword)
         composeTestRule.onNodeWithText("Login").performClick()
+        // Accepted at the sign-in after registering, which the backend recorded.
+        assertPrivacyPolicyNotAskedAgain()
         assertOnHomeView()
     }
 

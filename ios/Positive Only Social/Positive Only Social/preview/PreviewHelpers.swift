@@ -70,7 +70,7 @@ struct MockedAPI: Networking {
         return try encode(response)
     }
 
-    func loginWithGoogle(idToken: String, rememberMe: String, ip: String) async throws -> Data {
+    func loginWithGoogle(idToken: String, rememberMe: String, acceptedPolicies: Bool, ip: String) async throws -> Data {
         let response = LoginResponseFields(
             sessionManagementToken: "mock_session_token",
             username: "mockgoogleuser",
@@ -134,7 +134,12 @@ struct MockedAPI: Networking {
     }
 
     func getCurrentUser(sessionManagementToken: String) async throws -> Data {
-        return try encode(CurrentUserFields(username: "preview_user", email: "preview@example.com"))
+        return try encode(CurrentUserFields(username: "preview_user", email: "preview@example.com",
+                                            policiesAcceptedVersion: GVOAppConstants.policyVersion))
+    }
+
+    func acceptPolicies(sessionManagementToken: String, policyVersion: String) async throws -> Data {
+        return try encode(["policies_accepted_version": policyVersion])
     }
 
     func changePassword(sessionManagementToken: String, currentPassword: String, newPassword: String) async throws -> Data {

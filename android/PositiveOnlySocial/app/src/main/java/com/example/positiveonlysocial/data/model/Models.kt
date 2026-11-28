@@ -15,7 +15,12 @@ data class RegisterRequest(
     // Positive interest picks collected during sign-up (issues #446/#35).
     // Nullable so Gson omits them when absent; the backend skips empty picks.
     @SerializedName("interest_categories") val interestCategories: List<String>? = null,
-    @SerializedName("interest_freeform") val interestFreeform: List<String>? = null
+    @SerializedName("interest_freeform") val interestFreeform: List<String>? = null,
+    // The user agreed to the privacy policy and terms before submitting; the
+    // backend records when, and which version. Nullable so Gson omits it.
+    @SerializedName("accepted_policies") val acceptedPolicies: Boolean? = null,
+    // The version (Constants.POLICY_VERSION) of the policies the user was shown.
+    @SerializedName("policy_version") val policyVersion: String? = null
 )
 
 data class IdentityVerificationRequest(
@@ -73,7 +78,14 @@ data class LoginResponse(
 data class GoogleLoginRequest(
     @SerializedName("id_token") val idToken: String,
     @SerializedName("remember_me") val rememberMe: String,
-    val ip: String
+    val ip: String,
+    // The user agreed to the privacy policy and terms. The backend refuses to
+    // create an account without it, answering `policy_acceptance_required`, so
+    // the login screen asks and retries with the same token. Nullable so Gson
+    // omits it on a plain sign-in.
+    @SerializedName("accepted_policies") val acceptedPolicies: Boolean? = null,
+    // The version (Constants.POLICY_VERSION) of the policies the user was shown.
+    @SerializedName("policy_version") val policyVersion: String? = null
 )
 
 /** Second login step: exactly one of totpCode / recoveryCode is set (Gson omits nulls). */
@@ -123,7 +135,20 @@ data class CurrentUserResponse(
     @SerializedName("email") val email: String,
     // The private account setting (issue #96), shown as a Settings toggle.
     // Nullable so a response from an older backend still parses.
-    @SerializedName("is_private") val isPrivate: Boolean? = null
+    @SerializedName("is_private") val isPrivate: Boolean? = null,
+    // The policy version the user last accepted (issue #620); null when
+    // nothing is on record or the backend predates it.
+    @SerializedName("policies_accepted_version") val policiesAcceptedVersion: String? = null
+)
+
+/** POST policies/accept/: the user accepted the privacy policy re-accept prompt (issue #620). */
+data class AcceptPoliciesRequest(
+    // The version (Constants.POLICY_VERSION) of the policies the user was shown.
+    @SerializedName("policy_version") val policyVersion: String
+)
+
+data class AcceptPoliciesResponse(
+    @SerializedName("policies_accepted_version") val policiesAcceptedVersion: String?
 )
 
 /**

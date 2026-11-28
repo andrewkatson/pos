@@ -470,6 +470,10 @@
   z-index: 100;
 }
 
+/* Never taller than the overlay's padded area, so on a short screen or with
+   enlarged text the Cancel/Ok row can't end up off screen. A long body (the
+   privacy policy) shrinks and scrolls first, keeping the title and actions in
+   view; the dialog itself scrolls only as a fallback when even that can't fit. */
 .modal {
   background: var(--auth-surface);
   border: 1px solid var(--auth-border-modal);
@@ -477,9 +481,27 @@
   padding: 1.75rem;
   max-width: 480px;
   width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+}
+
+/* A body made of several paragraphs (the Google sign-up consent dialog on the
+   login page) scrolls as one block rather than each paragraph shrinking into
+   its own little scroll box. */
+.modal__scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.modal__scroll > .modal__body {
+  flex-shrink: 0;
+  overflow-y: visible;
 }
 
 .modal__title {
@@ -491,9 +513,23 @@
 
 .modal__body {
   margin: 0;
+  min-height: 0;
+  overflow-y: auto;
   font-size: 0.9rem;
   line-height: 1.55;
   color: var(--auth-fg-strong);
+}
+
+/* The privacy-policy re-accept dialog (issue #620). The wrapper around the
+   routes adds no box of its own; the policy scrolls inside the dialog so the
+   Accept / Log Out buttons stay on screen however short the viewport. */
+.privacy-reaccept__page {
+  display: contents;
+}
+
+.privacy-reaccept__policy {
+  max-height: 45vh;
+  overflow-y: auto;
 }
 
 .modal__actions {

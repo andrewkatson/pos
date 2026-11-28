@@ -16,6 +16,8 @@ import {
 } from './interestVocabulary'
 import type { PositiveOnlySocialAPI } from './PositiveOnlySocialAPI'
 import type {
+  AcceptPoliciesRequest,
+  AcceptPoliciesResponse,
   AuthResponse,
   BackgroundColor,
   CaptionFont,
@@ -155,6 +157,8 @@ interface UserMock {
   followers: Set<string>
   /** Private account (issue #96): only approved followers see its posts. */
   isPrivate: boolean
+  /** The policy version the user last accepted (issue #620), or null. */
+  policiesAcceptedVersion: string | null
   /** Incoming follow requests awaiting a decision, keyed by the requester's id
    * to the category they asked for, in arrival order. */
   followRequests: Map<string, FollowCategory>
@@ -457,6 +461,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       followCategories: new Map(),
       followers: new Set(),
       isPrivate: false,
+      // Recorded only alongside accepted_policies, as on the backend.
+      policiesAcceptedVersion: body.accepted_policies ? (body.policy_version ?? null) : null,
       followRequests: new Map(),
       isVerified: Boolean(body.date_of_birth),
       isAdult: age !== null && age >= 18,
@@ -585,6 +591,12 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
       }
     }
 
+    if (!user && body.accepted_policies !== true) {
+      // Mirrors login_user_google: nobody becomes a member without agreeing
+      // to the privacy policy and terms, and nothing is written before then.
+      throw new ApiError(403, 'policy_acceptance_required')
+    }
+
     if (!user) {
       // Usernames must be at least 10 word characters, so a short local part is
       // padded — matching _google_username_base in backend/user_system/views.py.
@@ -619,6 +631,8 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
         followCategories: new Map(),
         followers: new Set(),
         isPrivate: false,
+        // Creating an account here required accepted_policies, as on the backend.
+        policiesAcceptedVersion: body.policy_version ?? null,
         followRequests: new Map(),
         isVerified: false,
         isAdult: false,
@@ -852,7 +866,27 @@ export class StatefulStubbedAPI implements PositiveOnlySocialAPI {
 
   async getCurrentUser(): Promise<CurrentUser> {
     const user = this.requireUser()
-    return { username: user.username, email: user.email, is_private: user.isPrivate }
+    return {
+      username: user.username,
+      email: user.email,
+      is_private: user.isPrivate,
+      policies_accepted_version: user.policiesAcceptedVersion,
+    }
+  }
+
+  async acceptPolicies(body: AcceptPoliciesRequest): Promise<AcceptPoliciesResponse> {
+    const user = this.requireUser()
+    // Same validation as the backend: a real YYYY-MM-DD date.
+    const valid =
+      typeof body.policy_version === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(body.policy_version) &&
+      !Number.isNaN(Date.parse(`${body.policy_version}T00:00:00Z`)) &&
+      new Date(`${body.policy_version}T00:00:00Z`).toISOString().startsWith(body.policy_version)
+    if (!valid) {
+      throw new ApiError(400, 'Invalid fields [POLICY_VERSION]')
+    }
+    user.policiesAcceptedVersion = body.policy_version
+    return { policies_accepted_version: body.policy_version }
   }
 
   // ---------------------------------------------------------------------------

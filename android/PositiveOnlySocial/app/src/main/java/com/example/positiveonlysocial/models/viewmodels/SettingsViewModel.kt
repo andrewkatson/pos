@@ -673,7 +673,9 @@ class SettingsViewModel(
                         // Update local session to verified
                         val newSession = userSession.copy(isIdentityVerified = true)
                         keychainHelper.save(newSession, service, account)
-                        authenticationManager.login(newSession)
+                        // Same user, same session, mid-use: keep their privacy
+                        // policy answer rather than asking again (#620).
+                        authenticationManager.login(newSession, keepPrivacyPolicyAcceptance = true)
                         
                         _verificationMessage.value = "Identity verified successfully!"
                         _showingVerificationAlert.value = true

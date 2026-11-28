@@ -112,11 +112,15 @@ struct CurrentUserFields: Codable {
     /// The private account setting (issue #96), shown as a Settings toggle.
     /// Optional so a response from an older backend still decodes.
     var isPrivate: Bool? = nil
+    /// The policy version the user last accepted (issue #620); nil when
+    /// nothing is on record or the backend predates it.
+    var policiesAcceptedVersion: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case username
         case email
         case isPrivate = "is_private"
+        case policiesAcceptedVersion = "policies_accepted_version"
     }
 }
 

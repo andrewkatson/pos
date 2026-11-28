@@ -15,7 +15,8 @@ import { MAX_FREEFORM_INTERESTS } from '../api/interestVocabulary'
 import InterestPicker from '../components/InterestPicker'
 import type { InterestOption } from '../api/types'
 import { isTwoFactorRequired } from '../api/types'
-import { PRIVACY_POLICY_TEXT } from '../privacyPolicy'
+import { POLICY_VERSION, PRIVACY_POLICY_TEXT } from '../privacyPolicy'
+import { markPrivacyPolicyAccepted } from '../auth/privacyPolicyConsent'
 import { registerForPush } from '../push/webPush'
 import './LoginPage.css'
 
@@ -122,6 +123,9 @@ function RegisterPage() {
         date_of_birth: dateOfBirth,
         interest_categories: selectedInterests,
         interest_freeform: freeformInterests,
+        // Only reachable through the privacy-policy modal's Ok button.
+        accepted_policies: true,
+        policy_version: POLICY_VERSION,
       })
       // Drop the registration session and any persisted session/remember-me
       // tokens right away: the account can't act until email verification, and
@@ -156,7 +160,13 @@ function RegisterPage() {
     setPendingGoogleToken(null)
     setIsLoading(true)
     try {
-      const response = await apiClient.loginWithGoogle({ id_token: idToken })
+      // Only reachable through the privacy-policy modal's Ok button. Without the
+      // flag a brand-new Google account would be refused (see LoginPage).
+      const response = await apiClient.loginWithGoogle({
+        id_token: idToken,
+        accepted_policies: true,
+        policy_version: POLICY_VERSION,
+      })
 
       if (isTwoFactorRequired(response)) {
         // Only an *existing* account can owe a second factor, so this is
@@ -173,6 +183,9 @@ function RegisterPage() {
       // Unlike the password path this session is usable immediately: Google has
       // already verified the address, so there is no email to go and click.
       persistSession(response, false)
+      // They accepted the policy a moment ago to get here, so the re-accept
+      // gate (issue #620) mustn't ask again the moment they land on /home.
+      markPrivacyPolicyAccepted()
       void registerForPush({ promptIfNeeded: true })
       setMemberNumber(response.membership_number ?? null)
       setSignedUpWithGoogle(true)

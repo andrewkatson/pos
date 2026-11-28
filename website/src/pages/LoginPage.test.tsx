@@ -3,6 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router'
 import { vi, beforeEach, afterEach } from 'vitest'
 import LoginPage from './LoginPage'
+import { POLICY_VERSION } from '../privacyPolicy'
+import {
+  hasAcceptedPrivacyPolicy,
+  resetPrivacyPolicyAcceptance,
+} from '../auth/privacyPolicyConsent'
 
 vi.mock('../api/client', async importOriginal => {
   const actual = await importOriginal<typeof import('../api/client')>()
@@ -24,19 +29,36 @@ vi.mock('../api/client', async importOriginal => {
 // The Google button is Google's own iframe, drawn by a script we never load in
 // tests. Stub the component down to a plain button that hands back a canned
 // credential, so the page's behaviour around it is what gets tested.
-vi.mock('../components/GoogleSignInButton', () => ({
-  default: ({
-    onCredential,
-    disabled,
-  }: {
-    onCredential: (idToken: string) => void
-    disabled?: boolean
-  }) => (
-    <button type="button" disabled={disabled} onClick={() => onCredential('a.google.token')}>
-      Sign in with Google
-    </button>
-  ),
-}))
+// Like the real component it is hidden, not disabled (Google's button can't
+// be), while a request is in flight. A browser takes focus off an element that
+// becomes hidden; jsdom doesn't, so the stub blurs itself to match.
+vi.mock('../components/GoogleSignInButton', async () => {
+  const { useEffect, useRef } = await vi.importActual<typeof import('react')>('react')
+  return {
+    default: function GoogleSignInButtonStub({
+      onCredential,
+      disabled,
+    }: {
+      onCredential: (idToken: string) => void
+      disabled?: boolean
+    }) {
+      const ref = useRef<HTMLButtonElement>(null)
+      useEffect(() => {
+        if (disabled) ref.current?.blur()
+      }, [disabled])
+      return (
+        <button
+          ref={ref}
+          type="button"
+          hidden={disabled}
+          onClick={() => onCredential('a.google.token')}
+        >
+          Sign in with Google
+        </button>
+      )
+    },
+  }
+})
 
 import { apiClient } from '../api/client'
 const mockLogin = vi.mocked(apiClient.login)
@@ -478,4 +500,201 @@ test('an unmapped failure keeps its own readable message', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Network error. Please try again.')
+})
+
+// ---------------------------------------------------------------------------
+// Consent before a Google sign-in creates an account
+// ---------------------------------------------------------------------------
+
+async function rejectWithPolicyAcceptanceRequired() {
+  const { ApiError, POLICY_ACCEPTANCE_REQUIRED } = await import('../api/client')
+  // Answers on a later tick, like a real request: by then the page has
+  // re-rendered with the request in flight and hidden the Google button.
+  mockLoginWithGoogle.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new ApiError(403, POLICY_ACCEPTANCE_REQUIRED)), 0),
+      ),
+  )
+}
+
+test('an existing member signing in with Google is never asked to consent', async () => {
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    session_management_token: 'google-token',
+    user_id: 'u1',
+    username: 'hopefulperson',
+    created_account: false,
+  })
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+
+  await screen.findByText('Home')
+  expect(mockLoginWithGoogle).toHaveBeenCalledTimes(1)
+  expect(mockLoginWithGoogle.mock.calls[0][0]).not.toHaveProperty('accepted_policies')
+})
+
+test('a Google sign-in that would create an account asks for consent first', async () => {
+  await rejectWithPolicyAcceptanceRequired()
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+
+  const dialog = await screen.findByRole('dialog', { name: 'Create your account' })
+  expect(dialog).toHaveTextContent('Privacy Policy')
+  expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute(
+    'href',
+    '/terms-of-service',
+  )
+  expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute(
+    'href',
+    '/privacy-policy',
+  )
+  // The refusal is a question for the user, not an error to show.
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('session_token', expect.anything())
+})
+
+test('agreeing retries the same Google credential with consent and enters the app', async () => {
+  await rejectWithPolicyAcceptanceRequired()
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    session_management_token: 'google-token',
+    user_id: 'u1',
+    username: 'hopefulperson',
+    created_account: true,
+    membership_number: 7,
+  })
+  renderLoginPage()
+
+  await userEvent.click(screen.getByLabelText('Remember me'))
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Agree and create account' }))
+
+  await screen.findByText('Home')
+  expect(mockLoginWithGoogle).toHaveBeenNthCalledWith(1, {
+    id_token: 'a.google.token',
+    remember_me: true,
+  })
+  expect(mockLoginWithGoogle).toHaveBeenNthCalledWith(2, {
+    id_token: 'a.google.token',
+    remember_me: true,
+    accepted_policies: true,
+    policy_version: POLICY_VERSION,
+  })
+  expect(localStorageMock.setItem).toHaveBeenCalledWith('session_token', 'google-token')
+})
+
+test('agreeing in the consent modal also answers the re-accept prompt', async () => {
+  // The user has just agreed to the policy, so landing in the app mustn't ask
+  // again straight away (issue #620).
+  resetPrivacyPolicyAcceptance()
+  await rejectWithPolicyAcceptanceRequired()
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    session_management_token: 'google-token',
+    user_id: 'u1',
+    username: 'hopefulperson',
+    created_account: true,
+  })
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Agree and create account' }))
+
+  await screen.findByText('Home')
+  expect(hasAcceptedPrivacyPolicy()).toBe(true)
+  resetPrivacyPolicyAcceptance()
+})
+
+test('an existing member signing in with Google is still asked to re-accept', async () => {
+  resetPrivacyPolicyAcceptance()
+  mockLoginWithGoogle.mockResolvedValueOnce({
+    session_management_token: 'google-token',
+    user_id: 'u1',
+    username: 'hopefulperson',
+    created_account: false,
+  })
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+
+  await screen.findByText('Home')
+  expect(hasAcceptedPrivacyPolicy()).toBe(false)
+})
+
+test('cancelling the consent modal creates nothing and stays on the login page', async () => {
+  await rejectWithPolicyAcceptanceRequired()
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(mockLoginWithGoogle).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument()
+  expect(screen.getByLabelText('Password')).not.toBeDisabled()
+})
+
+test('Escape declines the consent modal', async () => {
+  await rejectWithPolicyAcceptanceRequired()
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+  await screen.findByRole('dialog', { name: 'Create your account' })
+  await userEvent.keyboard('{Escape}')
+
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(mockLoginWithGoogle).toHaveBeenCalledTimes(1)
+})
+
+test('a refusal after consenting is shown like any other Google failure', async () => {
+  const { ApiError, ACCOUNT_BANNED, ACCOUNT_SUSPENDED_MESSAGE } = await import('../api/client')
+  await rejectWithPolicyAcceptanceRequired()
+  mockLoginWithGoogle.mockRejectedValueOnce(new ApiError(403, ACCOUNT_BANNED))
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Agree and create account' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(ACCOUNT_SUSPENDED_MESSAGE)
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('the login form behind the consent modal is inert until it closes', async () => {
+  await rejectWithPolicyAcceptanceRequired()
+  renderLoginPage()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }))
+  await screen.findByRole('dialog', { name: 'Create your account' })
+
+  // Keyboard focus can't escape to the hidden Back button or login fields.
+  expect(screen.getByLabelText('Password').closest('.auth-card')).toHaveAttribute('inert')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.getByLabelText('Password').closest('.auth-card')).not.toHaveAttribute('inert')
+})
+
+test('Escape hands focus back to the Google button too', async () => {
+  await rejectWithPolicyAcceptanceRequired()
+  renderLoginPage()
+
+  const googleButton = screen.getByRole('button', { name: 'Sign in with Google' })
+  await userEvent.click(googleButton)
+  await screen.findByRole('dialog', { name: 'Create your account' })
+  await userEvent.keyboard('{Escape}')
+
+  expect(googleButton).toHaveFocus()
+})
+
+test('closing the consent modal hands focus back to the Google button', async () => {
+  await rejectWithPolicyAcceptanceRequired()
+  renderLoginPage()
+
+  const googleButton = screen.getByRole('button', { name: 'Sign in with Google' })
+  await userEvent.click(googleButton)
+  // The dialog takes focus while it is up...
+  expect(await screen.findByRole('button', { name: 'Agree and create account' })).toHaveFocus()
+
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  // ...and returns it to where the user was.
+  expect(googleButton).toHaveFocus()
 })

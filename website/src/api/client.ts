@@ -20,6 +20,8 @@ import type {
   ConfirmTotpResponse,
   CreatePostRequest,
   CurrentUser,
+  AcceptPoliciesRequest,
+  AcceptPoliciesResponse,
   CreatePostResponse,
   CreateUploadUrlResponse,
   DisableTotpRequest,
@@ -127,6 +129,11 @@ export const GOOGLE_SIGN_IN_UNAVAILABLE = 'google_sign_in_unavailable'
 export const GOOGLE_SIGN_IN_UNAVAILABLE_MESSAGE =
   "Google sign-in isn't available right now. Please sign in with your password."
 export const GOOGLE_SIGN_IN_FAILED_MESSAGE = 'Google sign-in failed. Please try again.'
+/** login/google/ answers with this when the token belongs to nobody yet, so the
+ * sign-in would create an account, and the request did not say the user agreed
+ * to the privacy policy and terms. Not an error to show: the client asks for
+ * consent and retries with `accepted_policies: true`. */
+export const POLICY_ACCEPTANCE_REQUIRED = 'policy_acceptance_required'
 
 /** Maps a Google sign-in error code to its copy. A code that isn't here (a
  * transport failure, say) already carries readable wording of its own. */
@@ -284,10 +291,25 @@ export interface ApiClientOptions {
   fetchFn?: typeof fetch
 }
 
+/**
+ * Thrown by `loginWithRememberMe` when the session changed while its request
+ * was in flight — a logout, or a newer sign-in — so the stale refresh is
+ * dropped instead of signing the user back in (issue #620).
+ */
+export class SessionSupersededError extends Error {
+  constructor() {
+    super('The session changed while the remember-me refresh was in flight.')
+    this.name = 'SessionSupersededError'
+  }
+}
+
 export class ApiClient implements PositiveOnlySocialAPI {
   private readonly baseUrl: string
   private readonly fetchFn: typeof fetch
   private token: string | null
+  // Bumped whenever the token changes, so a slow request can tell that the
+  // session it started under has since ended or been replaced.
+  private sessionGeneration = 0
   private onAccountBanned: (() => void) | null = null
   private onEmailNotVerified: (() => void) | null = null
 
@@ -304,6 +326,7 @@ export class ApiClient implements PositiveOnlySocialAPI {
   /** Store the session token used for authenticated requests. */
   setToken(token: string | null): void {
     this.token = token
+    this.sessionGeneration += 1
   }
 
   getToken(): string | null {
@@ -452,9 +475,24 @@ export class ApiClient implements PositiveOnlySocialAPI {
   async loginWithRememberMe(
     body: LoginWithRememberMeRequest,
   ): Promise<LoginWithRememberMeResponse> {
-    const result = await this.request<LoginWithRememberMeResponse>('POST', '/login/remember/', {
-      body,
-    })
+    // This runs on page load, so the user can log out — the privacy-policy
+    // re-accept prompt (issue #620) offers it straight away — or sign in again
+    // before the response lands. Applying it then would undo that.
+    // A failure is checked too: the caller clears remember-me tokens on error,
+    // which would wipe the ones a newer remembered sign-in just wrote.
+    const generation = this.sessionGeneration
+    let result: LoginWithRememberMeResponse
+    try {
+      result = await this.request<LoginWithRememberMeResponse>('POST', '/login/remember/', {
+        body,
+      })
+    } catch (err) {
+      if (generation !== this.sessionGeneration) throw new SessionSupersededError()
+      throw err
+    }
+    if (generation !== this.sessionGeneration) {
+      throw new SessionSupersededError()
+    }
     this.setToken(result.session_management_token)
     return result
   }
@@ -514,6 +552,11 @@ export class ApiClient implements PositiveOnlySocialAPI {
   /** The signed-in account's own username and registered email (Settings). */
   getCurrentUser(): Promise<CurrentUser> {
     return this.request<CurrentUser>('GET', '/me/', { auth: true })
+  }
+
+  /** Records that the signed-in user accepted the privacy policy (issue #620). */
+  acceptPolicies(body: AcceptPoliciesRequest): Promise<AcceptPoliciesResponse> {
+    return this.request<AcceptPoliciesResponse>('POST', '/policies/accept/', { body, auth: true })
   }
 
   // ===========================================================================

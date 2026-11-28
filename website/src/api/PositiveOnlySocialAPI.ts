@@ -16,6 +16,8 @@ import type {
   CreatePostResponse,
   CreateUploadUrlResponse,
   CurrentUser,
+  AcceptPoliciesRequest,
+  AcceptPoliciesResponse,
   DisableTotpRequest,
   DisableTotpResponse,
   EditCommentResponse,
@@ -86,6 +88,8 @@ export interface PositiveOnlySocialAPI {
   deleteAccount(): Promise<MessageResponse>
   /** The signed-in account's own username and registered email (Settings). */
   getCurrentUser(): Promise<CurrentUser>
+  /** Records that the signed-in user accepted the privacy policy (issue #620). */
+  acceptPolicies(body: AcceptPoliciesRequest): Promise<AcceptPoliciesResponse>
 
   // Two-factor authentication (TOTP)
   loginWithTwoFactor(body: LoginTwoFactorRequest): Promise<AuthResponse>

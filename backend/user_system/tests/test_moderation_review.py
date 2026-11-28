@@ -611,7 +611,7 @@ class ReReviewModelChainTests(TestCase):
     def test_the_re_review_leads_with_a_tier_that_has_not_judged_the_post(self, mock_text, mock_image, _avail):
         review = self._report_post()
         self.assertEqual(review.status, REVIEW_STATUS_CLEARED)
-        expected = [API_GEMINI, API_OPENAI, API_CLAUDE, API_GEMMA]
+        expected = [API_OPENAI, API_CLAUDE, API_GEMINI, API_GEMMA]
         self.assertEqual(mock_text.call_args.kwargs['available_apis'], expected)
         self.assertEqual(mock_image.call_args.kwargs['available_apis'], expected)
         # A clear extends the chain, so a further round would avoid Gemini too.
@@ -649,7 +649,7 @@ class ReReviewModelChainTests(TestCase):
         self.assertEqual(review.status, REVIEW_STATUS_HIDDEN)
         self.assertTrue(self.comment.hidden)
         self.assertEqual(mock_text.call_args.kwargs['available_apis'],
-                         [API_GEMINI, API_OPENAI, API_CLAUDE, API_GEMMA])
+                         [API_OPENAI, API_CLAUDE, API_GEMINI, API_GEMMA])
         self.assertEqual(self.comment.classification_model_chain, [API_GEMMA, API_GEMINI])
 
     @patch(IMAGE, return_value=_judged([API_GEMINI], API_GEMINI))
@@ -661,7 +661,8 @@ class ReReviewModelChainTests(TestCase):
         review = self._report_post()
         self.assertEqual(review.status, REVIEW_STATUS_PENDING)
         self.assertFalse(self.post.hidden)
-        self.assertEqual(self.post.classification_models_tried, ALL_TIERS)
+        # Gemma from creation, then every tier the failed text cascade consulted.
+        self.assertEqual(self.post.classification_models_tried, [API_GEMMA, API_GEMINI, API_OPENAI, API_CLAUDE])
         # The image cascade did decide; the failed text cascade added nothing.
         self.assertEqual(self.post.classification_model_chain, [API_GEMMA, API_GEMINI])
 
@@ -673,7 +674,7 @@ class ReReviewModelChainTests(TestCase):
         with patch('user_system.classifiers.model_chain.random.randrange', return_value=3):
             self._report_post()
         self.assertEqual(mock_text.call_args.kwargs['available_apis'],
-                         [API_CLAUDE, API_GEMMA, API_GEMINI, API_OPENAI])
+                         [API_GEMINI, API_GEMMA, API_OPENAI, API_CLAUDE])
         self.assertEqual(self.post.classification_models_tried, [API_CLAUDE])
         self.assertEqual(self.post.classification_model_chain, [API_CLAUDE])
 

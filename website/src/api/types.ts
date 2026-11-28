@@ -15,6 +15,11 @@ export interface RegisterRequest {
   /** Freeform interest terms typed during sign-up; each is positivity-checked
    * server-side and silently dropped if rejected. */
   interest_freeform?: string[]
+  /** The user agreed to the privacy policy and terms of service before
+   * submitting; the backend records when. */
+  accepted_policies?: boolean
+  /** The version (POLICY_VERSION) of the policies the user was shown. */
+  policy_version?: string
 }
 
 export interface AuthResponse {
@@ -54,6 +59,15 @@ export interface LoginRequest {
 export interface GoogleLoginRequest {
   id_token: string
   remember_me?: boolean
+  /**
+   * The user has agreed to the privacy policy and terms of service. Required
+   * when the sign-in would create an account: without it the backend answers
+   * `policy_acceptance_required` instead, and the client shows both documents
+   * and retries with the same token plus this flag.
+   */
+  accepted_policies?: boolean
+  /** The version (POLICY_VERSION) of the policies the user was shown. */
+  policy_version?: string
 }
 
 /**
@@ -200,6 +214,21 @@ export interface CurrentUser {
   email: string
   /** Whether the account is private (issue #96). Absent on older backends. */
   is_private?: boolean
+  /**
+   * The POLICY_VERSION the user last accepted (issue #620); null when nothing
+   * is on record, absent on older backends.
+   */
+  policies_accepted_version?: string | null
+}
+
+/** `POST /policies/accept/`: the user accepted the privacy policy re-accept prompt. */
+export interface AcceptPoliciesRequest {
+  /** The version (POLICY_VERSION) of the policies the user was shown. */
+  policy_version: string
+}
+
+export interface AcceptPoliciesResponse {
+  policies_accepted_version: string
 }
 
 export interface ChangePasswordRequest {

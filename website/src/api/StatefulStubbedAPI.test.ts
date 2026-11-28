@@ -317,7 +317,41 @@ test('getCurrentUser returns the signed-in account’s own username and email', 
     username: 'ada',
     email: 'ada@example.com',
     is_private: false,
+    policies_accepted_version: null,
   })
+})
+
+test('acceptPolicies records the version getCurrentUser then reports (issue #620)', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  expect(await api.acceptPolicies({ policy_version: '2026-11-22' })).toEqual({
+    policies_accepted_version: '2026-11-22',
+  })
+  expect((await api.getCurrentUser()).policies_accepted_version).toBe('2026-11-22')
+})
+
+test('acceptPolicies rejects a malformed version, like the backend', async () => {
+  const api = new StatefulStubbedAPI()
+  await register(api, 'ada')
+
+  for (const bad of ['2026-11-2', '20261122', '2026-02-30', '']) {
+    await expect(api.acceptPolicies({ policy_version: bad })).rejects.toThrow('POLICY_VERSION')
+  }
+  expect((await api.getCurrentUser()).policies_accepted_version).toBeNull()
+})
+
+test('registering with accepted_policies records the version shown', async () => {
+  const api = new StatefulStubbedAPI()
+  await api.register({
+    username: 'ada',
+    email: 'ada@example.com',
+    password: 'password123',
+    accepted_policies: true,
+    policy_version: '2026-11-22',
+  })
+
+  expect((await api.getCurrentUser()).policies_accepted_version).toBe('2026-11-22')
 })
 
 test('changePassword enforces the current password and strength, then updates it', async () => {
@@ -1546,4 +1580,62 @@ test('editComment is author-only and keeps the original on a rejection (#462)', 
   ).rejects.toBeInstanceOf(ApiError)
   const [listed] = await api.getCommentsForThread(comment_thread_identifier, 0)
   expect(listed.body).toBe('so lovely')
+})
+
+// ---------------------------------------------------------------------------
+// Google sign-in consent gate (mirrors login_user_google)
+// ---------------------------------------------------------------------------
+
+/** An unsigned token carrying the claims the stub reads. Not a credential. */
+function googleIdToken(sub: string, email: string): string {
+  const encode = (value: object) =>
+    btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  return `${encode({ alg: 'none' })}.${encode({ sub, email, email_verified: true })}.sig`
+}
+
+test('a Google sign-in that would create an account is refused without consent', async () => {
+  const api = new StatefulStubbedAPI()
+  const idToken = googleIdToken('sub-1', 'hopefulperson@example.com')
+
+  await expect(api.loginWithGoogle({ id_token: idToken })).rejects.toMatchObject({
+    status: 403,
+    message: 'policy_acceptance_required',
+  })
+  await expect(
+    api.loginWithGoogle({ id_token: idToken, accepted_policies: false }),
+  ).rejects.toThrow('policy_acceptance_required')
+  expect(api.isAuthenticated()).toBe(false)
+
+  // Nothing was written, so the retry with consent creates the account.
+  const created = await api.loginWithGoogle({ id_token: idToken, accepted_policies: true })
+  if (isTwoFactorRequired(created)) throw new Error('unexpected two-factor challenge')
+  expect(created.created_account).toBe(true)
+  expect(api.isAuthenticated()).toBe(true)
+})
+
+test('an existing Google member signs back in without consent', async () => {
+  const api = new StatefulStubbedAPI()
+  const idToken = googleIdToken('sub-1', 'hopefulperson@example.com')
+  const first = await api.loginWithGoogle({ id_token: idToken, accepted_policies: true })
+
+  const second = await api.loginWithGoogle({ id_token: idToken })
+
+  if (isTwoFactorRequired(first) || isTwoFactorRequired(second)) {
+    throw new Error('unexpected two-factor challenge')
+  }
+  expect(second.user_id).toBe(first.user_id)
+  expect(second.created_account).toBe(false)
+})
+
+test('linking Google to an existing password account needs no consent', async () => {
+  const api = new StatefulStubbedAPI()
+  const registered = await register(api, 'existingperson')
+
+  const linked = await api.loginWithGoogle({
+    id_token: googleIdToken('sub-1', 'existingperson@example.com'),
+  })
+
+  if (isTwoFactorRequired(linked)) throw new Error('unexpected two-factor challenge')
+  expect(linked.user_id).toBe(registered.user_id)
+  expect(linked.created_account).toBe(false)
 })
